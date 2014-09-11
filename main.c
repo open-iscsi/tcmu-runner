@@ -321,8 +321,6 @@ int handle_device_events(struct tcmu_device *dev)
 				buf[7] = 0xa;
 				buf[12] = 0x20;	/* ASC: invalid command operation code */
 				buf[13] = 0x0;	/* ASCQ: (none) */
-
-				printf("cmd not handled, CHECK CONDITION\n");
 			}
 		}
 		else {
