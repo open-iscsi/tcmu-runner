@@ -37,7 +37,6 @@
 #include <fcntl.h>
 #include <endian.h>
 
-#include "../kernel/include/uapi/linux/target_core_user.h"
 #include "tcmu-runner.h"
 
 struct file_state {
