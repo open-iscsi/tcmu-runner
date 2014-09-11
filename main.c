@@ -203,7 +203,7 @@ int open_handlers(void)
 
 		handle = dlopen(path, RTLD_NOW|RTLD_LOCAL);
 		if (!handle) {
-			printf("Could not open handler at %s\n", path);
+			printf("Could not open handler at %s: %s\n", path, dlerror());
 			free(path);
 			continue;
 		}
