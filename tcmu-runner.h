@@ -8,6 +8,7 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/uio.h>
 
 struct tcmu_device {
 	int fd;
@@ -34,9 +35,11 @@ struct tcmu_handler {
 	bool (*handle_cmd)(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec);
 };
 
+void handler_init(void);
+
 /* handler->core API */
 void tcmu_register_handler(struct tcmu_handler *handler);
-int tcmu_get_attribute(struct tcmu_device *dev, char *name);
+int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
 long long tcmu_get_device_size(struct tcmu_device *dev);
 
 #ifdef __cplusplus
