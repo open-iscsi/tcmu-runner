@@ -106,18 +106,10 @@ bool file_handle_cmd(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec)
 {
 	struct file_state *state = dev->hm_private;
 	uint8_t cmd;
-	int i;
 	int remaining;
 	size_t ret;
 
 	cmd = cdb[0];
-
-	for (i = 0; i < 10; i++) {
-		printf("%x ", cdb[i]);
-	}
-	printf("\n");
-
-
 
 	if (cmd == 0x28) { // READ 10
 		void *buf;

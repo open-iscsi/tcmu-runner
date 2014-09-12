@@ -284,12 +284,22 @@ bool handle_one_command(struct tcmu_device *dev,
 {
 	uint8_t *cdb = (void *)mb + ent->req.cdb_off;
 	int i;
+	bool short_cdb = cdb[0] <= 0x1f;
+	bool handled;
 
 	/* Convert iovec addrs in-place to not be offsets */
 	for (i = 0; i < ent->req.iov_cnt; i++)
 		ent->req.iov[i].iov_base = (void *) mb + (size_t)ent->req.iov[i].iov_base;
 
-	return dev->handler->handle_cmd(dev, cdb, ent->req.iov);
+	for (i = 0; i < (short_cdb ? 6 : 10); i++) {
+		printf("%x ", cdb[i]);
+	}
+
+	handled = dev->handler->handle_cmd(dev, cdb, ent->req.iov);
+
+	printf("%s\n", handled ? "handled" : "not handled");
+
+	return handled;
 }
 
 void poke_kernel(int fd)
