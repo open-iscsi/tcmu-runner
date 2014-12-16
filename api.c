@@ -26,7 +26,7 @@
 
 #include "tcmu-runner.h"
 
-int tcmu_get_attribute(struct tcmu_device *dev, char *name)
+int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 {
 	int fd;
 	char path[256];
