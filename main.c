@@ -40,7 +40,7 @@
 #include <libnl3/netlink/genl/genl.h>
 #include <libnl3/netlink/genl/mngt.h>
 #include <libnl3/netlink/genl/ctrl.h>
-#include "../kernel/include/uapi/linux/target_core_user.h"
+#include <linux/target_core_user.h>
 #include "darray.h"
 #include "tcmu-runner.h"
 
