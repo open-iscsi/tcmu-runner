@@ -29,6 +29,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/uio.h>
+#include "scsi_defs.h"
 
 struct tcmu_device {
 	int fd;
@@ -52,7 +53,13 @@ struct tcmu_handler {
 	int (*open)(struct tcmu_device *dev);
 	void (*close)(struct tcmu_device *dev);
 
-	bool (*handle_cmd)(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec);
+#define TCMU_NOT_HANDLED -1
+	/*
+	 * Returns SCSI status if handled (either good/bad), or TCMU_NOT_HANDLED
+	 * if opcode is not handled.
+	 */
+	int (*handle_cmd)(struct tcmu_device *dev, uint8_t *cdb,
+			  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 };
 
 void handler_init(void);
@@ -61,6 +68,12 @@ void handler_init(void);
 void tcmu_register_handler(struct tcmu_handler *handler);
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
 long long tcmu_get_device_size(struct tcmu_device *dev);
+uint64_t tcmu_get_lba(uint8_t *cdb);
+uint32_t tcmu_get_xfer_length(uint8_t *cdb);
+off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size);
+void tcmu_seek_in_iovec(struct iovec *iovec, size_t count);
+size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
+void tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info);
 
 #ifdef __cplusplus
 }

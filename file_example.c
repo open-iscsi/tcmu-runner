@@ -36,6 +36,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <endian.h>
+#include <scsi/scsi.h>
 
 #include "tcmu-runner.h"
 
@@ -99,10 +100,22 @@ void file_close(struct tcmu_device *dev)
 	free(state);
 }
 
+static int set_medium_error(uint8_t *sense)
+{
+	tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
+	return SAM_STAT_CHECK_CONDITION;
+}
+
 /*
- * Return true if handled, false if not
+ * Return scsi status or TCMU_NOT_HANDLED
  */
-bool file_handle_cmd(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec)
+int file_handle_cmd(
+	struct tcmu_device *dev,
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+
 {
 	struct file_state *state = dev->hm_private;
 	uint8_t cmd;
@@ -111,29 +124,29 @@ bool file_handle_cmd(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec)
 
 	cmd = cdb[0];
 
-	if (cmd == 0x28) { // READ 10
+	if (cmd == READ_10) {
 		void *buf;
 		void *tmp_ptr;
-		int lba = be32toh(*((u_int32_t *)&cdb[2]));
-		int length = be16toh(*((uint16_t *)&cdb[7])) * state->block_size;
+		int lba = tcmu_get_lba(cdb);
+		int length = tcmu_get_xfer_length(cdb) * state->block_size;
 
 		ret = lseek(state->fd, lba * state->block_size, SEEK_SET);
 		if (ret == -1) {
 			printf("lseek failed: %m\n");
-			return false;
+			return set_medium_error(sense);
 		}
 
 		/* Using this buf DTRT even if seek is beyond EOF */
 		buf = malloc(length);
 		if (!buf)
-			return false;
+			return set_medium_error(sense);
 		memset(buf, 0, length);
 
 		ret = read(state->fd, buf, length);
 		if (ret == -1) {
 			printf("read failed: %m\n");
 			free(buf);
-			return false;
+			return set_medium_error(sense);
 		}
 
 		tmp_ptr = buf;
@@ -154,16 +167,16 @@ bool file_handle_cmd(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec)
 
 		free(buf);
 
-		return true;
+		return SAM_STAT_GOOD;
 	}
-	else if (cmd == 0x2a) { // WRITE 10
+	else if (cmd == WRITE_10) {
 		int lba = be32toh(*((u_int32_t *)&cdb[2]));
 		int length = be16toh(*((uint16_t *)&cdb[7])) * state->block_size;
 
 		ret = lseek(state->fd, lba * state->block_size, SEEK_SET);
 		if (ret == -1) {
 			printf("lseek failed: %m\n");
-			return false;
+			return set_medium_error(sense);
 		}
 
 		remaining = length;
@@ -176,19 +189,19 @@ bool file_handle_cmd(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec)
 			ret = write(state->fd, iovec->iov_base, to_copy);
 			if (ret == -1) {
 				printf("Could not write: %m\n");
-				return false;
+			return set_medium_error(sense);
 			}
 
 			remaining -= to_copy;
 			iovec++;
 		}
 
-		return true;
-	} else {
-		printf("unknown command %x\n", cdb[0]);
-
-		return false;
+		return SAM_STAT_GOOD;
 	}
+
+	printf("unknown command %x\n", cdb[0]);
+
+	return TCMU_NOT_HANDLED;
 }
 
 struct tcmu_handler file_handler = {

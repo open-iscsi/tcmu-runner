@@ -48,10 +48,6 @@
 
 #define HANDLER_PATH "."
 
-/* scsi/scsi.h's status codes are wack */
-#define SCSI_NO_SENSE 0
-#define SCSI_CHECK_CONDITION 2
-
 darray(struct tcmu_handler) handlers = darray_new();
 
 struct tcmu_thread {
@@ -59,15 +55,15 @@ struct tcmu_thread {
 	char dev_name[16]; /* e.g. "uio14" */
 };
 
-darray(struct tcmu_thread) threads = darray_new();
+static darray(struct tcmu_thread) threads = darray_new();
 
 static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_DEVICE]	= { .type = NLA_STRING },
 	[TCMU_ATTR_MINOR]	= { .type = NLA_U32 },
 };
 
-int add_device(char *dev_name, char *cfgstring);
-void remove_device(char *dev_name, char *cfgstring);
+static int add_device(char *dev_name, char *cfgstring);
+static void remove_device(char *dev_name, char *cfgstring);
 
 static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 			  struct genl_info *info, void *arg)
@@ -118,7 +114,7 @@ static struct genl_ops tcmu_ops = {
 	.o_ncmds	= ARRAY_SIZE(tcmu_cmds),
 };
 
-struct nl_sock *setup_netlink(void)
+static struct nl_sock *setup_netlink(void)
 {
 	struct nl_sock *sock;
 	int ret;
@@ -142,8 +138,7 @@ struct nl_sock *setup_netlink(void)
 	ret = genl_register_family(&tcmu_ops);
 	if (ret < 0) {
 		printf("couldn't register family\n");
-		exit(1);
-	}
+		exit(1);	}
 
 	ret = genl_ops_resolve(sock, &tcmu_ops);
 	if (ret < 0) {
@@ -164,7 +159,12 @@ struct nl_sock *setup_netlink(void)
 	return sock;
 }
 
-int is_handler(const struct dirent *dirent)
+void tcmu_register_handler(struct tcmu_handler *handler)
+{
+	darray_append(handlers, *handler);
+}
+
+static int is_handler(const struct dirent *dirent)
 {
 	if (strncmp(dirent->d_name, "handler_", 8))
 		return 0;
@@ -172,12 +172,7 @@ int is_handler(const struct dirent *dirent)
 	return 1;
 }
 
-void tcmu_register_handler(struct tcmu_handler *handler)
-{
-	darray_append(handlers, *handler);
-}
-
-int open_handlers(void)
+static int open_handlers(void)
 {
 	struct dirent **dirent_list;
 	int num_handlers;
@@ -229,39 +224,7 @@ int open_handlers(void)
 	return num_good;
 }
 
-int is_uio(const struct dirent *dirent)
-{
-	int fd;
-	char tmp_path[64];
-	char buf[256];
-	ssize_t ret;
-
-	if (strncmp(dirent->d_name, "uio", 3))
-		return 0;
-
-	snprintf(tmp_path, sizeof(tmp_path), "/sys/class/uio/%s/name", dirent->d_name);
-
-	fd = open(tmp_path, O_RDONLY);
-	if (fd == -1) {
-		printf("could not open %s!\n", tmp_path);
-		return 0;
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-	if (ret <= 0 || ret >= sizeof(buf)) {
-		printf("read of %s had issues\n", tmp_path);
-		return 0;
-	}
-	buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
-
-	/* we only want uio devices whose name is a format we expect */
-	if (strncmp(buf, "tcm-user", 8))
-		return 0;
-
-	return 1;
-}
-
-struct tcmu_handler *find_handler(char *cfgstring)
+static struct tcmu_handler *find_handler(char *cfgstring)
 {
 	struct tcmu_handler *handler;
 	size_t len;
@@ -278,38 +241,61 @@ struct tcmu_handler *find_handler(char *cfgstring)
 	return NULL;
 }
 
-bool handle_one_command(struct tcmu_device *dev,
+static void handle_one_command(struct tcmu_device *dev,
 		       struct tcmu_mailbox *mb,
 		       struct tcmu_cmd_entry *ent)
 {
 	uint8_t *cdb = (void *)mb + ent->req.cdb_off;
 	int i;
 	bool short_cdb = cdb[0] <= 0x1f;
-	bool handled;
+	int result;
+	uint8_t tmp_sense_buf[TCMU_SENSE_BUFFERSIZE];
 
 	/* Convert iovec addrs in-place to not be offsets */
 	for (i = 0; i < ent->req.iov_cnt; i++)
-		ent->req.iov[i].iov_base = (void *) mb + (size_t)ent->req.iov[i].iov_base;
+		ent->req.iov[i].iov_base = (void *) mb +
+			(size_t)ent->req.iov[i].iov_base;
 
 	for (i = 0; i < (short_cdb ? 6 : 10); i++) {
 		printf("%x ", cdb[i]);
 	}
 
-	handled = dev->handler->handle_cmd(dev, cdb, ent->req.iov);
+	result = dev->handler->handle_cmd(dev, cdb, ent->req.iov,
+					  ent->req.iov_cnt, tmp_sense_buf);
 
-	printf("%s\n", handled ? "handled" : "not handled");
+	if (result == TCMU_NOT_HANDLED) {
+		/* Tell the kernel we didn't handle it */
+		char *buf = ent->rsp.sense_buffer;
 
-	return handled;
+		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
+
+		buf[0] = 0x70;	/* fixed, current */
+		buf[2] = 0x5;	/* illegal request */
+		buf[7] = 0xa;
+		buf[12] = 0x20;	/* ASC: invalid command operation code */
+		buf[13] = 0x0;	/* ASCQ: (none) */
+	}
+	else { /* handled but maybe not good */
+		ent->rsp.scsi_status = result;
+
+		if (result != SAM_STAT_GOOD) {
+			printf("error! Copying sense buffer.\n");
+			memcpy(ent->rsp.sense_buffer, tmp_sense_buf,
+			       TCMU_SENSE_BUFFERSIZE);
+		}
+	}
+
+	printf("%s\n", result != TCMU_NOT_HANDLED ? "handled" : "not handled");
 }
 
-void poke_kernel(int fd)
+static void poke_kernel(int fd)
 {
 	uint32_t buf = 0xabcdef12;
 
 	write(fd, &buf, 4);
 }
 
-int handle_device_events(struct tcmu_device *dev)
+static int handle_device_events(struct tcmu_device *dev)
 {
 	struct tcmu_mailbox *mb = dev->map;
 	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
@@ -317,24 +303,11 @@ int handle_device_events(struct tcmu_device *dev)
 
 	while (ent != (void *)mb + mb->cmdr_off + mb->cmd_head) {
 
-		if (tcmu_hdr_get_op(&ent->hdr) == TCMU_OP_CMD) {
-			if (handle_one_command(dev, mb, ent)) {
-				ent->rsp.scsi_status = SCSI_NO_SENSE;
-			} else {
-				/* Tell the kernel we didn't handle it */
-				char *buf = ent->rsp.sense_buffer;
-
-				ent->rsp.scsi_status = SCSI_CHECK_CONDITION;
-
-				buf[0] = 0x70;	/* fixed, current */
-				buf[2] = 0x5;	/* illegal request */
-				buf[7] = 0xa;
-				buf[12] = 0x20;	/* ASC: invalid command operation code */
-				buf[13] = 0x0;	/* ASCQ: (none) */
-			}
+		if (tcmu_hdr_get_op(&ent->hdr) != TCMU_OP_CMD) {
+			/* Do nothing for PAD entries */
 		}
 		else {
-			/* Do nothing for PAD entries */
+			handle_one_command(dev, mb, ent);
 		}
 
 		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(&ent->hdr)) % mb->cmdr_size;
@@ -348,7 +321,7 @@ int handle_device_events(struct tcmu_device *dev)
 	return 0;
 }
 
-void thread_cleanup(void *arg)
+static void thread_cleanup(void *arg)
 {
 	struct tcmu_device *dev = arg;
 
@@ -358,7 +331,7 @@ void thread_cleanup(void *arg)
 	free(dev);
 }
 
-void *thread_start(void *arg)
+static void *thread_start(void *arg)
 {
 	struct tcmu_device *dev = arg;
 
@@ -385,7 +358,7 @@ void *thread_start(void *arg)
 	return NULL;
 }
 
-int add_device(char *dev_name, char *cfgstring)
+static int add_device(char *dev_name, char *cfgstring)
 {
 	struct tcmu_device *dev;
 	struct tcmu_thread thread;
@@ -511,7 +484,7 @@ err_free:
 	return -1;
 }
 
-void cancel_thread(pthread_t thread)
+static void cancel_thread(pthread_t thread)
 {
 	void *join_retval;
 	int ret;
@@ -532,7 +505,7 @@ void cancel_thread(pthread_t thread)
 		printf("unexpected join retval: %p\n", join_retval);
 }
 
-void remove_device(char *dev_name, char *cfgstring)
+static void remove_device(char *dev_name, char *cfgstring)
 {
 	struct tcmu_thread *thread;
 	int i = 0;
@@ -557,7 +530,39 @@ void remove_device(char *dev_name, char *cfgstring)
 	darray_remove(threads, i);
 }
 
-int open_devices(void)
+static int is_uio(const struct dirent *dirent)
+{
+	int fd;
+	char tmp_path[64];
+	char buf[256];
+	ssize_t ret;
+
+	if (strncmp(dirent->d_name, "uio", 3))
+		return 0;
+
+	snprintf(tmp_path, sizeof(tmp_path), "/sys/class/uio/%s/name", dirent->d_name);
+
+	fd = open(tmp_path, O_RDONLY);
+	if (fd == -1) {
+		printf("could not open %s!\n", tmp_path);
+		return 0;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	if (ret <= 0 || ret >= sizeof(buf)) {
+		printf("read of %s had issues\n", tmp_path);
+		return 0;
+	}
+	buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
+
+	/* we only want uio devices whose name is a format we expect */
+	if (strncmp(buf, "tcm-user", 8))
+		return 0;
+
+	return 1;
+}
+
+static int open_devices(void)
 {
 	struct dirent **dirent_list;
 	int num_devs;
@@ -606,7 +611,7 @@ int open_devices(void)
 	return num_good_devs;
 }
 
-void sighandler(int signal)
+static void sighandler(int signal)
 {
 	struct tcmu_thread *thread;
 
@@ -619,7 +624,7 @@ void sighandler(int signal)
 	exit(1);
 }
 
-struct sigaction tcmu_sigaction = {
+static struct sigaction tcmu_sigaction = {
 	.sa_handler = sighandler,
 };
 
