@@ -274,7 +274,7 @@ int tcmu_glfs_handle_cmd(
 		}
 
 		cmp_offset = tcmu_compare_with_iovec(tmpbuf, iovec, length);
-		if (offset != -1) {
+		if (cmp_offset != -1) {
 			tcmu_set_sense_data(sense, MISCOMPARE,
 					    ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
 					    &cmp_offset);
@@ -336,7 +336,7 @@ write:
 		}
 
 		cmp_offset = tcmu_compare_with_iovec(tmpbuf, iovec, length);
-		if (offset != -1) {
+		if (cmp_offset != -1) {
 			tcmu_set_sense_data(sense, MISCOMPARE,
 					    ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
 					    &cmp_offset);
