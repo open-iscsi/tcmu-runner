@@ -12,7 +12,7 @@ handler_file.so: file_example.c
 	$(CC) -shared $(CFLAGS) -fPIC file_example.c -o handler_file.so
 
 handler_glfs.so: glfs.c
-	$(CC) -shared $(CFLAGS) -fPIC glfs.c -o handler_glfs.so
+	$(CC) -shared $(CFLAGS) -fPIC glfs.c -o handler_glfs.so -lgfapi
 
 
 .PHONY: clean
