@@ -76,7 +76,7 @@ static int parse_imagepath(char *image, struct glfs_state *gfsp)
 		goto fail;
 
 	p = sep + 1;
-	sep = strchr(p, ':');
+	sep = strchr(p, '/');
 	if (!sep)
 		goto fail;
 
