@@ -1,5 +1,5 @@
-CFLAGS=-Wall -g -I /usr/include/libnl3
-LDLIBS=-lnl-3 -lnl-genl-3 -ldl -lpthread
+CFLAGS=-Wall -g -I /usr/include/libnl3 `pkg-config --cflags glib-2.0`
+LDLIBS=-lnl-3 -lnl-genl-3 -ldl -lpthread `pkg-config --libs glib-2.0`
 
 OBJECTS=main.o api.o
 

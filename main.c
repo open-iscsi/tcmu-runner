@@ -36,6 +36,7 @@
 #include <dlfcn.h>
 #include <pthread.h>
 #include <signal.h>
+#include <glib.h>
 
 #include <libnl3/netlink/genl/genl.h>
 #include <libnl3/netlink/genl/mngt.h>
@@ -628,10 +629,28 @@ static struct sigaction tcmu_sigaction = {
 	.sa_handler = sighandler,
 };
 
+gboolean nl_callback(GIOChannel *source,
+		     GIOCondition condition,
+		     gpointer data)
+{
+	struct nl_sock *nl_sock = data;
+	int ret;
+
+	ret = nl_recvmsgs_default(nl_sock);
+	if (ret < 0) {
+		printf("nl_recvmsgs_default poll returned %d", ret);
+		exit(1);
+	}
+
+	return TRUE;
+}
+
 int main()
 {
 	struct nl_sock *nl_sock;
 	int ret;
+	GMainLoop *loop;
+	GIOChannel *nl_gio;
 
 	nl_sock = setup_netlink();
 	if (!nl_sock) {
@@ -659,13 +678,15 @@ int main()
 		exit(1);
 	}
 
-	while (1) {
-		ret = nl_recvmsgs_default(nl_sock);
-		if (ret < 0) {
-			printf("nl_recvmsgs_default poll returned %d", ret);
-			exit(1);
-		}
-	}
+	loop = g_main_loop_new(NULL, FALSE);
+
+	nl_gio = g_io_channel_unix_new(nl_socket_get_fd(nl_sock));
+	g_io_add_watch(nl_gio, G_IO_IN, nl_callback, nl_sock);
+
+	g_main_loop_run(loop);
+
+	printf("Exiting...\n");
+	g_main_loop_unref(loop);
 
 	return 0;
 }
