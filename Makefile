@@ -1,5 +1,5 @@
-CFLAGS=-Wall -g -I /usr/include/libnl3 `pkg-config --cflags glib-2.0`
-LDLIBS=-lnl-3 -lnl-genl-3 -ldl -lpthread `pkg-config --libs glib-2.0`
+CFLAGS=-Wall -g -I /usr/include/libnl3 `pkg-config --cflags gio-unix-2.0`
+LDLIBS=-lnl-3 -lnl-genl-3 -ldl -lpthread `pkg-config --libs gio-unix-2.0`
 
 OBJECTS=main.o api.o
 
@@ -13,7 +13,6 @@ handler_file.so: file_example.c
 
 handler_glfs.so: glfs.c
 	$(CC) -shared $(CFLAGS) -fPIC glfs.c -o handler_glfs.so -lgfapi
-
 
 .PHONY: clean
 clean:

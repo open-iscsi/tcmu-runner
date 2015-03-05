@@ -37,6 +37,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <glib.h>
+#include <gio/gio.h>
 
 #include <libnl3/netlink/genl/genl.h>
 #include <libnl3/netlink/genl/mngt.h>
@@ -645,12 +646,124 @@ gboolean nl_callback(GIOChannel *source,
 	return TRUE;
 }
 
+static const gchar introspection_xml[] =
+	"<node>"
+	" <interface name='org.kernel.TCMUService1'>"
+	" <method name='SendMessage'>"
+	" <arg type='s' name='message' direction='in'/>"
+	" <arg type='s' name='response' direction='out'/>"
+	" </method>"
+	" </interface>"
+	"</node>";
+
+/*
+ * Handle method calls
+ */
+static void handle_method_call(GDBusConnection *conn,
+			       const gchar *sender,
+			       const gchar *object_path,
+			       const gchar *interface_name,
+			       const gchar *method_name,
+			       GVariant *parameters,
+			       GDBusMethodInvocation *invocation,
+			       gpointer user_data)
+{
+	if (!g_strcmp0(method_name, "SendMessage")) {
+		gchar *message;
+		gchar *response;
+		g_variant_get(parameters, "(s)", &message);
+		response = g_strdup_printf("Received message: %s", message);
+		g_dbus_method_invocation_return_value(invocation, g_variant_new("(s)", response));
+		g_free(message);
+		g_free(response);
+	}
+}
+
+/*
+ * Handle property queries
+ */
+static GVariant *handle_get_property(GDBusConnection *conn,
+				     const gchar *sender,
+				     const gchar *object_path,
+				     const gchar *interface_name,
+				     const gchar *property_name,
+				     GError **error,
+				     gpointer user_data)
+{
+	return NULL;
+}
+
+/*
+ * Handle property modifications
+ */
+static gboolean handle_set_property(GDBusConnection *conn,
+				    const gchar *sender,
+				    const gchar *object_path,
+				    const gchar *interface_name,
+				    const gchar *property_name,
+				    GVariant *value,
+				    GError **error,
+				    gpointer user_data)
+{
+	return FALSE;
+}
+
+/*
+ * Function vtable for handling methods and properties
+ */
+static const GDBusInterfaceVTable interface_vtable = {
+	&handle_method_call,
+	&handle_get_property,
+	&handle_set_property
+};
+
+static void dbus_bus_acquired(GDBusConnection *connection,
+			      const gchar *name,
+			      gpointer user_data)
+{
+	GDBusNodeInfo *introspection_data = user_data;;
+	guint reg_id;
+
+	printf("bus %s acquired\n", name);
+
+	reg_id = g_dbus_connection_register_object(connection,
+						   "/org/kernel/TCMUService1",
+						   introspection_data->interfaces[0],
+						   &interface_vtable,
+						   NULL,
+						   NULL,
+						   NULL);
+
+	if (!reg_id) {
+		printf("couldn't register DBus object\n");
+		exit(1);
+	}
+
+}
+
+static void dbus_name_acquired(GDBusConnection *connection,
+			      const gchar *name,
+			      gpointer user_data)
+{
+	printf("name %s acquired\n", name);
+}
+
+static void dbus_name_lost(GDBusConnection *connection,
+			   const gchar *name,
+			   gpointer user_data)
+{
+	printf("name lost\n");
+}
+
 int main()
 {
 	struct nl_sock *nl_sock;
 	int ret;
 	GMainLoop *loop;
 	GIOChannel *nl_gio;
+	GDBusNodeInfo *introspection_data;
+	GError *error = NULL;
+	guint reg_id;
 
 	nl_sock = setup_netlink();
 	if (!nl_sock) {
@@ -678,14 +791,33 @@ int main()
 		exit(1);
 	}
 
-	loop = g_main_loop_new(NULL, FALSE);
-
+	/* Set up event for netlink */
 	nl_gio = g_io_channel_unix_new(nl_socket_get_fd(nl_sock));
 	g_io_add_watch(nl_gio, G_IO_IN, nl_callback, nl_sock);
 
+	introspection_data = g_dbus_node_info_new_for_xml(introspection_xml, &error);
+	if (!introspection_data) {
+		printf("couldn't get introspection data\n");
+		exit(1);
+	}
+
+	/* Set up DBus name, see callback */
+	reg_id = g_bus_own_name(G_BUS_TYPE_SESSION,
+				"org.kernel.TCMUService1",
+				G_BUS_NAME_OWNER_FLAGS_NONE,
+				dbus_bus_acquired,
+				dbus_name_acquired, // name acquired
+				dbus_name_lost, // name lost
+				introspection_data, // user data
+				NULL  // user date free func
+		);
+
+	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 
 	printf("Exiting...\n");
+	g_bus_unown_name(reg_id);
+	g_dbus_node_info_unref(introspection_data);
 	g_main_loop_unref(loop);
 
 	return 0;
