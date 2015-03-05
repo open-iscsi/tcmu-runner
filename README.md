@@ -45,7 +45,7 @@ If using targetcli-fb on Fedora 21, there is a `user` backstore type, and you ca
 4. Set configuration values
   1. Set size (in bytes): `echo -n dev_size=16777216 > control`
   2. Set pass level. 0 is all SCSI commands, 1 is just block-related SCSI commands: `echo -n pass_level=1 > control`
-  3. Set configstring. See [tcmu-design.txt](https://github.com/torvalds/linux/blob/master/Documentation/target/tcmu-design.txt#L177). If we wanted our new device to be handled by the "baz" handler, we might run:  `echo -n dev_config=tcm-user/1/test/baz/addl_info_for_baz_handler > control`
+  3. Set configstring. See [tcmu-design.txt](https://github.com/torvalds/linux/blob/master/Documentation/target/tcmu-design.txt#L177), but note that the TCMU backstore driver already knows and will prepend the "tcm-user/hba_num/device_name" part. Therefore, if we wanted our new device to be handled by the "baz" handler, we would give subtype and path by running:  `echo -n dev_config=baz/addl_info_for_baz_handler > control`
   4. Enable the storage object: `echo -n 1 > enable`
   5. Verify everything worked. There should be an entry in `/sys/class/uio`.
 
