@@ -204,9 +204,16 @@ int file_handle_cmd(
 	return TCMU_NOT_HANDLED;
 }
 
+static struct config_option opts[] = {
+	{ .name = "filename", .desc = "The path and filename of the file to "
+	"use as a backstore"},
+	{NULL, NULL },
+};
+
 struct tcmu_handler file_handler = {
 	.name = "File-backed Handler (example code)",
 	.subtype = "file",
+	.cfg_options = opts,
 
 	.open = file_open,
 	.close = file_close,

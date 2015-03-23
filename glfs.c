@@ -440,9 +440,26 @@ write:
 	return result;
 }
 
+static struct config_option opts[] = {
+	{
+		.name = "server",
+		.desc = "The name of the Gluster server"
+	},
+	{
+		.name = "volume",
+		.desc = "The name of the volume on the server"
+	},
+	{
+		.name = "path",
+		.desc = "The name of the path to the backing file in the volume"
+	},
+	{NULL, NULL },
+};
+
 struct tcmu_handler glfs_handler = {
 	.name = "Gluster glfs handler",
 	.subtype = "glfs",
+	.cfg_options = opts,
 
 	.open = tcmu_glfs_open,
 	.close = tcmu_glfs_close,

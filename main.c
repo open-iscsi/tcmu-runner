@@ -649,9 +649,18 @@ gboolean nl_callback(GIOChannel *source,
 static const gchar introspection_xml[] =
 	"<node>"
 	" <interface name='org.kernel.TCMUService1'>"
-	" <method name='SendMessage'>"
-	" <arg type='s' name='message' direction='in'/>"
-	" <arg type='s' name='response' direction='out'/>"
+	" <!--"
+	" ListArgs:"
+	" @response: An array of names and descriptions of the handler's "
+	" required creation parameters. "
+	" "
+	" In order for LIO configuration tools to properly integrate TCMU handlers, "
+	" this method returns the handler's creation parameter details so that"
+	" these handlers' help entries may properly display descriptions of the "
+	" needed parameters."
+	" -->"
+	" <method name='ListArgs'>"
+	" <arg type='a(ss)' name='response' direction='out'/>"
 	" </method>"
 	" </interface>"
 	"</node>";
@@ -668,14 +677,26 @@ static void handle_method_call(GDBusConnection *conn,
 			       GDBusMethodInvocation *invocation,
 			       gpointer user_data)
 {
-	if (!g_strcmp0(method_name, "SendMessage")) {
-		gchar *message;
-		gchar *response;
-		g_variant_get(parameters, "(s)", &message);
-		response = g_strdup_printf("Received message: %s", message);
-		g_dbus_method_invocation_return_value(invocation, g_variant_new("(s)", response));
-		g_free(message);
-		g_free(response);
+	struct tcmu_handler *handler = user_data;
+
+	if (!g_strcmp0(method_name, "ListArgs")) {
+		GVariantBuilder array;
+		GVariant *value;
+		GVariant *tuple;
+		const struct config_option *cfg_opt = handler->cfg_options;
+
+		g_variant_builder_init (&array, G_VARIANT_TYPE("a(ss)"));
+
+		while(cfg_opt->name) {
+			g_variant_builder_add(&array, "(ss)",
+					      cfg_opt->name, cfg_opt->desc);
+			cfg_opt++;
+		}
+
+		value = g_variant_builder_end(&array);
+		tuple = g_variant_new_tuple(&value, 1);
+
+		g_dbus_method_invocation_return_value(invocation, tuple);
 	}
 }
 
@@ -721,24 +742,33 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
-	GDBusNodeInfo *introspection_data = user_data;;
+	struct tcmu_handler *handler;
+	GDBusNodeInfo *introspection_data = user_data;
 	guint reg_id;
 
 	printf("bus %s acquired\n", name);
 
-	reg_id = g_dbus_connection_register_object(connection,
-						   "/org/kernel/TCMUService1",
-						   introspection_data->interfaces[0],
-						   &interface_vtable,
-						   NULL,
-						   NULL,
-						   NULL);
+	darray_foreach(handler, handlers) {
+		char obj_name[128];
 
-	if (!reg_id) {
-		printf("couldn't register DBus object\n");
-		exit(1);
+		snprintf(obj_name, sizeof(obj_name), "/org/kernel/TCMUHandler/%s",
+			 handler->subtype);
+
+		reg_id = g_dbus_connection_register_object(
+			connection,
+			obj_name,
+			introspection_data->interfaces[0],
+			&interface_vtable,
+			handler,
+			NULL,
+			NULL);
+
+		if (!reg_id) {
+			printf("couldn't register DBus object for %s handler\n",
+			       handler->subtype);
+			exit(1);
+		}
 	}
-
 }
 
 static void dbus_name_acquired(GDBusConnection *connection,

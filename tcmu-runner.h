@@ -45,9 +45,16 @@ struct tcmu_device {
 	void *hm_private; /* private ptr for handler module */
 };
 
+/* The handler describes the options it needs in the cfgstring */
+struct config_option {
+	char *name;
+	char *desc;
+};
+
 struct tcmu_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */
+	const struct config_option *cfg_options; /* name, desc of config opts */
 
 	/* Per-device added/removed callbacks */
 	int (*open)(struct tcmu_device *dev);
