@@ -125,7 +125,7 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	}
 
 	gfsp->wce = tcmu_get_attribute(dev, "emulate_write_cache");
-	if (gfsp->block_size == -1) {
+	if (gfsp->wce == -1) {
 		printf("Could not get write cache emulation setting\n");
 		goto fail;
 	}
