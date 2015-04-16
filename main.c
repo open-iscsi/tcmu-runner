@@ -698,6 +698,8 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 
 		interface = tcmuservice1_skeleton_new();
 
+		g_dbus_object_skeleton_add_interface(object, G_DBUS_INTERFACE_SKELETON(interface));
+
 		g_signal_connect(interface,
 				 "handle-list-args",
 				 G_CALLBACK (on_list_args),
