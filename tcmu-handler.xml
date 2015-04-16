@@ -1,0 +1,17 @@
+<node>
+ <interface name="org.kernel.TCMUService1">
+ <!--
+ ListArgs:
+ @response: An array of names and descriptions of the handler's
+ required creation parameters.
+
+ In order for LIO configuration tools to properly integrate TCMU handlers,
+ this method returns the handler's creation parameter details so that
+ these handlers' help entries may properly display descriptions of the
+ needed parameters.
+ -->
+ <method name="ListArgs">
+ <arg type="a(ss)" name="response" direction="out"/>
+ </method>
+ </interface>
+</node>

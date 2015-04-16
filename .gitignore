@@ -1,3 +1,4 @@
 tcmu-runner
 *.o
 *.so
+*generated.[ch]
