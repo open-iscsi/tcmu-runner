@@ -26,4 +26,4 @@ handler_glfs.so: glfs.c
 
 .PHONY: clean
 clean:
-	rm -f *~ *.o tcmu-runner *.so
+	rm -f *~ *.o tcmu-runner *.so tcmuhandler-generated.*

@@ -104,6 +104,18 @@ fail:
 	return -1;
 }
 
+#define FETCH_ATTRIBUTE(dev, r_value, name)			\
+do { 								\
+	int attribute = tcmu_get_attribute(dev, name); 		\
+	if (attribute == -1) {					\
+		printf("Could not get %s setting\n", #name);	\
+		goto fail;					\
+	} else {						\
+		(r_value) = (attribute) ? true: false;		\
+	}							\
+} while(0)							\
+
+
 static int tcmu_glfs_open(struct tcmu_device *dev)
 {
 	struct glfs_state *gfsp;
@@ -118,29 +130,10 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	dev->hm_private = gfsp;
 
-	gfsp->block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (gfsp->block_size == -1) {
-		printf("Could not get device block size\n");
-		goto fail;
-	}
-
-	gfsp->wce = tcmu_get_attribute(dev, "emulate_write_cache");
-	if (gfsp->wce == -1) {
-		printf("Could not get write cache emulation setting\n");
-		goto fail;
-	}
-
-	gfsp->tpu = tcmu_get_attribute(dev, "emulate_tpu");
-	if (gfsp->tpu == -1) {
-		printf("Could not get emulate_tpu setting\n");
-		goto fail;
-	}
-
-	gfsp->tpws = tcmu_get_attribute(dev, "emulate_tpws");
-	if (gfsp->tpws == -1) {
-		printf("Could not get emulate_tpws setting\n");
-		goto fail;
-	}
+	FETCH_ATTRIBUTE(dev, gfsp->block_size, "hw_block_size");
+	FETCH_ATTRIBUTE(dev, gfsp->wce, "emulate_write_cache");
+	FETCH_ATTRIBUTE(dev, gfsp->tpu, "emulate_tpu");
+	FETCH_ATTRIBUTE(dev, gfsp->tpws, "emulate_tpws");
 
 	size = tcmu_get_device_size(dev);
 	if (size == -1) {
