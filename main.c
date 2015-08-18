@@ -306,14 +306,14 @@ static int handle_device_events(struct tcmu_device *dev)
 
 	while (ent != (void *)mb + mb->cmdr_off + mb->cmd_head) {
 
-		if (tcmu_hdr_get_op(&ent->hdr) != TCMU_OP_CMD) {
+		if (tcmu_hdr_get_op(ent->hdr.len_op) != TCMU_OP_CMD) {
 			/* Do nothing for PAD entries */
 		}
 		else {
 			handle_one_command(dev, mb, ent);
 		}
 
-		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(&ent->hdr)) % mb->cmdr_size;
+		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
 		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 		did_some_work = 1;
 	}
