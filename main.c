@@ -262,30 +262,20 @@ static void handle_one_command(struct tcmu_device *dev,
 	for (i = 0; i < (short_cdb ? 6 : 10); i++) {
 		printf("%x ", cdb[i]);
 	}
+	printf("\n");
 
 	result = dev->handler->handle_cmd(dev, cdb, ent->req.iov,
 					  ent->req.iov_cnt, tmp_sense_buf);
 
 	if (result == TCMU_NOT_HANDLED) {
-		/* Tell the kernel we didn't handle it */
-		char *buf = ent->rsp.sense_buffer;
-
-		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
-
-		buf[0] = 0x70;	/* fixed, current */
-		buf[2] = 0x5;	/* illegal request */
-		buf[7] = 0xa;
-		buf[12] = 0x20;	/* ASC: invalid command operation code */
-		buf[13] = 0x0;	/* ASCQ: (none) */
-	}
-	else { /* handled but maybe not good */
-		ent->rsp.scsi_status = result;
-
+		ent->hdr.uflags |= TCMU_UFLAG_UNKNOWN_OP;
+	} else {
 		if (result != SAM_STAT_GOOD) {
 			printf("error! Copying sense buffer.\n");
 			memcpy(ent->rsp.sense_buffer, tmp_sense_buf,
 			       TCMU_SENSE_BUFFERSIZE);
 		}
+		ent->rsp.scsi_status = result;
 	}
 
 	printf("%s\n", result != TCMU_NOT_HANDLED ? "handled" : "not handled");
