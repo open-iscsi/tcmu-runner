@@ -42,14 +42,14 @@
 
 struct file_state {
 	int fd;
-	unsigned long long num_lbas;
-	unsigned int block_size;
+	uint64_t num_lbas;
+	uint32_t block_size;
 };
 
 int file_open(struct tcmu_device *dev)
 {
 	struct file_state *state;
-	long long size;
+	int64_t size;
 	char *config;
 
 	state = calloc(1, sizeof(*state));
@@ -115,7 +115,6 @@ int file_handle_cmd(
 	struct iovec *iovec,
 	size_t iov_cnt,
 	uint8_t *sense)
-
 {
 	struct file_state *state = dev->hm_private;
 	uint8_t cmd;
@@ -124,7 +123,17 @@ int file_handle_cmd(
 
 	cmd = cdb[0];
 
-	if (cmd == READ_10) {
+	if (cmd == INQUIRY) {
+		return tcmu_emulate_inquiry(cdb, iovec, iov_cnt, sense);
+	}
+	else if (cmd == TEST_UNIT_READY) {
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+	}
+	else if (cmd == SERVICE_ACTION_IN_16 && cdb[1] == READ_CAPACITY_16) {
+		return tcmu_emulate_read_capacity_16(state->num_lbas, state->block_size,
+						     cdb, iovec, iov_cnt, sense);
+	}
+	else if (cmd == READ_10) {
 		void *buf;
 		void *tmp_ptr;
 		int lba = tcmu_get_lba(cdb);
@@ -189,7 +198,7 @@ int file_handle_cmd(
 			ret = write(state->fd, iovec->iov_base, to_copy);
 			if (ret == -1) {
 				printf("Could not write: %m\n");
-			return set_medium_error(sense);
+				return set_medium_error(sense);
 			}
 
 			remaining -= to_copy;

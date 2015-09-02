@@ -241,3 +241,124 @@ void tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uin
 		sense_buf[0] |= 0x80;
 	}
 }
+
+#ifndef max
+#define max(a,b)  ((a) > (b) ? (a) : (b))
+#endif
+
+#ifndef min
+#define min(a,b)  ((a) < (b) ? (a) : (b))
+#endif
+
+void memcpy_into_iovec(
+	struct iovec *iovec,
+	size_t iov_cnt,
+	size_t iov_offset,
+	void *src,
+	size_t len)
+{
+	size_t copied = 0;
+
+	tcmu_seek_in_iovec(iovec, iov_offset);
+
+	while (len) {
+		size_t to_copy = min(iovec->iov_len, len);
+
+		memcpy(iovec->iov_base, src + copied, to_copy);
+
+		len -= to_copy;
+		copied += to_copy;
+		iov_offset = 0;
+		iovec++;
+	}
+}
+
+int tcmu_emulate_std_inquiry(
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+{
+	uint8_t buf[36];
+
+	memset(buf, 0, sizeof(buf));
+
+	buf[2] = 0x05; /* SPC-3 */
+	buf[3] = 0x02; /* response data format */
+	buf[7] = 0x02; /* CmdQue */
+
+	memcpy(&buf[8], "LIO-ORG ", 8);
+	memset(&buf[16], 0x20, 16);
+	memcpy(&buf[16], "TCMU device", 11);
+	memcpy(&buf[32], "0002", 4);
+	buf[4] = 31; /* Set additional length to 31 */
+
+	memcpy_into_iovec(iovec, iov_cnt, 0, buf, sizeof(buf));
+
+	return SAM_STAT_GOOD;
+}
+
+int tcmu_emulate_evpd_inquiry(
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+{
+	return SAM_STAT_GOOD;
+}
+
+/*
+ * Emulate INQUIRY(0x12)
+ */
+int tcmu_emulate_inquiry(
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+{
+	if (!(cdb[1] & 0x01)) {
+		if (!cdb[2])
+			return tcmu_emulate_std_inquiry(cdb, iovec, iov_cnt, sense);
+		else
+			{ return 1; /*CHK_COND INVALID FIELD*/}
+	}
+	else {
+		return tcmu_emulate_evpd_inquiry(cdb, iovec, iov_cnt, sense);
+	}
+}
+
+int tcmu_emulate_test_unit_ready(
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+{
+	return SAM_STAT_GOOD;
+}
+
+int tcmu_emulate_read_capacity_16(
+	uint64_t num_lbas,
+	uint32_t block_size,
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+{
+	uint8_t buf[32];
+	uint64_t val64;
+	uint32_t val32;
+
+	memset(buf, 0, sizeof(buf));
+
+	val64 = htobe64(num_lbas);
+	memcpy(&buf[0], &val64, 8);
+
+	val32 = htobe32(block_size);
+	memcpy(&buf[8], &val32, 8);
+
+	/* all else is zero */
+
+	memcpy_into_iovec(iovec, iov_cnt, 0, buf, sizeof(buf));
+
+	return SAM_STAT_GOOD;
+}

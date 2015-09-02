@@ -17,6 +17,13 @@
 #define WRITE_VERIFY_16			0x8e
 #define SYNCHRONIZE_CACHE_16		0x91
 #define WRITE_SAME_16			0x93
+#define SERVICE_ACTION_IN_16		0x9e
+
+/*
+ * Service action opcodes
+ */
+#define READ_CAPACITY_16		0x10
+
 /*
  *  SCSI Architecture Model (SAM) Status codes. Taken from SAM-3 draft
  *  T10/1561-D Revision 4 Draft dated 7th November 2002.
