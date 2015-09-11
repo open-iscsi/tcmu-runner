@@ -12,6 +12,8 @@
  */
 #define UNMAP				0x42
 #define READ_16				0x88
+#define MODE_SELECT_10			0x55
+#define MODE_SENSE_10			0x5a
 #define	COMPARE_AND_WRITE		0x89
 #define WRITE_16			0x8a
 #define WRITE_VERIFY_16			0x8e

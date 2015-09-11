@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <sys/uio.h>
 #include <string.h>
+#include <scsi/scsi.h>
 
 #include "tcmu-runner.h"
 
@@ -30,6 +31,8 @@
 	({ __typeof__ (a) _a = (a);		\
 		__typeof__ (b) _b = (b);	\
 		_a < _b ? _a : _b; })
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 {
@@ -199,6 +202,9 @@ off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size)
 	return -1;
 }
 
+/*
+ * Consume an iovec. Count must not exceed the total iovec[] size.
+ */
 void tcmu_seek_in_iovec(struct iovec *iovec, size_t count)
 {
 	while (count) {
@@ -242,34 +248,33 @@ void tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uin
 	}
 }
 
-#ifndef max
-#define max(a,b)  ((a) > (b) ? (a) : (b))
-#endif
-
-#ifndef min
-#define min(a,b)  ((a) < (b) ? (a) : (b))
-#endif
-
+/*
+ * Copy data into an iovec, and consume the space in the iovec.
+ *
+ * Will truncate instead of overwriting the iovec.
+ */
 void memcpy_into_iovec(
 	struct iovec *iovec,
 	size_t iov_cnt,
-	size_t iov_offset,
 	void *src,
 	size_t len)
 {
 	size_t copied = 0;
 
-	tcmu_seek_in_iovec(iovec, iov_offset);
-
-	while (len) {
+	while (len && iov_cnt) {
 		size_t to_copy = min(iovec->iov_len, len);
 
-		memcpy(iovec->iov_base, src + copied, to_copy);
+		if (to_copy) {
+			memcpy(iovec->iov_base, src + copied, to_copy);
 
-		len -= to_copy;
-		copied += to_copy;
-		iov_offset = 0;
+			len -= to_copy;
+			copied += to_copy;
+			iovec->iov_base += to_copy;
+			iovec->iov_len -= to_copy;
+		}
+
 		iovec++;
+		iov_cnt--;
 	}
 }
 
@@ -293,7 +298,7 @@ int tcmu_emulate_std_inquiry(
 	memcpy(&buf[32], "0002", 4);
 	buf[4] = 31; /* Set additional length to 31 */
 
-	memcpy_into_iovec(iovec, iov_cnt, 0, buf, sizeof(buf));
+	memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
 	return SAM_STAT_GOOD;
 }
@@ -358,7 +363,99 @@ int tcmu_emulate_read_capacity_16(
 
 	/* all else is zero */
 
-	memcpy_into_iovec(iovec, iov_cnt, 0, buf, sizeof(buf));
+	memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
+
+	return SAM_STAT_GOOD;
+}
+
+static struct {
+	uint8_t page;
+	uint8_t subpage;
+	int (*get)(uint8_t *buf, size_t buf_len);
+} modesense_handlers[] = {
+	/* TODO: implement caching mode page (8) */
+};
+
+/*
+ * Handle MODE_SENSE(6) and MODE_SENSE(10).
+ *
+ * For TYPE_DISK only.
+ */
+int tcmu_emulate_mode_sense(
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+{
+	bool sense_ten = (cdb[0] == MODE_SENSE_10);
+	uint8_t page_code = cdb[2] & 0x3f;
+	size_t alloc_len = cdb[4];
+	int i;
+	int ret;
+	size_t used_len;
+	uint8_t buf[512];
+	bool got_sense = false;
+
+	memset(buf, 0, sizeof(buf));
+
+	/* Mode parameter header. Mode data length filled in at the end. */
+	used_len = sense_ten ? 8 : 4;
+
+	/* Don't fill in device-specific parameter */
+	/* Don't report block descriptors */
+
+	if (page_code == 0x3f) {
+		got_sense = true;
+		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
+			ret = modesense_handlers[i].get(&buf[used_len], sizeof(buf) - used_len);
+			if (ret <= 0)
+				break;
+
+			if  (sense_ten && (used_len + ret >= 255))
+				break;
+
+			if (used_len + ret > alloc_len)
+				break;
+
+			used_len += ret;
+		}
+	}
+	else {
+		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
+			if (page_code == modesense_handlers[i].page) {
+				ret = modesense_handlers[i].get(&buf[used_len],
+								sizeof(buf) - used_len);
+				if (ret <= 0)
+					break;
+
+				if  (!sense_ten && (used_len + ret >= 255))
+					break;
+
+				if (used_len + ret > alloc_len)
+					break;
+
+				used_len += ret;
+				got_sense = true;
+				break;
+			}
+		}
+	}
+
+	if (!got_sense) {
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+				    ASC_INVALID_FIELD_IN_CDB, NULL);
+		return SAM_STAT_CHECK_CONDITION;
+	}
+
+	if (sense_ten) {
+		uint16_t *ptr = (uint16_t*) buf;
+		*ptr = htobe16(used_len - 2);
+	}
+	else {
+		buf[0] = used_len - 1;
+	}
+
+	memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
 	return SAM_STAT_GOOD;
 }

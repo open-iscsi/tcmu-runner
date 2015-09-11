@@ -133,6 +133,9 @@ int file_handle_cmd(
 		return tcmu_emulate_read_capacity_16(state->num_lbas, state->block_size,
 						     cdb, iovec, iov_cnt, sense);
 	}
+	else if (cmd == MODE_SENSE || cmd == MODE_SENSE_10) {
+		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+	}
 	else if (cmd == READ_10) {
 		void *buf;
 		void *tmp_ptr;
