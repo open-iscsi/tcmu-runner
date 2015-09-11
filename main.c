@@ -268,10 +268,18 @@ static void handle_one_command(struct tcmu_device *dev,
 					  ent->req.iov_cnt, tmp_sense_buf);
 
 	if (result == TCMU_NOT_HANDLED) {
-		ent->hdr.uflags |= TCMU_UFLAG_UNKNOWN_OP;
+		/* Tell the kernel we didn't handle it */
+		char *buf = ent->rsp.sense_buffer;
+
+		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
+
+		buf[0] = 0x70;  /* fixed, current */
+		buf[2] = 0x5;   /* illegal request */
+		buf[7] = 0xa;
+		buf[12] = 0x20; /* ASC: invalid command operation code */
+		buf[13] = 0x0;  /* ASCQ: (none) */
 	} else {
 		if (result != SAM_STAT_GOOD) {
-			printf("error! Copying sense buffer.\n");
 			memcpy(ent->rsp.sense_buffer, tmp_sense_buf,
 			       TCMU_SENSE_BUFFERSIZE);
 		}
@@ -294,11 +302,16 @@ static int handle_device_events(struct tcmu_device *dev)
 
 	while (ent != (void *)mb + mb->cmdr_off + mb->cmd_head) {
 
-		if (tcmu_hdr_get_op(ent->hdr.len_op) != TCMU_OP_CMD) {
-			/* Do nothing for PAD entries */
-		}
-		else {
+		switch (tcmu_hdr_get_op(ent->hdr.len_op)) {
+		case TCMU_OP_PAD:
+			/* do nothing */
+			break;
+		case TCMU_OP_CMD:
 			handle_one_command(dev, mb, ent);
+			break;
+		default:
+			/* We don't even know how to handle this TCMU opcode. */
+			ent->hdr.uflags |= TCMU_UFLAG_UNKNOWN_OP;
 		}
 
 		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
