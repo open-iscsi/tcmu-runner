@@ -277,8 +277,6 @@ static void handle_one_command(struct tcmu_device *dev,
 		}
 		ent->rsp.scsi_status = result;
 	}
-
-	printf("%s\n", result != TCMU_NOT_HANDLED ? "handled" : "not handled");
 }
 
 static void poke_kernel(int fd)
