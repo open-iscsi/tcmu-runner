@@ -212,8 +212,7 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 
 static int set_medium_error(uint8_t *sense)
 {
-	tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
-	return SAM_STAT_CHECK_CONDITION;
+	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
 }
 
 /*
@@ -252,9 +251,8 @@ int tcmu_glfs_handle_cmd(
 
 		tmpbuf = malloc(length);
 		if (!tmpbuf) {
-			tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					    ASC_INTERNAL_TARGET_FAILURE, NULL);
-			result = SAM_STAT_CHECK_CONDITION;
+			result = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						     ASC_INTERNAL_TARGET_FAILURE, NULL);
 			break;
 		}
 
@@ -268,10 +266,9 @@ int tcmu_glfs_handle_cmd(
 
 		cmp_offset = tcmu_compare_with_iovec(tmpbuf, iovec, length);
 		if (cmp_offset != -1) {
-			tcmu_set_sense_data(sense, MISCOMPARE,
-					    ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					    &cmp_offset);
-			result = SAM_STAT_CHECK_CONDITION;
+			result = tcmu_set_sense_data(sense, MISCOMPARE,
+						     ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
+						     &cmp_offset);
 			free(tmpbuf);
 			break;
 		}
@@ -282,13 +279,11 @@ int tcmu_glfs_handle_cmd(
 		goto write;
 	case SYNCHRONIZE_CACHE:
 	case SYNCHRONIZE_CACHE_16:
-		if (cdb[1] & 0x2) {
-			tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					    ASC_INVALID_FIELD_IN_CDB, NULL);
-			result = SAM_STAT_CHECK_CONDITION;
-		} else {
+		if (cdb[1] & 0x2)
+			result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						     ASC_INVALID_FIELD_IN_CDB, NULL);
+		else
 			glfs_fdatasync(gfd);
-		}
 		break;
 	case WRITE_VERIFY:
 	case WRITE_VERIFY_12:
@@ -315,9 +310,8 @@ write:
 
 		tmpbuf = malloc(length);
 		if (!tmpbuf) {
-			tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					    ASC_INTERNAL_TARGET_FAILURE, NULL);
-			result = SAM_STAT_CHECK_CONDITION;
+			result = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						     ASC_INTERNAL_TARGET_FAILURE, NULL);
 			break;
 		}
 
@@ -329,22 +323,18 @@ write:
 		}
 
 		cmp_offset = tcmu_compare_with_iovec(tmpbuf, iovec, length);
-		if (cmp_offset != -1) {
-			tcmu_set_sense_data(sense, MISCOMPARE,
+		if (cmp_offset != -1)
+			result = tcmu_set_sense_data(sense, MISCOMPARE,
 					    ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
 					    &cmp_offset);
-			result = SAM_STAT_CHECK_CONDITION;
-		}
-
 		free(tmpbuf);
 		break;
 
 	case WRITE_SAME:
 	case WRITE_SAME_16:
 		if (!state->tpws) {
-			tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+			result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					    ASC_INVALID_FIELD_IN_CDB, NULL);
-			result = SAM_STAT_CHECK_CONDITION;
 			break;
 		}
 
@@ -352,10 +342,8 @@ write:
 		if (cdb[1] & 0x08) {
 			ret = glfs_discard(gfd, offset, tl);
 			if (ret != 0) {
-				printf("Failed WRITE_SAME command\n");
-				tcmu_set_sense_data(sense, HARDWARE_ERROR,
+				result = tcmu_set_sense_data(sense, HARDWARE_ERROR,
 						    ASC_INTERNAL_TARGET_FAILURE, NULL);
-				result = SAM_STAT_CHECK_CONDITION;
 			}
 			break;
 		}
@@ -406,17 +394,14 @@ write:
 		break;
 	case UNMAP:
 		if (!state->tpu) {
-			tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					    ASC_INVALID_FIELD_IN_CDB, NULL);
-			result = SAM_STAT_CHECK_CONDITION;
+			result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						     ASC_INVALID_FIELD_IN_CDB, NULL);
 			break;
 		}
 
 		/* TODO: implement UNMAP */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-				    ASC_INVALID_FIELD_IN_CDB, NULL);
-		result = SAM_STAT_CHECK_CONDITION;
-
+		result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					     ASC_INVALID_FIELD_IN_CDB, NULL);
 		break;
 	default:
 		result = TCMU_NOT_HANDLED;

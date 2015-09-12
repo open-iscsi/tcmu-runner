@@ -480,11 +480,9 @@ int tcmu_emulate_mode_sense(
 		}
 	}
 
-	if (!got_sense) {
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+	if (!got_sense)
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 				    ASC_INVALID_FIELD_IN_CDB, NULL);
-		return SAM_STAT_CHECK_CONDITION;
-	}
 
 	if (sense_ten) {
 		uint16_t *ptr = (uint16_t*) buf;

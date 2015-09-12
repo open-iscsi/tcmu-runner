@@ -102,8 +102,7 @@ void file_close(struct tcmu_device *dev)
 
 static int set_medium_error(uint8_t *sense)
 {
-	tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
-	return SAM_STAT_CHECK_CONDITION;
+	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
 }
 
 /*
