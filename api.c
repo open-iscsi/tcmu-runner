@@ -233,7 +233,7 @@ size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)
 	return length;
 }
 
-void tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info)
+int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info)
 {
 	sense_buf[0] = 0x70;	/* fixed, current */
 	sense_buf[2] = key;
@@ -246,6 +246,13 @@ void tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uin
 		memcpy(&sense_buf[3], &val32, 4);
 		sense_buf[0] |= 0x80;
 	}
+
+	/*
+	 * It's very common to set sense and return check condition.
+	 * Returning this lets us do both in one go. Or, just ignore
+	 * this and return scsi_status yourself.
+	 */
+	return SAM_STAT_CHECK_CONDITION;
 }
 
 /*
@@ -253,7 +260,7 @@ void tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uin
  *
  * Will truncate instead of overwriting the iovec.
  */
-void memcpy_into_iovec(
+size_t tcmu_memcpy_into_iovec(
 	struct iovec *iovec,
 	size_t iov_cnt,
 	void *src,
@@ -276,6 +283,38 @@ void memcpy_into_iovec(
 		iovec++;
 		iov_cnt--;
 	}
+
+	return copied;
+}
+
+/*
+ * Copy data from an iovec, and consume the space in the iovec.
+ */
+size_t tcmu_memcpy_from_iovec(
+	void *dest,
+	size_t len,
+	struct iovec *iovec,
+	size_t iov_cnt)
+{
+	size_t copied = 0;
+
+	while (len && iov_cnt) {
+		size_t to_copy = min(iovec->iov_len, len);
+
+		if (to_copy) {
+			memcpy(dest + copied, iovec->iov_base, to_copy);
+
+			len -= to_copy;
+			copied += to_copy;
+			iovec->iov_base += to_copy;
+			iovec->iov_len -= to_copy;
+		}
+
+		iovec++;
+		iov_cnt--;
+	}
+
+	return copied;
 }
 
 int tcmu_emulate_std_inquiry(
@@ -298,7 +337,7 @@ int tcmu_emulate_std_inquiry(
 	memcpy(&buf[32], "0002", 4);
 	buf[4] = 31; /* Set additional length to 31 */
 
-	memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
 	return SAM_STAT_GOOD;
 }
@@ -363,7 +402,7 @@ int tcmu_emulate_read_capacity_16(
 
 	/* all else is zero */
 
-	memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
 	return SAM_STAT_GOOD;
 }
@@ -455,7 +494,75 @@ int tcmu_emulate_mode_sense(
 		buf[0] = used_len - 1;
 	}
 
-	memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
+
+	return SAM_STAT_GOOD;
+}
+
+/*
+ * Handle MODE_SELECT(6) and MODE_SELECT(10).
+ *
+ * For TYPE_DISK only.
+ */
+int tcmu_emulate_mode_select(
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+{
+	bool select_ten = (cdb[0] == MODE_SELECT_10);
+	uint8_t page_code = cdb[2] & 0x3f;
+	size_t alloc_len = tcmu_get_xfer_length(cdb);
+	int i;
+	int ret = 0;
+	size_t hdr_len = select_ten ? 8 : 4;
+	uint8_t buf[512];
+	uint8_t in_buf[512];
+	bool got_sense = false;
+
+	if (!alloc_len)
+		return SAM_STAT_GOOD;
+
+	if (tcmu_memcpy_from_iovec(in_buf, sizeof(in_buf), iovec, iov_cnt) >= sizeof(in_buf))
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_PARAMETER_LIST_LENGTH_ERROR, NULL);
+
+	/* Abort if !pf or sp */
+	if (!(cdb[1] & 0x10) || (cdb[1] & 0x01))
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB, NULL);
+
+	memset(buf, 0, sizeof(buf));
+	for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
+		if (page_code == modesense_handlers[i].page) {
+			ret = modesense_handlers[i].get(&buf[hdr_len],
+							sizeof(buf) - hdr_len);
+			if (ret <= 0)
+				return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+							   ASC_INVALID_FIELD_IN_CDB, NULL);
+
+			if  (!select_ten && (hdr_len + ret >= 255))
+				return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+							   ASC_INVALID_FIELD_IN_CDB, NULL);
+
+			got_sense = true;
+			break;
+		}
+	}
+
+	if (!got_sense)
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB, NULL);
+
+	if (alloc_len < (hdr_len + ret))
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_PARAMETER_LIST_LENGTH_ERROR, NULL);
+
+	/* Verify what was selected is identical to what sense returns, since we
+	   don't support actually setting anything. */
+	if (memcmp(&buf[hdr_len], &in_buf[hdr_len], ret))
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_PARAMETER_LIST, NULL);
 
 	return SAM_STAT_GOOD;
 }

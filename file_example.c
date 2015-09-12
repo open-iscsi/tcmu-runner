@@ -123,26 +123,34 @@ int file_handle_cmd(
 
 	cmd = cdb[0];
 
-	if (cmd == INQUIRY) {
+	switch (cmd) {
+	case INQUIRY:
 		return tcmu_emulate_inquiry(cdb, iovec, iov_cnt, sense);
-	}
-	else if (cmd == TEST_UNIT_READY) {
+		break;
+	case TEST_UNIT_READY:
 		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
-	}
-	else if (cmd == SERVICE_ACTION_IN_16 && cdb[1] == READ_CAPACITY_16) {
-		return tcmu_emulate_read_capacity_16(state->num_lbas, state->block_size,
-						     cdb, iovec, iov_cnt, sense);
-	}
-	else if (cmd == MODE_SENSE || cmd == MODE_SENSE_10) {
+		break;
+	case SERVICE_ACTION_IN_16:
+		if (cdb[1] == READ_CAPACITY_16)
+			return tcmu_emulate_read_capacity_16(state->num_lbas, state->block_size,
+							     cdb, iovec, iov_cnt, sense);
+		else
+			return TCMU_NOT_HANDLED;
+		break;
+	case MODE_SENSE:
+	case MODE_SENSE_10:
 		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
-	}
-	else if (cmd == READ_10) {
+		break;
+	case MODE_SELECT:
+	case MODE_SELECT_10:
+		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+	case READ_10:
+	{
 		void *buf;
-		void *tmp_ptr;
-		int lba = tcmu_get_lba(cdb);
+		uint64_t offset = state->block_size * tcmu_get_lba(cdb);
 		int length = tcmu_get_xfer_length(cdb) * state->block_size;
 
-		ret = lseek(state->fd, lba * state->block_size, SEEK_SET);
+		ret = lseek(state->fd, offset, SEEK_SET);
 		if (ret == -1) {
 			printf("lseek failed: %m\n");
 			return set_medium_error(sense);
@@ -161,31 +169,19 @@ int file_handle_cmd(
 			return set_medium_error(sense);
 		}
 
-		tmp_ptr = buf;
-
-		remaining = length;
-
-		while (remaining) {
-			unsigned int to_copy;
-
-			to_copy = (remaining > iovec->iov_len) ? iovec->iov_len : remaining;
-
-			memcpy(iovec->iov_base, tmp_ptr, to_copy);
-
-			tmp_ptr += to_copy;
-			remaining -= iovec->iov_len;
-			iovec++;
-		}
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, length);
 
 		free(buf);
 
 		return SAM_STAT_GOOD;
 	}
-	else if (cmd == WRITE_10) {
-		int lba = be32toh(*((u_int32_t *)&cdb[2]));
+	break;
+	case WRITE_10:
+	{
+		uint64_t offset = state->block_size * tcmu_get_lba(cdb);
 		int length = be16toh(*((uint16_t *)&cdb[7])) * state->block_size;
 
-		ret = lseek(state->fd, lba * state->block_size, SEEK_SET);
+		ret = lseek(state->fd, offset, SEEK_SET);
 		if (ret == -1) {
 			printf("lseek failed: %m\n");
 			return set_medium_error(sense);
@@ -210,10 +206,11 @@ int file_handle_cmd(
 
 		return SAM_STAT_GOOD;
 	}
-
-	printf("unknown command %x\n", cdb[0]);
-
-	return TCMU_NOT_HANDLED;
+	break;
+	default:
+		printf("unknown command %x\n", cdb[0]);
+		return TCMU_NOT_HANDLED;
+	}
 }
 
 static struct config_option opts[] = {
