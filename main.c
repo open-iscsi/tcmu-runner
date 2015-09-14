@@ -46,10 +46,11 @@
 #include "darray.h"
 #include "tcmu-runner.h"
 #include "tcmuhandler-generated.h"
+#include "version.h"
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
 
-#define HANDLER_PATH "."
+#define HANDLER_PATH "/usr/lib/tcmu-runner"
 
 darray(struct tcmu_handler) handlers = darray_new();
 
@@ -734,6 +735,8 @@ int main()
 	GMainLoop *loop;
 	GIOChannel *nl_gio;
 	guint reg_id;
+
+	printf("tcmu-runner %d.%d\n", TCMUR_VERSION_MAJOR, TCMUR_VERSION_MINOR);
 
 	nl_sock = setup_netlink();
 	if (!nl_sock) {

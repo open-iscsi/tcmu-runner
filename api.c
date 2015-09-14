@@ -14,6 +14,7 @@
  * under the License.
 */
 
+#define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -24,6 +25,7 @@
 #include <sys/uio.h>
 #include <string.h>
 #include <scsi/scsi.h>
+#include <endian.h>
 
 #include "tcmu-runner.h"
 

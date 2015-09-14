@@ -2,3 +2,7 @@ tcmu-runner
 *.o
 *.so
 *generated.[ch]
+Makefile
+version.h
+CMakeCache*
+CMakeFiles/*

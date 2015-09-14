@@ -25,6 +25,7 @@
  * 4) Handling SCSI commands and using the handler API
  */
 
+#define _DEFAULT_SOURCE
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
