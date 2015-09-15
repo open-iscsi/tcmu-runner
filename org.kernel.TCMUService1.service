@@ -1,0 +1,8 @@
+# When placed in /usr/share/dbus-1/system-services/, this should cause tcmu-runner
+# to be loaded and run by dbus-daemon when a client accesses the service name.
+
+[D-BUS Service]
+Name=org.kernel.TCMUService1
+Exec=/usr/bin/tcmu-runner
+User=root
+SystemdService=tcmu-runner.service
