@@ -3,7 +3,7 @@ project (tcmu-runner)
 
 set (tcmur_VERSION_MAJOR 0)
 set (tcmur_VERSION_MINOR 8)
-set (tcmur_VERSION_PATCHLEVEL 2)
+set (tcmur_VERSION_PATCHLEVEL 3)
 
 # configure a header file to pass some of the CMake settings
 # to the source code
