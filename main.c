@@ -770,7 +770,7 @@ int main()
 	g_io_add_watch(nl_gio, G_IO_IN, nl_callback, nl_sock);
 
 	/* Set up DBus name, see callback */
-	reg_id = g_bus_own_name(G_BUS_TYPE_SESSION,
+	reg_id = g_bus_own_name(G_BUS_TYPE_SYSTEM,
 				"org.kernel.TCMUService1",
 				G_BUS_NAME_OWNER_FLAGS_NONE,
 				dbus_bus_acquired,
