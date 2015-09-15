@@ -4,7 +4,7 @@ A daemon that handles the userspace side of the LIO TCM-User backstore.
 
 ## Development status
 
-tcmu-runner is alpha-level software (not all required features implemented yet) with the goal of being feature complete by June 2015.
+tcmu-runner is beta-level software with the goal of hitting 1.0 by November 2015.
 
 ## Background
 
@@ -32,8 +32,10 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 
 ##### Building tcmu-runner
 
+1. Install cmake.
 1. Clone this repo.
-1. Type `make`. Since we don't yet have a build system beyond make, if it doesn't work, it's probably because some development headers need to be installed, either for tcmu-runner or one of the included handlers.
+1. Type `cmake .`.
+1. Type `make`.
 
 ##### Creating a LIO user-backed storage object in configfs
 
@@ -55,4 +57,4 @@ To delete:
 2. `rmdir /sys/kernel/config/target/core/user_1`
 
 ##### Running tcmu-runner
-Run it from the command line as root. It should print the number of handlers and devices found. It also will print a message if new devices are added or removed.
+Run it from the command line as root. It should print the number of handlers and devices found.
