@@ -51,7 +51,9 @@
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
 
-#define HANDLER_PATH "/usr/lib/tcmu-runner"
+#ifndef HANDLER_PATH
+#define HANDLER_PATH "/usr/lib64/tcmu-runner"
+#endif
 
 darray(struct tcmu_handler) handlers = darray_new();
 
