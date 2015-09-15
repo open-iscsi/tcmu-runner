@@ -292,7 +292,8 @@ static void poke_kernel(int fd)
 {
 	uint32_t buf = 0xabcdef12;
 
-	write(fd, &buf, 4);
+	if (write(fd, &buf, 4) != 4)
+		printf("poke_kernel write error\n");
 }
 
 static int handle_device_events(struct tcmu_device *dev)
