@@ -736,7 +736,8 @@ int main()
 	GIOChannel *nl_gio;
 	guint reg_id;
 
-	printf("tcmu-runner %d.%d\n", TCMUR_VERSION_MAJOR, TCMUR_VERSION_MINOR);
+	printf("tcmu-runner %d.%d.%d\n",
+	       TCMUR_VERSION_MAJOR, TCMUR_VERSION_MINOR, TCMUR_VERSION_PATCHLEVEL);
 
 	nl_sock = setup_netlink();
 	if (!nl_sock) {
