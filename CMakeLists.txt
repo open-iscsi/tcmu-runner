@@ -88,8 +88,3 @@ add_custom_command(
   COMMAND gdbus-codegen tcmu-handler.xml --generate-c-code tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
 MAIN_DEPENDENCY tcmu-handler.xml
 	)
-
-
-install(TARGETS tcmu-runner RUNTIME DESTINATION usr/bin)
-install(TARGETS handler_file handler_glfs LIBRARY DESTINATION usr/lib/tcmu-runner)
-install(FILES tcmu-runner.conf DESTINATION etc/dbus-1/system.d)
