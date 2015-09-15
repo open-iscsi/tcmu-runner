@@ -42,6 +42,7 @@
 #include <libnl3/netlink/genl/genl.h>
 #include <libnl3/netlink/genl/mngt.h>
 #include <libnl3/netlink/genl/ctrl.h>
+#include <libkmod.h>
 #include <linux/target_core_user.h>
 #include "darray.h"
 #include "tcmu-runner.h"
@@ -729,6 +730,41 @@ static void dbus_name_lost(GDBusConnection *connection,
 	printf("name lost\n");
 }
 
+int load_our_module(void) {
+	struct kmod_list *list, *itr;
+	int err;
+	struct kmod_ctx *ctx;
+
+	ctx = kmod_new(NULL, NULL);
+	if (!ctx) {
+		printf("kmod_new() failed\n");
+		return -1;
+	}
+
+	err = kmod_module_new_from_lookup(ctx, "target_core_user", &list);
+	if (err < 0)
+		return err;
+
+	kmod_list_foreach(itr, list) {
+		struct kmod_module *mod = kmod_module_get_module(itr);
+
+		err = kmod_module_probe_insert_module (
+			mod, KMOD_PROBE_APPLY_BLACKLIST, 0, 0, 0, 0);
+
+		if (err != 0) {
+			printf("kmod_module_probe_insert_module() for %s failed\n",
+			       kmod_module_get_name(mod));
+			return -1;
+		}
+
+		printf("Module %s inserted\n", kmod_module_get_name(mod));
+
+		kmod_module_unref(mod);
+	}
+
+	return 0;
+}
+
 int main()
 {
 	struct nl_sock *nl_sock;
@@ -739,6 +775,12 @@ int main()
 
 	printf("tcmu-runner %d.%d.%d\n",
 	       TCMUR_VERSION_MAJOR, TCMUR_VERSION_MINOR, TCMUR_VERSION_PATCHLEVEL);
+
+	ret = load_our_module();
+	if (ret < 0) {
+		printf("couldn't load module\n");
+		exit(1);
+	}
 
 	nl_sock = setup_netlink();
 	if (!nl_sock) {

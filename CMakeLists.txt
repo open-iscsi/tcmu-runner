@@ -68,6 +68,7 @@ include_directories(
 
 find_library(PTHREAD pthread)
 find_library(DL dl)
+find_library(KMOD kmod)
 
 find_library(GFAPI gfapi)
 
@@ -77,6 +78,7 @@ target_link_libraries(tcmu-runner
   ${GLIB_LIBRARIES}
   ${PTHREAD}
   ${DL}
+  ${KMOD}
   )
 
 target_link_libraries(handler_glfs
