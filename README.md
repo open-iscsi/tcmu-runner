@@ -34,19 +34,25 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 
 1. Install cmake.
 1. Clone this repo.
+1. Install development packages for dependencies: libnl3, libglib2, libpthread, libdl, libkmod.
 1. Type `cmake .`.
 1. Type `make`.
 
+##### Running tcmu-runner
+
+1. Copy `tcmu-runner.conf` to `/etc/dbus-1/system.d/`. This allows tcmu-runner to be on the system bus, which is priveliged.
+1. If using systemd, copy `org.kernel.TCMUService1.service` to `/usr/share/dbus-1/system-services/` and `tcmu-runner.service` to `/lib/systemd/system`.
+1. Or, run it from the command line as root. It should print the number of handlers and devices found.
+
 ##### Creating a LIO user-backed storage object in configfs
 
-If using targetcli-fb on Fedora 21, there is a `user` backstore type, and you can create one with configstring, size, name, and pass level using the `/backstores/user create` command. Otherwise, it must be done by hand:
+Support for creating user backstores via targetcli is under development, but for now:
 
-1. Ensure `target_core_user` module is loaded.
+1. Ensure `target_core_user` kernel module is loaded.
 2. Create the HBA (user_1) and the storage object (test): `mkdir -p /sys/kernel/config/target/core/user_1/test`
 3. Go to that directory: `cd /sys/kernel/config/target/core/user_1/test`
 4. Set configuration values
   1. Set size (in bytes): `echo -n dev_size=16777216 > control`
-  2. Set pass level. 0 is all SCSI commands, 1 is just block-related SCSI commands: `echo -n pass_level=1 > control`
   3. Set configstring. See [tcmu-design.txt](https://github.com/torvalds/linux/blob/master/Documentation/target/tcmu-design.txt#L177), but note that the TCMU backstore driver already knows and will prepend the "tcm-user/hba_num/device_name" part. Therefore, if we wanted our new device to be handled by the "baz" handler, we would give subtype and path by running:  `echo -n dev_config=baz/addl_info_for_baz_handler > control`
   4. Enable the storage object: `echo -n 1 > enable`
   5. Verify everything worked. There should be an entry in `/sys/class/uio`.
@@ -55,6 +61,3 @@ To delete:
 
 1. `rmdir /sys/kernel/config/target/core/user_1/test`
 2. `rmdir /sys/kernel/config/target/core/user_1`
-
-##### Running tcmu-runner
-Run it from the command line as root. It should print the number of handlers and devices found.
