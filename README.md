@@ -40,7 +40,7 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 
 ##### Running tcmu-runner
 
-1. Copy `tcmu-runner.conf` to `/etc/dbus-1/system.d/`. This allows tcmu-runner to be on the system bus, which is priveliged.
+1. Copy `tcmu-runner.conf` to `/etc/dbus-1/system.d/`. This allows tcmu-runner to be on the system bus, which is privileged.
 1. If using systemd, copy `org.kernel.TCMUService1.service` to `/usr/share/dbus-1/system-services/` and `tcmu-runner.service` to `/lib/systemd/system`.
 1. Or, run it from the command line as root. It should print the number of handlers and devices found.
 
