@@ -113,7 +113,7 @@ do { 								\
 	} else {						\
 		(r_value) = (attribute) ? true: false;		\
 	}							\
-} while(0)							\
+} while(0)
 
 
 static int tcmu_glfs_open(struct tcmu_device *dev)
