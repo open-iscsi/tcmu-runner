@@ -51,6 +51,8 @@
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
 
+#define KERN_IFACE_VER 2
+
 #ifndef HANDLER_PATH
 #define HANDLER_PATH "/usr/lib64/tcmu-runner"
 #endif
@@ -371,6 +373,7 @@ static int add_device(char *dev_name, char *cfgstring)
 {
 	struct tcmu_device *dev;
 	struct tcmu_thread thread;
+	struct tcmu_mailbox *mb;
 	char str_buf[256];
 	int fd;
 	int ret;
@@ -456,6 +459,13 @@ static int add_device(char *dev_name, char *cfgstring)
 	if (dev->map == MAP_FAILED) {
 		printf("could not mmap: %m\n");
 		goto err_fd_close;
+	}
+
+	mb = dev->map;
+	if (mb->version != KERN_IFACE_VER) {
+		printf("Kernel interface version mismatch: wanted %d got %d\n",
+		       KERN_IFACE_VER, mb->version);
+		goto err_munmap;
 	}
 
 	dev->handler = find_handler(dev->cfgstring);
