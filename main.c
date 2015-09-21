@@ -437,7 +437,7 @@ static int add_device(char *dev_name, char *cfgstring)
 	snprintf(str_buf, sizeof(str_buf), "/sys/class/uio/%s/maps/map0/size", dev->dev_name);
 	fd = open(str_buf, O_RDONLY);
 	if (fd == -1) {
-		printf("could not open %s\n", dev->dev_name);
+		printf("could not open %s\n", str_buf);
 		goto err_fd_close;
 	}
 
