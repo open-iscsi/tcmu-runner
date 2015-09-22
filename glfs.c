@@ -44,9 +44,13 @@ struct glfs_state {
 	unsigned long long num_lbas;
 	unsigned int block_size;
 
+	/*
+	 * The below will all be 0 because the handler is now responsible for
+	 * enabling support, and this handler does not yet do so.
+	 */
+
 	/* write caching supported */
 	bool wce;
-
 	/* logical block provisioning (UNMAP) supported */
 	bool tpu;
 	/* logical block provisioning (WRITE_SAME) supported */
@@ -131,9 +135,6 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	dev->hm_private = gfsp;
 
 	FETCH_ATTRIBUTE(dev, gfsp->block_size, "hw_block_size");
-	FETCH_ATTRIBUTE(dev, gfsp->wce, "emulate_write_cache");
-	FETCH_ATTRIBUTE(dev, gfsp->tpu, "emulate_tpu");
-	FETCH_ATTRIBUTE(dev, gfsp->tpws, "emulate_tpws");
 
 	size = tcmu_get_device_size(dev);
 	if (size == -1) {
