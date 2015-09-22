@@ -243,6 +243,27 @@ int tcmu_glfs_handle_cmd(
 	cmd = cdb[0];
 
 	switch (cmd) {
+	case INQUIRY:
+		return tcmu_emulate_inquiry(cdb, iovec, iov_cnt, sense);
+		break;
+	case TEST_UNIT_READY:
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		break;
+	case SERVICE_ACTION_IN_16:
+		if (cdb[1] == READ_CAPACITY_16)
+			return tcmu_emulate_read_capacity_16(state->num_lbas, state->block_size,
+							     cdb, iovec, iov_cnt, sense);
+		else
+			return TCMU_NOT_HANDLED;
+		break;
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+		break;
+	case MODE_SELECT:
+	case MODE_SELECT_10:
+		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+		break;
 	case COMPARE_AND_WRITE:
 		/* Blocks are transferred twice, first the set that
 		 * we compare to the existing data, and second the set
