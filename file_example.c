@@ -144,6 +144,7 @@ int file_handle_cmd(
 	case MODE_SELECT:
 	case MODE_SELECT_10:
 		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+		break;
 	case READ_10:
 	{
 		void *buf;
