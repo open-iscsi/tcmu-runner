@@ -145,7 +145,10 @@ int file_handle_cmd(
 	case MODE_SELECT_10:
 		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
 		break;
+	case READ_6:
 	case READ_10:
+	case READ_12:
+	case READ_16:
 	{
 		void *buf;
 		uint64_t offset = state->block_size * tcmu_get_lba(cdb);
@@ -177,7 +180,10 @@ int file_handle_cmd(
 		return SAM_STAT_GOOD;
 	}
 	break;
+	case WRITE_6:
 	case WRITE_10:
+	case WRITE_12:
+	case WRITE_16:
 	{
 		uint64_t offset = state->block_size * tcmu_get_lba(cdb);
 		int length = be16toh(*((uint16_t *)&cdb[7])) * state->block_size;
