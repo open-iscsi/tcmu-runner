@@ -158,23 +158,31 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	}
 
 	gfsp->fs = glfs_new(gfsp->volname);
-	if (!gfsp->fs)
+	if (!gfsp->fs) {
+		printf("glfs_new failed\n");
 		goto fail;
+	}
 
 	ret = glfs_set_volfile_server(gfsp->fs, "tcp", gfsp->servername,
 				      GLUSTER_PORT);
 
 	ret = glfs_init(gfsp->fs);
-	if (ret)
+	if (ret) {
+		printf("glfs_init failed\n");
 		goto fail;
+	}
 
 	gfsp->gfd = glfs_open(gfsp->fs, gfsp->pathname, ALLOWED_BSOFLAGS);
-	if (!gfsp->gfd)
+	if (!gfsp->gfd) {
+		printf("glfs_open failed\n");
 		goto fail;
+	}
 
 	ret = glfs_lstat(gfsp->fs, gfsp->pathname, &st);
-	if (ret)
+	if (ret) {
+		printf("glfs_lstat failed\n");
 		goto fail;
+	}
 
 	if (st.st_size != tcmu_get_device_size(dev)) {
 		printf("device size and backing size disagree: "
