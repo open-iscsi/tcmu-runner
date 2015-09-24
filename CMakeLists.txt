@@ -12,7 +12,7 @@ configure_file (
   "${PROJECT_BINARY_DIR}/version.h"
   )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror -std=c99")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
 
 # Stuff for building the main binary
 add_executable(tcmu-runner
