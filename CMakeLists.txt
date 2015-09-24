@@ -2,8 +2,8 @@ cmake_minimum_required (VERSION 2.6)
 project (tcmu-runner)
 
 set (tcmur_VERSION_MAJOR 0)
-set (tcmur_VERSION_MINOR 8)
-set (tcmur_VERSION_PATCHLEVEL 4)
+set (tcmur_VERSION_MINOR 9)
+set (tcmur_VERSION_PATCHLEVEL 0)
 
 # configure a header file to pass some of the CMake settings
 # to the source code
