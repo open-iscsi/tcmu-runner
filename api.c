@@ -104,7 +104,7 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 
 	size = strtoull(rover, NULL, 0);
 	if (size == ULLONG_MAX) {
-		printf("Could not get map length\n");
+		printf("Could not get size\n");
 		return -1;
 	}
 
