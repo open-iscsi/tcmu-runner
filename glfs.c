@@ -61,9 +61,16 @@ struct glfs_state {
  * Break image string into server, volume, and path components and set
  * gfsp members. Returns -1 on failure.
  */
-static int parse_imagepath(char *image, struct glfs_state *gfsp)
+static int parse_imagepath(
+	char *cfgstring,
+	char **servername,
+	char **volname,
+	char **pathname)
 {
-	char *origp = strdup(image);
+	char *origp = strdup(cfgstring);
+	char *t_servername = NULL;
+	char *t_volname = NULL;
+	char *t_pathname = NULL;
 	char *p, *sep;
 
 	if (!origp)
@@ -75,8 +82,8 @@ static int parse_imagepath(char *image, struct glfs_state *gfsp)
 		goto fail;
 
 	*sep = '\0';
-	gfsp->servername = strdup(p);
-	if (!gfsp->servername)
+	t_servername = strdup(p);
+	if (!t_servername)
 		goto fail;
 
 	p = sep + 1;
@@ -84,25 +91,29 @@ static int parse_imagepath(char *image, struct glfs_state *gfsp)
 	if (!sep)
 		goto fail;
 
-	gfsp->volname = strdup(sep + 1);
-	if (!gfsp->volname)
+	t_volname = strdup(sep + 1);
+	if (!t_volname)
 		goto fail;
 
 	/* p points to path\0 */
 	*sep = '\0';
-	gfsp->pathname = strdup(p);
-	if (!gfsp->pathname)
+	t_pathname = strdup(p);
+	if (!t_pathname)
 		goto fail;
 
+	if (!strlen(t_servername) || !strlen(t_volname) || !strlen(t_pathname))
+	    goto fail;
+
 	free(origp);
+	*servername = t_servername;
+	*volname = t_volname;
+	*pathname = t_pathname;
 
 	return 0;
 
 fail:
-	free(gfsp->volname);
-	gfsp->volname = NULL;
-	free(gfsp->servername);
-	gfsp->servername = NULL;
+	free(t_volname);
+	free(t_servername);
 	free(origp);
 
 	return -1;
@@ -119,6 +130,32 @@ do { 								\
 	}							\
 } while(0)
 
+static bool glfs_check_config(const char *cfgstring, char **reason)
+{
+	char *path;
+	char *servername = NULL;
+	char *volname = NULL;
+	char *pathname = NULL;
+	bool result = true;
+
+	path = strchr(cfgstring, '/');
+	if (!path) {
+		asprintf(reason, "No path found");
+		return false;
+	}
+	path += 1; /* get past '/' */
+
+	if (parse_imagepath(path, &servername, &volname, &pathname) == -1) {
+		asprintf(reason, "Invalid imagepath");
+		return false;
+	}
+
+	/* TODO?: Try more stuff from glfs_open() and see if it succeeds */
+
+	free(servername); free(volname); free(pathname);
+
+	return result;
+}
 
 static int tcmu_glfs_open(struct tcmu_device *dev)
 {
@@ -151,9 +188,8 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	}
 	config += 1; /* get past '/' */
 
-	if (parse_imagepath(config, gfsp) == -1) {
-		printf("servername, volname, or pathname not set: %s %s %s\n",
-		       gfsp->servername, gfsp->volname, gfsp->pathname);
+	if (parse_imagepath(config, &gfsp->servername, &gfsp->volname, &gfsp->pathname) == -1) {
+		printf("servername, volname, or pathname not set\n");
 		goto fail;
 	}
 
@@ -448,26 +484,20 @@ write:
 	return result;
 }
 
-static struct config_option opts[] = {
-	{
-		.name = "server",
-		.desc = "The name of the Gluster server"
-	},
-	{
-		.name = "volume",
-		.desc = "The name of the volume on the server"
-	},
-	{
-		.name = "path",
-		.desc = "The name of the path to the backing file in the volume"
-	},
-	{NULL, NULL },
-};
+static const char glfs_cfg_desc[] =
+	"glfs config string is of the form:\n"
+	"\"volume@hostname/filename\"\n"
+	"where:\n"
+	"  volume:    The volume on the Gluster server\n"
+	"  hostname:  The server's hostname\n"
+	"  filename:  The backing file";
 
 struct tcmu_handler glfs_handler = {
 	.name = "Gluster glfs handler",
 	.subtype = "glfs",
-	.cfg_options = opts,
+	.cfg_desc = glfs_cfg_desc,
+
+	.check_config = glfs_check_config,
 
 	.open = tcmu_glfs_open,
 	.close = tcmu_glfs_close,

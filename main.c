@@ -664,26 +664,25 @@ gboolean nl_callback(GIOChannel *source,
 }
 
 static gboolean
-on_list_args(TCMUService1 *interface,
-	     GDBusMethodInvocation *invocation,
-	     gpointer user_data)
+on_check_config(TCMUService1 *interface,
+		GDBusMethodInvocation *invocation,
+		gchar *cfgstring,
+		gpointer user_data)
 {
 	struct tcmu_handler *handler = user_data;
-	GVariantBuilder array;
-	GVariant *value;
+	char *reason = "";
+	bool str_ok = true;
+
+	if (handler->check_config)
+		str_ok = handler->check_config(cfgstring, &reason);
+
+	/* TODO: call handler to check config */
+	GVariant *array[2];
 	GVariant *tuple;
-	const struct config_option *cfg_opt = handler->cfg_options;
+	array[0] = g_variant_new_boolean(str_ok);
+	array[1] = g_variant_new_string(reason);
 
-	g_variant_builder_init (&array, G_VARIANT_TYPE("a(ss)"));
-
-	while(cfg_opt->name) {
-		g_variant_builder_add(&array, "(ss)",
-				      cfg_opt->name, cfg_opt->desc);
-		cfg_opt++;
-	}
-
-	value = g_variant_builder_end(&array);
-	tuple = g_variant_new_tuple(&value, 1);
+	tuple = g_variant_new_tuple(array, 2);
 
 	g_dbus_method_invocation_return_value(invocation, tuple);
 
@@ -717,9 +716,11 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 		g_dbus_object_skeleton_add_interface(object, G_DBUS_INTERFACE_SKELETON(interface));
 
 		g_signal_connect(interface,
-				 "handle-list-args",
-				 G_CALLBACK (on_list_args),
+				 "handle-check-config",
+				 G_CALLBACK (on_check_config),
 				 handler); /* user_data */
+
+		tcmuservice1_set_config_desc(interface, handler->cfg_desc);
 
 		g_dbus_object_manager_server_export(manager, G_DBUS_OBJECT_SKELETON(object));
 		g_object_unref(object);

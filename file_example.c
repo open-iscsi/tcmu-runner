@@ -25,7 +25,7 @@
  * 4) Handling SCSI commands and using the handler API
  */
 
-#define _DEFAULT_SOURCE
+#define _GNU_SOURCE
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -47,7 +47,34 @@ struct file_state {
 	uint32_t block_size;
 };
 
-int file_open(struct tcmu_device *dev)
+static bool file_check_config(const char *cfgstring, char **reason)
+{
+	char *path;
+	int fd;
+
+	path = strchr(cfgstring, '/');
+	if (!path) {
+		asprintf(reason, "No path found");
+		return false;
+	}
+	path += 1; /* get past '/' */
+
+	if (access(path, W_OK) != -1)
+		return true; /* File exists and is writable */
+
+	/* We also support creating the file, so see if we can create it */
+	fd = creat(path, S_IRUSR | S_IWUSR);
+	if (fd == -1) {
+		asprintf(reason, "Could not create file");
+		return false;
+	}
+
+	unlink(path);
+
+	return true;
+}
+
+static int file_open(struct tcmu_device *dev)
 {
 	struct file_state *state;
 	int64_t size;
@@ -93,7 +120,7 @@ err:
 	return -1;
 }
 
-void file_close(struct tcmu_device *dev)
+static void file_close(struct tcmu_device *dev)
 {
 	struct file_state *state = dev->hm_private;
 
@@ -109,7 +136,7 @@ static int set_medium_error(uint8_t *sense)
 /*
  * Return scsi status or TCMU_NOT_HANDLED
  */
-int file_handle_cmd(
+static int file_handle_cmd(
 	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
@@ -220,16 +247,15 @@ int file_handle_cmd(
 	}
 }
 
-static struct config_option opts[] = {
-	{ .name = "filename", .desc = "The path and filename of the file to "
-	"use as a backstore"},
-	{NULL, NULL },
-};
+static const char file_cfg_desc[] =
+	"The path to the file to use as a backstore.";
 
-struct tcmu_handler file_handler = {
+static struct tcmu_handler file_handler = {
 	.name = "File-backed Handler (example code)",
 	.subtype = "file",
-	.cfg_options = opts,
+	.cfg_desc = file_cfg_desc,
+
+	.check_config = file_check_config,
 
 	.open = file_open,
 	.close = file_close,

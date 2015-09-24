@@ -1,17 +1,20 @@
 <node>
- <interface name="org.kernel.TCMUService1">
- <!--
- ListArgs:
- @response: An array of names and descriptions of the handler's
- required creation parameters.
+  <interface name="org.kernel.TCMUService1">
+    <property name="ConfigDesc" type="s" access="read"/>
+    <!--
+	CheckConfig:
 
- In order for LIO configuration tools to properly integrate TCMU handlers,
- this method returns the handler's creation parameter details so that
- these handlers' help entries may properly display descriptions of the
- needed parameters.
- -->
- <method name="ListArgs">
- <arg type="a(ss)" name="response" direction="out"/>
- </method>
- </interface>
+The creation of a TCMU device is decoupled from the discovery and
+use by its backing handler, and there's no good way for errors in
+the handler-specific configstring to be visible to the user when
+creating the device.
+This method lets tools that are creating TCMU devices check
+that the configstring is valid before the device has been created.
+    -->
+    <method name="CheckConfig">
+      <arg type="s" name="configstr" direction="in"/>
+      <arg type="b" name="is_valid" direction="out"/>
+      <arg type="s" name="message" direction="out"/>
+    </method>
+  </interface>
 </node>

@@ -45,16 +45,25 @@ struct tcmu_device {
 	void *hm_private; /* private ptr for handler module */
 };
 
-/* The handler describes the options it needs in the cfgstring */
-struct config_option {
-	char *name;
-	char *desc;
-};
-
 struct tcmu_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */
-	const struct config_option *cfg_options; /* name, desc of config opts */
+	const char *cfg_desc;	/* Description of this backstore's config string */
+
+	/*
+	 * As much as possible, check that the cfgstring will result
+	 * in a working device when given to us as dev->cfgstring in
+	 * the ->open() call.
+	 *
+	 * This function is optional but gives configuration tools a
+	 * chance to warn users in advance if the device they're
+	 * trying to create is invalid.
+	 *
+	 * Returns true if string is valid. Only if false, set *reason
+	 * to a string that says why. The string will be free()ed.
+	 * Suggest using asprintf().
+	 */
+	bool (*check_config)(const char *cfgstring, char **reason);
 
 	/* Per-device added/removed callbacks */
 	int (*open)(struct tcmu_device *dev);
