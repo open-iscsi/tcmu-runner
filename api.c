@@ -14,7 +14,7 @@
  * under the License.
 */
 
-#define _DEFAULT_SOURCE
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -67,6 +67,50 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 	}
 
 	return val;
+}
+
+
+/*
+ * Return a string that contains the device's WWN, or NULL.
+ *
+ * Callers must free the result with free().
+ */
+static char *tcmu_get_wwn(struct tcmu_device *dev)
+{
+	int fd;
+	char path[256];
+	char buf[256];
+	char *ret_buf;
+	int ret;
+
+	snprintf(path, sizeof(path),
+		 "/sys/kernel/config/target/core/%s/%s/wwn/vpd_unit_serial",
+		 dev->tcm_hba_name, dev->tcm_dev_name);
+
+	fd = open(path, O_RDONLY);
+	if (fd == -1) {
+		printf("Could not open configfs to read unit serial\n");
+		return NULL;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	close(fd);
+	if (ret == -1) {
+		printf("Could not read configfs to read unit serial\n");
+		return NULL;
+	}
+
+	/* Kill the trailing '\n' */
+	buf[ret-1] = '\0';
+
+	/* Skip to the good stuff */
+	ret = asprintf(&ret_buf, "%s", &buf[28]);
+	if (ret == -1) {
+		printf("could not convert string to value\n");
+		return NULL;
+	}
+
+	return ret_buf;
 }
 
 long long tcmu_get_device_size(struct tcmu_device *dev)
@@ -344,19 +388,153 @@ int tcmu_emulate_std_inquiry(
 	return SAM_STAT_GOOD;
 }
 
+/* This func from CCAN str/hex/hex.c. Public Domain */
+static bool char_to_hex(unsigned char *val, char c)
+{
+	if (c >= '0' && c <= '9') {
+		*val = c - '0';
+		return true;
+	}
+	if (c >= 'a' && c <= 'f') {
+		*val = c - 'a' + 10;
+		return true;
+	}
+	if (c >= 'A' && c <= 'F') {
+		*val = c - 'A' + 10;
+		return true;
+	}
+	return false;
+}
+
 int tcmu_emulate_evpd_inquiry(
+	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
 	uint8_t *sense)
 {
-	return SAM_STAT_GOOD;
+	switch (cdb[2]) {
+	case 0x0: /* Supported VPD pages */
+	{
+		/* The absolute minimum. */
+		char data[6];
+
+		memset(data, 0, sizeof(data));
+
+		/* 0x0 and 0x83 only */
+		data[5] = 0x83;
+
+		data[3] = 2;
+
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
+
+		return SAM_STAT_GOOD;
+	}
+	break;
+	case 0x83: /* Device identification */
+	{
+		char data[512];
+		char *ptr;
+		size_t used = 0;
+		char *wwn;
+		size_t len;
+		uint16_t *tot_len = (uint16_t*) &data[2];
+
+		memset(data, 0, sizeof(data));
+
+		data[1] = 0x83;
+
+		wwn = tcmu_get_wwn(dev);
+		if (!wwn) {
+			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		}
+
+		ptr = &data[4];
+
+		/* 1/3: T10 Vendor id */
+		ptr[0] = 2; /* code set: ASCII */
+		ptr[1] = 1; /* identifier: T10 vendor id */
+		memcpy(&ptr[4], "LIO-ORG ", 8);
+		len = snprintf(&ptr[12], sizeof(data) - 12, "%s", wwn);
+
+		ptr[3] = 8 + len + 1;
+		used += ptr[3] + 4;
+		ptr += used;
+
+		/* 2/3: NAA binary */
+		ptr[0] = 1; /* code set: binary */
+		ptr[1] = 3; /* identifier: NAA */
+		ptr[3] = 16; /* body length for naa registered extended format */
+
+		/*
+		 * Set type 6 and use OpenFabrics IEEE Company ID: 00 14 05
+		 */
+		ptr[4] = 0x60;
+		ptr[5] = 0x01;
+		ptr[6] = 0x40;
+		ptr[7] = 0x50;
+
+		/*
+		 * Fill in the rest with a binary representation of WWN
+		 *
+		 * This implementation only uses a nibble out of every byte of
+		 * WWN, but this is what the kernel does, and it's nice for our
+		 * values to match.
+		 */
+		char *p = wwn;
+		bool next = true;
+		int i = 7;
+		for ( ; *p && i < 20; p++) {
+			uint8_t val;
+
+			if (!char_to_hex(&val, *p))
+				continue;
+
+			if (next) {
+				next = false;
+				ptr[i++] |= val;
+			} else {
+				next = true;
+				ptr[i] = val << 4;
+			}
+		}
+
+		used += 20;
+		ptr += 20;
+
+		/* 3/3: Vendor specific */
+		ptr[0] = 2; /* code set: ASCII */
+		ptr[1] = 0; /* identifier: vendor-specific */
+
+		len = snprintf(&ptr[4], sizeof(data) - used - 4, "%s", dev->cfgstring);
+		ptr[3] = len + 1;
+
+		used += ptr[3] + 4;
+
+		/* Done with descriptor list */
+
+		*tot_len = htobe16(used);
+
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, *tot_len + 4);
+
+		free(wwn);
+		wwn = NULL;
+
+		return SAM_STAT_GOOD;
+	}
+	break;
+	default:
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB, NULL);
+	}
 }
 
 /*
  * Emulate INQUIRY(0x12)
  */
 int tcmu_emulate_inquiry(
+	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -366,10 +544,11 @@ int tcmu_emulate_inquiry(
 		if (!cdb[2])
 			return tcmu_emulate_std_inquiry(cdb, iovec, iov_cnt, sense);
 		else
-			{ return 1; /*CHK_COND INVALID FIELD*/}
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_INVALID_FIELD_IN_CDB, NULL);
 	}
 	else {
-		return tcmu_emulate_evpd_inquiry(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_evpd_inquiry(dev, cdb, iovec, iov_cnt, sense);
 	}
 }
 

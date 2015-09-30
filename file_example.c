@@ -152,7 +152,7 @@ static int file_handle_cmd(
 
 	switch (cmd) {
 	case INQUIRY:
-		return tcmu_emulate_inquiry(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case TEST_UNIT_READY:
 		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
