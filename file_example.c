@@ -159,7 +159,8 @@ static int file_handle_cmd(
 		break;
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
-			return tcmu_emulate_read_capacity_16(state->num_lbas, state->block_size,
+			return tcmu_emulate_read_capacity_16(state->num_lbas,
+							     state->block_size,
 							     cdb, iovec, iov_cnt, sense);
 		else
 			return TCMU_NOT_HANDLED;

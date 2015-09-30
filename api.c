@@ -260,7 +260,7 @@ int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint
 /*
  * Copy data into an iovec, and consume the space in the iovec.
  *
- * Will truncate instead of overwriting the iovec.
+ * Will truncate instead of overrunning the iovec.
  */
 size_t tcmu_memcpy_into_iovec(
 	struct iovec *iovec,
