@@ -26,7 +26,7 @@ tcmu-runner is [Apache 2.0 licensed](http://www.apache.org/licenses/LICENSE-2.0)
 
 ### Development
 
-We encourage pull requests and issues tracking via Github, and the [target-devel mailing list](http://vger.kernel.org/vger-lists.html#target-devel) may be used for discussion.
+We encourage pull requests and issues tracking via Github, and the [target-devel mailing list](mailto:target-devel@vger.kernel.org) ([list info](http://vger.kernel.org/vger-lists.html#target-devel)) may be used for discussion.
 
 ### Getting started
 
@@ -34,7 +34,7 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 
 1. Install cmake.
 1. Clone this repo.
-1. Install development packages for dependencies: libnl3, libglib2, libpthread, libdl, libkmod, libgfapi (Gluster).
+1. Install development packages for dependencies: libnl3, libglib2, libpthread, libdl, libkmod, libgfapi (Gluster), zlib.
 1. Type `cmake .`.
 1. Type `make`.
 
