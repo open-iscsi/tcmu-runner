@@ -43,6 +43,16 @@ set_target_properties(handler_glfs
   PREFIX ""
   )
 
+# Stuff for building the qcow handler
+add_library(handler_qcow
+  SHARED
+  qcow.c
+  )
+set_target_properties(handler_qcow
+  PROPERTIES
+  PREFIX ""
+  )
+
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
 set(LIBNL_LIBS
@@ -71,6 +81,7 @@ find_library(DL dl)
 find_library(KMOD kmod)
 
 find_library(GFAPI gfapi)
+find_package(ZLIB REQUIRED)
 
 target_link_libraries(tcmu-runner
   ${LIBNL_LIB}
@@ -83,6 +94,10 @@ target_link_libraries(tcmu-runner
 
 target_link_libraries(handler_glfs
   ${GFAPI}
+  )
+
+target_link_libraries(handler_qcow
+  ${ZLIB_LIBRARIES}
   )
 
 add_custom_command(
