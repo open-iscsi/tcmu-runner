@@ -782,9 +782,23 @@ int load_our_module(void) {
 	return 0;
 }
 
+static void usage(void) {
+	printf("\nusage:\n");
+	printf("\ttcmu-runner [options]\n");
+	printf("\noptions:\n");
+	printf("\t-h, --help: print this message and exit\n");
+	printf("\t-V, --version: print version and exit\n");
+	printf("\t-d, --debug: enable debug messages\n");
+	printf("\t--handler-path: set path to search for handler modules\n");
+	printf("\t\tdefault is %s\n", DEFAULT_HANDLER_PATH);
+	printf("\n");
+}
+
 static struct option long_options[] = {
 	{"debug", no_argument, 0, 'd'},
 	{"handler-path", required_argument, 0, 0},
+	{"help", no_argument, 0, 'h'},
+	{"version", no_argument, 0, 'V'},
 	{0, 0, 0, 0},
 };
 
@@ -798,34 +812,36 @@ int main(int argc, char **argv)
 	int c;
 
 	while (1) {
-            int this_option_optind = optind ? optind : 1;
-               int option_index = 0;
+		int option_index = 0;
 
-               c = getopt_long(argc, argv, "d",
-			       long_options, &option_index);
-               if (c == -1)
-		       break;
+		c = getopt_long(argc, argv, "dhV",
+				long_options, &option_index);
+		if (c == -1)
+			break;
 
-	       switch (c) {
-	       case 0:
-		       if (option_index == 1) {
-			       printf("handler path set to %s\n", optarg);
-			       handler_path = strdup(optarg);
-		       }
-		       break;
-	       case 'd':
-		       printf("enabling debug messages\n");
-		       debug = true;
-		       break;
-	       default:
-		       printf("getopt parse failure, exiting\n");
-		       return 1;
-	       }
-
+		switch (c) {
+		case 0:
+			if (option_index == 1) {
+				printf("handler path set to %s\n", optarg);
+				handler_path = strdup(optarg);
+			}
+			break;
+		case 'd':
+			printf("enabling debug messages\n");
+			debug = true;
+			break;
+		case 'V':
+			printf("tcmu-runner %d.%d.%d\n",
+			       TCMUR_VERSION_MAJOR,
+			       TCMUR_VERSION_MINOR,
+			       TCMUR_VERSION_PATCHLEVEL);
+			exit(1);
+		default:
+		case 'h':
+			usage();
+			exit(1);
+		}
 	}
-
-	printf("tcmu-runner %d.%d.%d\n",
-	       TCMUR_VERSION_MAJOR, TCMUR_VERSION_MINOR, TCMUR_VERSION_PATCHLEVEL);
 
 	ret = load_our_module();
 	if (ret < 0) {
