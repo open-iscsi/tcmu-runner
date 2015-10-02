@@ -121,7 +121,7 @@ static int get_dirfd(int fd)
 	char *img_path;
 	char *dir;
 	int dirfd;
-	int len;
+	ssize_t len;
 
 	/* more than enough room for "/proc/self/fd/<INT_MAX>\0" */
 	snprintf(proc_path, 64, "/proc/self/fd/%d", fd);
@@ -291,7 +291,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 	struct qcow_state *s;
 	uint64_t l1_size;
 	unsigned int shift;
-	int read;
+	ssize_t read;
 
 	s = calloc(1, sizeof(struct qcow_state));
 	if (!s)
@@ -405,7 +405,7 @@ static uint64_t *l2_cache_lookup(struct qcow_state *s, uint64_t l2_offset)
 	int min_index = 0;
 	int min_count = INT_MAX;
 	uint64_t *l2_table;
-	int read;
+	ssize_t read;
 
 	/* l2 cache lookup */
 	for (i = 0; i < L2_CACHE_SIZE; i++) {
@@ -450,9 +450,9 @@ static uint64_t l2_table_alloc(struct qcow_state *s)
 	return l2_offset;
 }
 
-static int l1_table_update(struct qcow_state *s, uint64_t l1_index, uint64_t l2_offset)
+static int l1_table_update(struct qcow_state *s, unsigned int l1_index, uint64_t l2_offset)
 {
-	int ret = 0;
+	ssize_t ret = 0;
 
 	s->l1_table[l1_index] = htobe64(l2_offset);
 	ret = pwrite(s->fd,
@@ -465,8 +465,8 @@ static int l1_table_update(struct qcow_state *s, uint64_t l1_index, uint64_t l2_
 
 static uint64_t data_cluster_alloc(struct qcow_state *s)
 {
-	off_t off;
 	uint64_t cluster_offset;
+	off_t off;
 
 	off = lseek(s->fd, 0, SEEK_END);
 	if (off == -1)
@@ -480,9 +480,9 @@ static uint64_t data_cluster_alloc(struct qcow_state *s)
 
 static int l2_table_update(struct qcow_state *s,
 			   uint64_t *l2_table, uint64_t l2_table_offset,
-			   uint64_t l2_index, uint64_t cluster_offset)
+			   unsigned int l2_index, uint64_t cluster_offset)
 {
-	int ret;
+	ssize_t ret;
 
 	l2_table[l2_index] = htobe64(cluster_offset);
 	ret = pwrite(s->fd,
@@ -495,7 +495,9 @@ static int l2_table_update(struct qcow_state *s,
 
 static int decompress_buffer(uint8_t *dst, size_t dst_size, const uint8_t *src, size_t src_size)
 {
-	int ret, out_len;
+	ptrdiff_t out_len;
+	int ret;
+
 	z_stream strm = {
 		.next_in = (uint8_t *)src,
 		.avail_in = src_size,
@@ -508,8 +510,7 @@ static int decompress_buffer(uint8_t *dst, size_t dst_size, const uint8_t *src, 
 		return -1;
 	ret = inflate(&strm, Z_FINISH);
 	out_len = strm.next_out - dst;
-	if ((ret != Z_STREAM_END && ret != Z_BUF_ERROR) ||
-			out_len != dst_size) {
+	if ((ret != Z_STREAM_END && ret != Z_BUF_ERROR) || out_len != dst_size) {
 		inflateEnd(&strm);
 		return -1;
 	}
@@ -520,8 +521,8 @@ static int decompress_buffer(uint8_t *dst, size_t dst_size, const uint8_t *src, 
 static int decompress_cluster(struct qcow_state *s, uint64_t cluster_offset)
 {
 	uint64_t coffset;
-	int csize;
-	int ret;
+	size_t csize;
+	ssize_t ret;
 
 	coffset = cluster_offset & s->cluster_offset_mask;
 	if (s->cluster_cache_offset != coffset) {
@@ -549,8 +550,8 @@ static int decompress_cluster(struct qcow_state *s, uint64_t cluster_offset)
  */
 static uint64_t get_cluster_offset(struct qcow_state *s, uint64_t offset, bool allocate)
 {
-	int l1_index;
-	int l2_index;
+	unsigned int l1_index;
+	unsigned int l2_index;
 	uint64_t l2_offset;
 	uint64_t *l2_table;
 	uint64_t cluster_offset;
@@ -644,7 +645,7 @@ static ssize_t qcow_pwrite(struct bdev *bdev, const void *buf, size_t count, off
 	uint64_t cluster_offset;
 	uint64_t sector_index;
 	uint64_t sector_count;
-	int sector_num, n;
+	uint64_t sector_num, n;
 	const void *_buf = buf;
 	ssize_t written;
 
