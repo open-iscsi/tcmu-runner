@@ -84,7 +84,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 	char buf[32];
 
 	if (!info->attrs[TCMU_ATTR_MINOR] || !info->attrs[TCMU_ATTR_DEVICE]) {
-		printf("TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
+		errp("TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
 		return 0;
 	}
 
@@ -98,7 +98,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 		remove_device(buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
 		break;
 	default:
-		printf("Unknown notification %d\n", cmd->c_id);
+		errp("Unknown notification %d\n", cmd->c_id);
 	}
 
 	return 0;
@@ -134,7 +134,7 @@ static struct nl_sock *setup_netlink(void)
 
 	sock = nl_socket_alloc();
 	if (!sock) {
-		printf("couldn't alloc socket\n");
+		errp("couldn't alloc socket\n");
 		exit(1);
 	}
 
@@ -144,18 +144,18 @@ static struct nl_sock *setup_netlink(void)
 
 	ret = genl_connect(sock);
 	if (ret < 0) {
-		printf("couldn't connect\n");
+		errp("couldn't connect\n");
 		exit(1);
 	}
 
 	ret = genl_register_family(&tcmu_ops);
 	if (ret < 0) {
-		printf("couldn't register family\n");
+		errp("couldn't register family\n");
 		exit(1);	}
 
 	ret = genl_ops_resolve(sock, &tcmu_ops);
 	if (ret < 0) {
-		printf("couldn't resolve ops, is target_core_user.ko loaded?\n");
+		errp("couldn't resolve ops, is target_core_user.ko loaded?\n");
 		exit(1);
 	}
 
@@ -165,7 +165,7 @@ static struct nl_sock *setup_netlink(void)
 
 	ret = nl_socket_add_membership(sock, ret);
 	if (ret < 0) {
-		printf("couldn't add membership\n");
+		errp("couldn't add membership\n");
 		exit(1);
 	}
 
@@ -205,20 +205,20 @@ static int open_handlers(void)
 
 		ret = asprintf(&path, "%s/%s", handler_path, dirent_list[i]->d_name);
 		if (ret == -1) {
-			printf("ENOMEM\n");
+			errp("ENOMEM\n");
 			continue;
 		}
 
 		handle = dlopen(path, RTLD_NOW|RTLD_LOCAL);
 		if (!handle) {
-			printf("Could not open handler at %s: %s\n", path, dlerror());
+			errp("Could not open handler at %s: %s\n", path, dlerror());
 			free(path);
 			continue;
 		}
 
 		handler_init = dlsym(handle, "handler_init");
 		if (!handler_init) {
-			printf("dlsym failure on %s\n", path);
+			errp("dlsym failure on %s\n", path);
 			free(path);
 			continue;
 		}
@@ -270,9 +270,9 @@ static void handle_one_command(struct tcmu_device *dev,
 			(size_t)ent->req.iov[i].iov_base;
 
 	for (i = 0; i < (short_cdb ? 6 : 10); i++) {
-		printf("%x ", cdb[i]);
+		dbgp("%x ", cdb[i]);
 	}
-	printf("\n");
+	dbgp("\n");
 
 	result = dev->handler->handle_cmd(dev, cdb, ent->req.iov,
 					  ent->req.iov_cnt, tmp_sense_buf);
@@ -302,7 +302,7 @@ static void poke_kernel(int fd)
 	uint32_t buf = 0xabcdef12;
 
 	if (write(fd, &buf, 4) != 4)
-		printf("poke_kernel write error\n");
+		errp("poke_kernel write error\n");
 }
 
 static int handle_device_events(struct tcmu_device *dev)
@@ -359,14 +359,14 @@ static void *thread_start(void *arg)
 		int ret = read(dev->fd, buf, 4);
 
 		if (ret != 4) {
-			printf("read didn't get 4! thread terminating\n");
+			errp("read didn't get 4! thread terminating\n");
 			break;
 		}
 
 		handle_device_events(dev);
 	}
 
-	printf("thread terminating, should never happen\n");
+	errp("thread terminating, should never happen\n");
 
 	pthread_cleanup_pop(1);
 
@@ -386,7 +386,7 @@ static int add_device(char *dev_name, char *cfgstring)
 
 	dev = calloc(1, sizeof(*dev));
 	if (!dev) {
-		printf("calloc failed in add_device\n");
+		errp("calloc failed in add_device\n");
 		return -1;
 	}
 
@@ -396,12 +396,12 @@ static int add_device(char *dev_name, char *cfgstring)
 	oldptr = cfgstring;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		printf("invalid cfgstring\n");
+		errp("invalid cfgstring\n");
 		goto err_free;
 	}
 
 	if (strncmp(cfgstring, "tcm-user", ptr-oldptr)) {
-		printf("invalid cfgstring\n");
+		errp("invalid cfgstring\n");
 		goto err_free;
 	}
 
@@ -409,7 +409,7 @@ static int add_device(char *dev_name, char *cfgstring)
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		printf("invalid cfgstring\n");
+		errp("invalid cfgstring\n");
 		goto err_free;
 	}
 	len = ptr-oldptr;
@@ -419,7 +419,7 @@ static int add_device(char *dev_name, char *cfgstring)
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		printf("invalid cfgstring\n");
+		errp("invalid cfgstring\n");
 		goto err_free;
 	}
 	len = ptr-oldptr;
@@ -434,60 +434,60 @@ static int add_device(char *dev_name, char *cfgstring)
 
 	dev->fd = open(str_buf, O_RDWR);
 	if (dev->fd == -1) {
-		printf("could not open %s\n", str_buf);
+		errp("could not open %s\n", str_buf);
 		goto err_free;
 	}
 
 	snprintf(str_buf, sizeof(str_buf), "/sys/class/uio/%s/maps/map0/size", dev->dev_name);
 	fd = open(str_buf, O_RDONLY);
 	if (fd == -1) {
-		printf("could not open %s\n", str_buf);
+		errp("could not open %s\n", str_buf);
 		goto err_fd_close;
 	}
 
 	ret = read(fd, str_buf, sizeof(str_buf));
 	close(fd);
 	if (ret <= 0) {
-		printf("could not read size of map0\n");
+		errp("could not read size of map0\n");
 		goto err_fd_close;
 	}
 	str_buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
 
 	dev->map_len = strtoull(str_buf, NULL, 0);
 	if (dev->map_len == ULLONG_MAX) {
-		printf("could not get map length\n");
+		errp("could not get map length\n");
 		goto err_fd_close;
 	}
 
 	dev->map = mmap(NULL, dev->map_len, PROT_READ|PROT_WRITE, MAP_SHARED, dev->fd, 0);
 	if (dev->map == MAP_FAILED) {
-		printf("could not mmap: %m\n");
+		errp("could not mmap: %m\n");
 		goto err_fd_close;
 	}
 
 	mb = dev->map;
 	if (mb->version != KERN_IFACE_VER) {
-		printf("Kernel interface version mismatch: wanted %d got %d\n",
-		       KERN_IFACE_VER, mb->version);
+		errp("Kernel interface version mismatch: wanted %d got %d\n",
+		    KERN_IFACE_VER, mb->version);
 		goto err_munmap;
 	}
 
 	dev->handler = find_handler(dev->cfgstring);
 	if (!dev->handler) {
-		printf("could not find handler for %s\n", dev->dev_name);
+		errp("could not find handler for %s\n", dev->dev_name);
 		goto err_munmap;
 	}
 
 	ret = dev->handler->open(dev);
 	if (ret < 0) {
-		printf("handler open failed for %s\n", dev->dev_name);
+		errp("handler open failed for %s\n", dev->dev_name);
 		goto err_munmap;
 	}
 
 	/* dev will be freed by the new thread */
 	ret = pthread_create(&thread.thread_id, NULL, thread_start, dev);
 	if (ret) {
-		printf("Could not start thread\n");
+		errp("Could not start thread\n");
 		goto err_handler_close;
 	}
 
@@ -514,18 +514,18 @@ static void cancel_thread(pthread_t thread)
 
 	ret = pthread_cancel(thread);
 	if (ret) {
-		printf("pthread_cancel failed with value %d\n", ret);
+		errp("pthread_cancel failed with value %d\n", ret);
 		return;
 	}
 
 	ret = pthread_join(thread, &join_retval);
 	if (ret) {
-		printf("pthread_join failed with value %d\n", ret);
+		errp("pthread_join failed with value %d\n", ret);
 		return;
 	}
 
 	if (join_retval != PTHREAD_CANCELED)
-		printf("unexpected join retval: %p\n", join_retval);
+		errp("unexpected join retval: %p\n", join_retval);
 }
 
 static void remove_device(char *dev_name, char *cfgstring)
@@ -544,7 +544,7 @@ static void remove_device(char *dev_name, char *cfgstring)
 	}
 
 	if (!found) {
-		printf("could not remove device %s: not found\n", dev_name);
+		errp("could not remove device %s: not found\n", dev_name);
 		return;
 	}
 
@@ -567,13 +567,13 @@ static int is_uio(const struct dirent *dirent)
 
 	fd = open(tmp_path, O_RDONLY);
 	if (fd == -1) {
-		printf("could not open %s!\n", tmp_path);
+		errp("could not open %s!\n", tmp_path);
 		return 0;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	if (ret <= 0 || ret >= sizeof(buf)) {
-		printf("read of %s had issues\n", tmp_path);
+		errp("read of %s had issues\n", tmp_path);
 		return 0;
 	}
 	buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
@@ -608,14 +608,14 @@ static int open_devices(void)
 
 		fd = open(tmp_path, O_RDONLY);
 		if (fd == -1) {
-			printf("could not open %s!\n", tmp_path);
+			errp("could not open %s!\n", tmp_path);
 			continue;
 		}
 
 		ret = read(fd, buf, sizeof(buf));
 		close(fd);
 		if (ret <= 0 || ret >= sizeof(buf)) {
-			printf("read of %s had issues\n", tmp_path);
+			errp("read of %s had issues\n", tmp_path);
 			continue;
 		}
 		buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
@@ -638,7 +638,7 @@ static void sighandler(int signal)
 {
 	struct tcmu_thread *thread;
 
-	printf("signal %d received!\n", signal);
+	errp("signal %d received!\n", signal);
 
 	darray_foreach(thread, threads) {
 		cancel_thread(thread->thread_id);
@@ -660,7 +660,7 @@ gboolean nl_callback(GIOChannel *source,
 
 	ret = nl_recvmsgs_default(nl_sock);
 	if (ret < 0) {
-		printf("nl_recvmsgs_default poll returned %d", ret);
+		errp("nl_recvmsgs_default poll returned %d", ret);
 		exit(1);
 	}
 
@@ -702,7 +702,7 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 	struct tcmu_handler *handler;
 	GDBusObjectSkeleton *object;
 
-	printf("bus %s acquired\n", name);
+	dbgp("bus %s acquired\n", name);
 
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
@@ -737,14 +737,14 @@ static void dbus_name_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
-	printf("name %s acquired\n", name);
+	dbgp("name %s acquired\n", name);
 }
 
 static void dbus_name_lost(GDBusConnection *connection,
 			   const gchar *name,
 			   gpointer user_data)
 {
-	printf("name lost\n");
+	dbgp("name lost\n");
 }
 
 int load_our_module(void) {
@@ -754,7 +754,7 @@ int load_our_module(void) {
 
 	ctx = kmod_new(NULL, NULL);
 	if (!ctx) {
-		printf("kmod_new() failed\n");
+		errp("kmod_new() failed\n");
 		return -1;
 	}
 
@@ -769,12 +769,12 @@ int load_our_module(void) {
 			mod, KMOD_PROBE_APPLY_BLACKLIST, 0, 0, 0, 0);
 
 		if (err != 0) {
-			printf("kmod_module_probe_insert_module() for %s failed\n",
-			       kmod_module_get_name(mod));
+			errp("kmod_module_probe_insert_module() for %s failed\n",
+			    kmod_module_get_name(mod));
 			return -1;
 		}
 
-		printf("Module %s inserted\n", kmod_module_get_name(mod));
+		dbgp("Module %s inserted\n", kmod_module_get_name(mod));
 
 		kmod_module_unref(mod);
 	}
@@ -821,13 +821,10 @@ int main(int argc, char **argv)
 
 		switch (c) {
 		case 0:
-			if (option_index == 1) {
-				printf("handler path set to %s\n", optarg);
+			if (option_index == 1)
 				handler_path = strdup(optarg);
-			}
 			break;
 		case 'd':
-			printf("enabling debug messages\n");
 			debug = true;
 			break;
 		case 'V':
@@ -843,35 +840,37 @@ int main(int argc, char **argv)
 		}
 	}
 
+	dbgp("handler path: %s\n", handler_path);
+
 	ret = load_our_module();
 	if (ret < 0) {
-		printf("couldn't load module\n");
+		errp("couldn't load module\n");
 		exit(1);
 	}
 
 	nl_sock = setup_netlink();
 	if (!nl_sock) {
-		printf("couldn't setup netlink\n");
+		errp("couldn't setup netlink\n");
 		exit(1);
 	}
 
 	ret = open_handlers();
 	if (ret < 0) {
-		printf("couldn't open handlers\n");
+		errp("couldn't open handlers\n");
 		exit(1);
 	}
-	printf("%d handlers found\n", ret);
+	dbgp("%d handlers found\n", ret);
 
 	ret = open_devices();
 	if (ret < 0) {
-		printf("couldn't open devices\n");
+		errp("couldn't open devices\n");
 		exit(1);
 	}
-	printf("%d devices found\n", ret);
+	dbgp("%d devices found\n", ret);
 
 	ret = sigaction(SIGINT, &tcmu_sigaction, NULL);
 	if (ret) {
-		printf("couldn't set sigaction\n");
+		errp("couldn't set sigaction\n");
 		exit(1);
 	}
 
@@ -893,7 +892,7 @@ int main(int argc, char **argv)
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 
-	printf("Exiting...\n");
+	dbgp("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
 

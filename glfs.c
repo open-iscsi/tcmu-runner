@@ -123,7 +123,7 @@ fail:
 do { 								\
 	int attribute = tcmu_get_attribute(dev, name); 		\
 	if (attribute == -1) {					\
-		printf("Could not get %s setting\n", #name);	\
+		errp("Could not get %s setting\n", #name);	\
 		goto fail;					\
 	} else {						\
 		(r_value) = (attribute) ? true: false;		\
@@ -175,7 +175,7 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	size = tcmu_get_device_size(dev);
 	if (size == -1) {
-		printf("Could not get device size\n");
+		errp("Could not get device size\n");
 		goto fail;
 	}
 
@@ -183,19 +183,19 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	config = strchr(dev->cfgstring, '/');
 	if (!config) {
-		printf("no configuration found in cfgstring\n");
+		errp("no configuration found in cfgstring\n");
 		goto fail;
 	}
 	config += 1; /* get past '/' */
 
 	if (parse_imagepath(config, &gfsp->servername, &gfsp->volname, &gfsp->pathname) == -1) {
-		printf("servername, volname, or pathname not set\n");
+		errp("servername, volname, or pathname not set\n");
 		goto fail;
 	}
 
 	gfsp->fs = glfs_new(gfsp->volname);
 	if (!gfsp->fs) {
-		printf("glfs_new failed\n");
+		errp("glfs_new failed\n");
 		goto fail;
 	}
 
@@ -204,24 +204,24 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	ret = glfs_init(gfsp->fs);
 	if (ret) {
-		printf("glfs_init failed\n");
+		errp("glfs_init failed\n");
 		goto fail;
 	}
 
 	gfsp->gfd = glfs_open(gfsp->fs, gfsp->pathname, ALLOWED_BSOFLAGS);
 	if (!gfsp->gfd) {
-		printf("glfs_open failed\n");
+		errp("glfs_open failed\n");
 		goto fail;
 	}
 
 	ret = glfs_lstat(gfsp->fs, gfsp->pathname, &st);
 	if (ret) {
-		printf("glfs_lstat failed\n");
+		errp("glfs_lstat failed\n");
 		goto fail;
 	}
 
 	if (st.st_size != tcmu_get_device_size(dev)) {
-		printf("device size and backing size disagree: "
+		errp("device size and backing size disagree: "
 		       "device %lld backing %lld",
 		       tcmu_get_device_size(dev),
 		       (long long) st.st_size);
@@ -433,7 +433,7 @@ write:
 				break;
 			default:
 				/* FIXME */
-				printf("PBDATA and LBDATA set!!!\n");
+				errp("PBDATA and LBDATA set!!!\n");
 			}
 
 			ret = glfs_pwritev(gfd, iovec, blocksize,
@@ -454,7 +454,7 @@ write:
 		ret = glfs_preadv(gfd, iovec, iov_cnt, offset, SEEK_SET);
 
 		if (ret != length) {
-			printf("Error on read %x %x", ret, length);
+			errp("Error on read %x %x", ret, length);
 			result = set_medium_error(sense);
 		}
 		break;
@@ -474,11 +474,11 @@ write:
 		break;
 	}
 
-	printf("io done %p %x %d %u\n", cdb, cmd, result, length);
+	dbgp("io done %p %x %d %u\n", cdb, cmd, result, length);
 
 	if (result != SAM_STAT_GOOD) {
-		printf("io error %p %x %x %d %d %llu\n",
-		       cdb, result, cmd, ret, length, (unsigned long long)offset);
+		errp("io error %p %x %x %d %d %llu\n",
+		     cdb, result, cmd, ret, length, (unsigned long long)offset);
 	}
 
 	return result;

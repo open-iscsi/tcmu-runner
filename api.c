@@ -17,6 +17,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -36,6 +37,27 @@
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
+extern bool debug;
+
+void dbgp(const char *fmt, ...)
+{
+	if (debug) {
+		va_list va;
+		va_start(va, fmt);
+		vprintf(fmt, va);
+		va_end(va);
+	}
+}
+
+void errp(const char *fmt, ...)
+{
+	va_list va;
+
+	va_start(va, fmt);
+	vfprintf(stderr, fmt, va);
+	va_end(va);
+}
+
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 {
 	int fd;
@@ -49,20 +71,20 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		printf("Could not open configfs to read attribute %s\n", name);
+		errp("Could not open configfs to read attribute %s\n", name);
 		return -1;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	close(fd);
 	if (ret == -1) {
-		printf("Could not read configfs to read attribute %s\n", name);
+		errp("Could not read configfs to read attribute %s\n", name);
 		return -1;
 	}
 
 	val = strtoul(buf, NULL, 0);
 	if (val == ULONG_MAX) {
-		printf("could not convert string to value\n");
+		errp("could not convert string to value\n");
 		return -1;
 	}
 
@@ -89,14 +111,14 @@ static char *tcmu_get_wwn(struct tcmu_device *dev)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		printf("Could not open configfs to read unit serial\n");
+		errp("Could not open configfs to read unit serial\n");
 		return NULL;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	close(fd);
 	if (ret == -1) {
-		printf("Could not read configfs to read unit serial\n");
+		errp("Could not read configfs to read unit serial\n");
 		return NULL;
 	}
 
@@ -106,7 +128,7 @@ static char *tcmu_get_wwn(struct tcmu_device *dev)
 	/* Skip to the good stuff */
 	ret = asprintf(&ret_buf, "%s", &buf[28]);
 	if (ret == -1) {
-		printf("could not convert string to value\n");
+		errp("could not convert string to value\n");
 		return NULL;
 	}
 
@@ -127,28 +149,28 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		printf("Could not open configfs to read dev info\n");
+		errp("Could not open configfs to read dev info\n");
 		return -1;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	close(fd);
 	if (ret == -1) {
-		printf("Could not read configfs to read dev info\n");
+		errp("Could not read configfs to read dev info\n");
 		return -1;
 	}
 	buf[sizeof(buf)-1] = '\0'; /* paranoid? Ensure null terminated */
 
 	rover = strstr(buf, " Size: ");
 	if (!rover) {
-		printf("Could not find \" Size: \" in %s\n", path);
+		errp("Could not find \" Size: \" in %s\n", path);
 		return -1;
 	}
 	rover += 7; /* get to the value */
 
 	size = strtoull(rover, NULL, 0);
 	if (size == ULLONG_MAX) {
-		printf("Could not get size\n");
+		errp("Could not get size\n");
 		return -1;
 	}
 

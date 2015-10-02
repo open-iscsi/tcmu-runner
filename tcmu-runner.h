@@ -92,6 +92,9 @@ size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src, si
 size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec, size_t iov_cnt);
 size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
 
+void dbgp(const char *fmt, ...);
+void errp(const char *fmt, ...);
+
 /*
  * Basic implementations of mandatory SCSI commands that handlers can call if
  * they want.

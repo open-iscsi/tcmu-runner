@@ -370,7 +370,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 	if (qcow_setup_backing_file(bdev, &header) == -1)
 		goto fail;
 
-	printf("%d: %s\n", bdev->fd, pathname);
+	dbgp("%d: %s\n", bdev->fd, pathname);
 	return 0;
 fail:
 	close(bdev->fd);
@@ -707,7 +707,7 @@ static int raw_probe(struct bdev *bdev, int dirfd, const char *pathname)
 static int raw_image_open(struct bdev *bdev, int dirfd, const char *pathname, int flags)
 {
 	bdev->fd = openat(dirfd, pathname, flags);
-	printf("%d: %s\n", bdev->fd, pathname);
+	dbgp("%d: %s\n", bdev->fd, pathname);
 	return bdev->fd;
 }
 

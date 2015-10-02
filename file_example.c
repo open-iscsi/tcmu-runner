@@ -88,13 +88,13 @@ static int file_open(struct tcmu_device *dev)
 
 	state->block_size = tcmu_get_attribute(dev, "hw_block_size");
 	if (state->block_size == -1) {
-		printf("Could not get device block size\n");
+		errp("Could not get device block size\n");
 		goto err;
 	}
 
 	size = tcmu_get_device_size(dev);
 	if (size == -1) {
-		printf("Could not get device size\n");
+		errp("Could not get device size\n");
 		goto err;
 	}
 
@@ -102,14 +102,14 @@ static int file_open(struct tcmu_device *dev)
 
 	config = strchr(dev->cfgstring, '/');
 	if (!config) {
-		printf("no configuration found in cfgstring\n");
+		errp("no configuration found in cfgstring\n");
 		goto err;
 	}
 	config += 1; /* get past '/' */
 
 	state->fd = open(config, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
 	if (state->fd == -1) {
-		printf("could not open %s: %m\n", config);
+		errp("could not open %s: %m\n", config);
 		goto err;
 	}
 
@@ -184,7 +184,7 @@ static int file_handle_cmd(
 
 		ret = lseek(state->fd, offset, SEEK_SET);
 		if (ret == -1) {
-			printf("lseek failed: %m\n");
+			errp("lseek failed: %m\n");
 			return set_medium_error(sense);
 		}
 
@@ -196,7 +196,7 @@ static int file_handle_cmd(
 
 		ret = read(state->fd, buf, length);
 		if (ret == -1) {
-			printf("read failed: %m\n");
+			errp("read failed: %m\n");
 			free(buf);
 			return set_medium_error(sense);
 		}
@@ -218,7 +218,7 @@ static int file_handle_cmd(
 
 		ret = lseek(state->fd, offset, SEEK_SET);
 		if (ret == -1) {
-			printf("lseek failed: %m\n");
+			errp("lseek failed: %m\n");
 			return set_medium_error(sense);
 		}
 
@@ -231,7 +231,7 @@ static int file_handle_cmd(
 
 			ret = write(state->fd, iovec->iov_base, to_copy);
 			if (ret == -1) {
-				printf("Could not write: %m\n");
+				errp("Could not write: %m\n");
 				return set_medium_error(sense);
 			}
 
@@ -243,7 +243,7 @@ static int file_handle_cmd(
 	}
 	break;
 	default:
-		printf("unknown command %x\n", cdb[0]);
+		errp("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
 }
