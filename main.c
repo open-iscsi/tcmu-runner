@@ -38,6 +38,7 @@
 #include <signal.h>
 #include <glib.h>
 #include <gio/gio.h>
+#include <getopt.h>
 
 #include <libnl3/netlink/genl/genl.h>
 #include <libnl3/netlink/genl/mngt.h>
@@ -53,9 +54,12 @@
 
 #define KERN_IFACE_VER 2
 
-#ifndef HANDLER_PATH
-#define HANDLER_PATH "/usr/lib64/tcmu-runner"
+#ifndef DEFAULT_HANDLER_PATH
+#define DEFAULT_HANDLER_PATH "/usr/lib64/tcmu-runner"
 #endif
+
+char *handler_path = DEFAULT_HANDLER_PATH;
+bool debug = false;
 
 darray(struct tcmu_handler) handlers = darray_new();
 
@@ -188,7 +192,7 @@ static int open_handlers(void)
 	int num_good = 0;
 	int i;
 
-	num_handlers = scandir(HANDLER_PATH, &dirent_list, is_handler, alphasort);
+	num_handlers = scandir(handler_path, &dirent_list, is_handler, alphasort);
 
 	if (num_handlers == -1)
 		return -1;
@@ -199,7 +203,7 @@ static int open_handlers(void)
 		void (*handler_init)(void);
 		int ret;
 
-		ret = asprintf(&path, "%s/%s", HANDLER_PATH, dirent_list[i]->d_name);
+		ret = asprintf(&path, "%s/%s", handler_path, dirent_list[i]->d_name);
 		if (ret == -1) {
 			printf("ENOMEM\n");
 			continue;
@@ -778,13 +782,47 @@ int load_our_module(void) {
 	return 0;
 }
 
-int main()
+static struct option long_options[] = {
+	{"debug", no_argument, 0, 'd'},
+	{"handler-path", required_argument, 0, 0},
+	{0, 0, 0, 0},
+};
+
+int main(int argc, char **argv)
 {
 	struct nl_sock *nl_sock;
 	int ret;
 	GMainLoop *loop;
 	GIOChannel *nl_gio;
 	guint reg_id;
+	int c;
+
+	while (1) {
+            int this_option_optind = optind ? optind : 1;
+               int option_index = 0;
+
+               c = getopt_long(argc, argv, "d",
+			       long_options, &option_index);
+               if (c == -1)
+		       break;
+
+	       switch (c) {
+	       case 0:
+		       if (option_index == 1) {
+			       printf("handler path set to %s\n", optarg);
+			       handler_path = strdup(optarg);
+		       }
+		       break;
+	       case 'd':
+		       printf("enabling debug messages\n");
+		       debug = true;
+		       break;
+	       default:
+		       printf("getopt parse failure, exiting\n");
+		       return 1;
+	       }
+
+	}
 
 	printf("tcmu-runner %d.%d.%d\n",
 	       TCMUR_VERSION_MAJOR, TCMUR_VERSION_MINOR, TCMUR_VERSION_PATCHLEVEL);
