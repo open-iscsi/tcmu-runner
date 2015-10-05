@@ -45,10 +45,12 @@
 #include <scsi/scsi.h>
 
 #include <zlib.h>
+//#include <glib.h>
 
 #include "tcmu-runner.h"
 #include "scsi_defs.h"
 #include "qcow.h"
+#include "qcow2.h"
 
 #define min(a,b) ({ \
   __typeof__ (a) _a = (a); \
@@ -68,6 +70,7 @@
 
 struct bdev_ops;
 static struct bdev_ops qcow_ops;
+static struct bdev_ops qcow2_ops;
 static struct bdev_ops raw_ops;
 
 struct bdev {
@@ -95,6 +98,7 @@ static int bdev_open(struct bdev *bdev, int dirfd, const char *pathname, int fla
 {
 	struct bdev_ops *bdev_ops[] = {
 		&qcow_ops,
+		&qcow2_ops,
 		&raw_ops,
 		NULL,
 	};
@@ -154,6 +158,37 @@ static void qcow_header_bswap(struct qcow_header *be, struct qcow_header *dst)
 	dst->l1_table_offset = be64toh(be->l1_table_offset);
 }
 
+static void qcow2_header_bswap(struct qcow2_header *be, struct qcow2_header *dst)
+{
+	dst->magic = be32toh(be->magic);
+	dst->version = be32toh(be->version);
+	dst->backing_file_offset = be64toh(be->backing_file_offset);
+	dst->backing_file_size = be32toh(be->backing_file_size);
+	dst->cluster_bits = be32toh(be->cluster_bits);
+	dst->size = be64toh(be->size) /* in bytes */;
+	dst->crypt_method = be32toh(be->crypt_method);
+	dst->l1_size = be32toh(be->l1_size);
+	dst->l1_table_offset = be64toh(be->l1_table_offset);
+	dst->refcount_table_offset = be64toh(be->refcount_table_offset);
+	dst->refcount_table_clusters = be32toh(be->refcount_table_clusters);
+	dst->nb_snapshots = be32toh(be->nb_snapshots);
+	dst->snapshots_offset = be64toh(be->snapshots_offset);
+	if (dst->version == 2) {
+		/* The following fields are only valid for version >= 3 */
+		dst->incompatible_features = 0;
+		dst->compatible_features = 0;
+		dst->autoclear_features = 0;
+		dst->refcount_order = 4;
+		dst->header_length = 72;
+	} else {
+		dst->incompatible_features = be64toh(be->incompatible_features);
+		dst->compatible_features = be64toh(be->compatible_features);
+		dst->autoclear_features = be64toh(be->autoclear_features);
+		dst->refcount_order = be32toh(be->refcount_order);
+		dst->header_length = be32toh(be->header_length);
+	}
+}
+
 struct qcow_state
 {
 	int fd;
@@ -175,6 +210,9 @@ struct qcow_state
 	uint8_t *cluster_data;
 	uint64_t cluster_cache_offset;
 	struct bdev *backing_image;
+	uint64_t cluster_compressed;
+	uint64_t cluster_copied;
+	uint64_t cluster_mask;
 };
 
 static int qcow_probe(struct bdev *bdev, int dirfd, const char *pathname)
@@ -185,13 +223,44 @@ static int qcow_probe(struct bdev *bdev, int dirfd, const char *pathname)
 	    uint32_t version;
 	} head;
 
+	fprintf(stderr, "%s\n", __func__);
+
 	if (faccessat(dirfd, pathname, R_OK|W_OK, AT_EACCESS) == -1)
 		return -1;
 	if ((fd = openat(dirfd, pathname, O_RDONLY)) == -1)
 		return -1;
 	if (pread(fd, &head, sizeof(head), 0) == -1)
 		goto err;
-	if ((be32toh(head.magic) != QCOW_MAGIC) || (be32toh(head.version) != 1))
+	if (be32toh(head.magic) != QCOW_MAGIC)
+		goto err;
+	if (be32toh(head.version) != 1)
+		goto err;
+	close(fd);
+	return 0;
+err:
+	close(fd);
+	return -1;
+}
+
+static int qcow2_probe(struct bdev *bdev, int dirfd, const char *pathname)
+{
+	int fd;
+	struct {
+	    uint32_t magic;
+	    uint32_t version;
+	} head;
+
+	fprintf(stderr, "%s\n", __func__);
+
+	if (faccessat(dirfd, pathname, R_OK|W_OK, AT_EACCESS) == -1)
+		return -1;
+	if ((fd = openat(dirfd, pathname, O_RDONLY)) == -1)
+		return -1;
+	if (pread(fd, &head, sizeof(head), 0) == -1)
+		goto err;
+	if (be32toh(head.magic) != QCOW_MAGIC)
+		goto err;
+	if (be32toh(head.version) < 2)
 		goto err;
 	close(fd);
 	return 0;
@@ -222,6 +291,35 @@ static int qcow_validate_header(struct qcow_header *header)
 		case QCOW_CRYPT_NONE:
 			break;
 		case QCOW_CRYPT_AES:
+			fprintf(stderr, "QCOW AES-CBC encryption has been deprecated\n");
+			fprintf(stderr, "Convert to unencrypted image using qemu-img\n");
+			 return -1;
+		default:
+			fprintf(stderr, "Invalid encryption value %d\n", header->crypt_method);
+			 return -1;
+	}
+	return 0;
+}
+
+static int qcow2_validate_header(struct qcow2_header *header)
+{
+	/* TODO check other stuff ... L1, refcount, snapshots */
+	if (header->magic != QCOW_MAGIC) {
+		fprintf(stderr, "header is not QCOW\n");
+		 return -1;
+	}
+	if (header->version < 2) {
+		fprintf(stderr, "version is %d, expected 2 or 3\n", header->version);
+		 return -1;
+	}
+	if (header->cluster_bits < 9 || header->cluster_bits > 16) {
+		fprintf(stderr, "bad cluster_bits = %d\n", header->cluster_bits);
+		 return -1;
+	}
+	switch (header->crypt_method) {
+		case QCOW2_CRYPT_NONE:
+			break;
+		case QCOW2_CRYPT_AES:
 			fprintf(stderr, "QCOW AES-CBC encryption has been deprecated\n");
 			fprintf(stderr, "Convert to unencrypted image using qemu-img\n");
 			 return -1;
@@ -282,6 +380,13 @@ fail:
 	free(s->backing_image);
 	s->backing_image = NULL;
 	return -1;
+}
+
+static int qcow2_setup_backing_file(struct bdev *bdev, struct qcow2_header *header)
+{
+	/* backing file info is at the same place in both headers,
+	 * so we can cheat and use this for qcow2 also */
+	return qcow_setup_backing_file(bdev, (struct qcow_header *) header);
 }
 
 static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, int flags)
@@ -353,6 +458,120 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 		fprintf(stderr, "Failed to read L1 table\n");
 		goto fail;
 	}
+
+	s->l2_cache = calloc(L2_CACHE_SIZE, s->l2_size * sizeof(uint64_t));
+	if (s->l2_cache == NULL) {
+		fprintf(stderr, "Failed to allocate L2 cache\n");
+		goto fail;
+	}
+
+	/* refcount table */
+	s->refcount_table_offset = header.refcount_table_offset;
+	s->refcount_table_size = header.refcount_table_clusters << (s->cluster_bits - 3);
+	/* TODO : needs cached access like l2 */
+
+	/* cluster decompression cache */
+	s->cluster_cache = calloc(1, s->cluster_size);
+	s->cluster_data = calloc(1, s->cluster_size);
+	s->cluster_cache_offset = -1;
+	if (!s->cluster_cache || !s->cluster_data) {
+		fprintf(stderr, "Failed to allocate cluster decompression space\n");
+		goto fail;
+	}
+
+	if (qcow_setup_backing_file(bdev, &header) == -1)
+		goto fail;
+
+	s->cluster_compressed = QCOW_OFLAG_COMPRESSED;
+	s->cluster_mask = ~QCOW_OFLAG_COMPRESSED;
+
+	dbgp("%d: %s\n", bdev->fd, pathname);
+	return 0;
+fail:
+	close(bdev->fd);
+	free(s->cluster_cache);
+	free(s->cluster_data);
+	free(s->l2_cache);
+	free(s->l1_table);
+fail_nofd:
+	free(s);
+	return -1;
+}
+
+static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, int flags)
+{
+	struct qcow2_header buf;
+	struct qcow2_header header;
+	struct qcow_state *s;
+	uint64_t l1_size;
+	unsigned int shift;
+	ssize_t read;
+
+	s = calloc(1, sizeof(struct qcow_state));
+	if (!s)
+		return -1;
+	bdev->private = s;
+
+	bdev->fd = openat(dirfd, pathname, flags);
+	s->fd = bdev->fd;
+	if (bdev->fd == -1) {
+		fprintf(stderr, "Failed to open file: %s\n", pathname);
+		goto fail_nofd;
+	}
+
+	pread(bdev->fd, &buf, sizeof(buf), 0);
+	qcow2_header_bswap(&buf, &header);
+	if (qcow2_validate_header(&header) < 0)
+		goto fail;
+
+	if (bdev->size != header.size) {
+		fprintf(stderr, "size misconfigured, TCMU says %" PRId64
+				" but image says %" PRId64 "\n",
+				bdev->size, header.size);
+		goto fail;
+	}
+	if (bdev->block_size != 512) {
+		fprintf(stderr, "block_size misconfigured, TCMU says %" PRId32
+				" but qcow only supports 512\n",
+				bdev->block_size);
+		goto fail;
+	}
+
+	s->cluster_bits = header.cluster_bits;
+	s->cluster_size = 1 << s->cluster_bits;
+	s->cluster_sectors = 1 << (s->cluster_bits - 9);
+	s->l2_bits = s->cluster_bits - 3;	// L2 table is always 1 cluster in size (8 (2^3) byte entries)
+	s->l2_size = 1 << s->l2_bits;
+	s->cluster_offset_mask = (1LL << (63 - s->cluster_bits)) - 1;
+
+	shift = s->cluster_bits + s->l2_bits;
+	if (header.size > UINT64_MAX - (1LL << shift)) {
+		fprintf(stderr, "Image size too big\n");
+		goto fail;
+	}
+	l1_size = (header.size + (1LL << shift) - 1) >> shift;
+	if (l1_size > INT_MAX / sizeof(uint64_t)) {
+		fprintf(stderr, "Image size too big\n");
+		goto fail;
+	}
+	s->l1_size = l1_size;
+	// why did they add this to qcow2 ?
+	if (header.l1_size != s->l1_size) {
+		fprintf(stderr, "WTF L1\n");
+		goto fail;
+	}
+	s->l1_table_offset = header.l1_table_offset;
+
+	s->l1_table = calloc(1, s->l1_size * sizeof(uint64_t));
+	if (!s->l1_table) {
+		fprintf(stderr, "Failed to allocate L1 table\n");
+		goto fail;
+	}
+	read = pread(bdev->fd, s->l1_table, s->l1_size * sizeof(uint64_t), s->l1_table_offset);
+	if (read != s->l1_size * sizeof(uint64_t)) {
+		fprintf(stderr, "Failed to read L1 table\n");
+		goto fail;
+	}
 	s->l2_cache = calloc(L2_CACHE_SIZE, s->l2_size * sizeof(uint64_t));
 	if (s->l2_cache == NULL) {
 		fprintf(stderr, "Failed to allocate L2 cache\n");
@@ -367,8 +586,12 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 		goto fail;
 	}
 
-	if (qcow_setup_backing_file(bdev, &header) == -1)
+	if (qcow2_setup_backing_file(bdev, &header) == -1)
 		goto fail;
+
+	s->cluster_compressed = QCOW2_OFLAG_COMPRESSED;
+	s->cluster_copied =  QCOW2_OFLAG_COPIED;
+	s->cluster_mask = ~(QCOW_OFLAG_COMPRESSED | QCOW2_OFLAG_COPIED);
 
 	dbgp("%d: %s\n", bdev->fd, pathname);
 	return 0;
@@ -557,7 +780,8 @@ static uint64_t get_cluster_offset(struct qcow_state *s, uint64_t offset, bool a
 	uint64_t cluster_offset;
 
 	l1_index = offset >> (s->l2_bits + s->cluster_bits);
-	l2_offset = be64toh(s->l1_table[l1_index]);
+	l2_offset = be64toh(s->l1_table[l1_index]) & s->cluster_mask;
+	printf("l2 offset = %" PRIx64 "\n", l2_offset);
 
 	if (!l2_offset) {
 		if (!allocate || !(l2_offset = l2_table_alloc(s)))
@@ -570,13 +794,16 @@ static uint64_t get_cluster_offset(struct qcow_state *s, uint64_t offset, bool a
 		return 0;
 
 	l2_index = (offset >> s->cluster_bits) & (s->l2_size - 1);
-	cluster_offset = be64toh(l2_table[l2_index]);
+	cluster_offset = be64toh(l2_table[l2_index]) & s->cluster_mask;
+	printf("cluster offset = %" PRIx64 "\n", cluster_offset);
 
 	if (!cluster_offset) {
-		if (!allocate || !(cluster_offset = data_cluster_alloc(s)))
+		if (!allocate || !(cluster_offset = data_cluster_alloc(s))) {
+			printf("cluster not found\n");
 			return 0;
+		}
 		l2_table_update(s, l2_table, l2_offset, l2_index, cluster_offset);
-	} else if ((cluster_offset & QCOW_OFLAG_COMPRESSED) && allocate) {
+	} else if ((cluster_offset & s->cluster_compressed) && allocate) {
 		/* reallocate a compressed cluster for writing */
 		if (decompress_cluster(s, cluster_offset) < 0)
 			return 0;
@@ -620,7 +847,7 @@ static ssize_t qcow_pread(struct bdev *bdev, void *buf, size_t count, off_t offs
 				if (read != n * 512)
 					break;
 			}
-		} else if (cluster_offset & QCOW_OFLAG_COMPRESSED) {
+		} else if (cluster_offset & s->cluster_compressed) {
 			if (decompress_cluster(s, cluster_offset) < 0) {
 				fprintf(stderr, "decompression failure\n");
 				return -1;
@@ -680,6 +907,9 @@ static ssize_t qcow_pwrite(struct bdev *bdev, const void *buf, size_t count, off
 		return -1;
 	return _buf - buf;
 }
+// TODO
+static ssize_t qcow2_pwrite(struct bdev *bdev, const void *buf, size_t count, off_t offset)
+{ return -1; }
 
 static struct bdev_ops qcow_ops = {
 	.probe = qcow_probe,
@@ -689,11 +919,21 @@ static struct bdev_ops qcow_ops = {
 	.pwrite = qcow_pwrite,
 };
 
+static struct bdev_ops qcow2_ops = {
+	.probe = qcow2_probe,
+	.open = qcow2_image_open,
+	.close = qcow_image_close,
+	.pread = qcow_pread,
+	.pwrite = qcow2_pwrite,
+};
+
 /* raw image support for backing files */
 
 static int raw_probe(struct bdev *bdev, int dirfd, const char *pathname)
 {
 	struct stat st;
+
+	fprintf(stderr, "%s\n", __func__);
 
 	if (faccessat(dirfd, pathname, R_OK, AT_EACCESS) == -1)
 		return -1;
