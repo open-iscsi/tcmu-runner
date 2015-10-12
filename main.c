@@ -54,10 +54,6 @@
 
 #define KERN_IFACE_VER 2
 
-#ifndef DEFAULT_HANDLER_PATH
-#define DEFAULT_HANDLER_PATH "/usr/lib64/tcmu-runner"
-#endif
-
 char *handler_path = DEFAULT_HANDLER_PATH;
 bool debug = false;
 

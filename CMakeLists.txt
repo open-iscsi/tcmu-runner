@@ -1,20 +1,26 @@
 cmake_minimum_required (VERSION 2.6)
 project (tcmu-runner)
+include(FindLinuxPlatform.cmake)
 
 set (tcmur_VERSION_MAJOR 0)
 set (tcmur_VERSION_MINOR 9)
 set (tcmur_VERSION_PATCHLEVEL 0)
 
-# configure a header file to pass some of the CMake settings
-# to the source code
-configure_file (
-  "${PROJECT_SOURCE_DIR}/version.h.in"
-  "${PROJECT_BINARY_DIR}/version.h"
-  )
-
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
 
 # Stuff for building the main binary
+if ("${PLATFORM}" STREQUAL "Debian")
+  message(STATUS "Running on a Debian system")
+  set(tcmur_DEBIAN 1)
+  set(tcmur_REDHAT 0)
+  set(tcmur_HANDLER_PATH "/usr/lib/tcmu-runner")
+endif()
+if ("${PLATFORM}" STREQUAL "Redhat")
+  message(STATUS "Running on a Redhat system")
+  set(tcmur_DEBIAN 0)
+  set(tcmur_REDHAT 1)
+  set(tcmur_HANDLER_PATH "/usr/lib64/tcmu-runner")
+endif()
 add_executable(tcmu-runner
   main.c
   api.c
@@ -98,6 +104,13 @@ target_link_libraries(handler_glfs
 
 target_link_libraries(handler_qcow
   ${ZLIB_LIBRARIES}
+  )
+
+# stamp out a header file to pass some of the CMake settings
+# to the source code
+configure_file (
+  "${PROJECT_SOURCE_DIR}/version.h.in"
+  "${PROJECT_BINARY_DIR}/version.h"
   )
 
 add_custom_command(
