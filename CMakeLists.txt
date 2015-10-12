@@ -1,6 +1,13 @@
 cmake_minimum_required (VERSION 2.6)
 project (tcmu-runner)
-include(FindLinuxPlatform.cmake)
+
+if(EXISTS "/etc/debian_version")
+ set ( PLATFORM "Debian")
+endif(EXISTS "/etc/debian_version")
+
+if(EXISTS "/etc/redhat-release")
+  set ( PLATFORM "Redhat")
+endif(EXISTS "/etc/redhat-release")
 
 set (tcmur_VERSION_MAJOR 0)
 set (tcmur_VERSION_MINOR 9)
