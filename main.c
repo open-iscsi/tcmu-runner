@@ -157,7 +157,7 @@ static struct nl_sock *setup_netlink(void)
 
 	ret = genl_ctrl_resolve_grp(sock, "TCM-USER", "config");
 
-	printf("multicast id %d\n", ret);
+	dbgp("multicast id %d\n", ret);
 
 	ret = nl_socket_add_membership(sock, ret);
 	if (ret < 0) {
