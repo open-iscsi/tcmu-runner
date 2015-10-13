@@ -1,39 +1,66 @@
-cmake_minimum_required (VERSION 2.6)
-project (tcmu-runner)
-
-if(EXISTS "/etc/debian_version")
- set ( PLATFORM "Debian")
-endif(EXISTS "/etc/debian_version")
-
-if(EXISTS "/etc/redhat-release")
-  set ( PLATFORM "Redhat")
-endif(EXISTS "/etc/redhat-release")
-
-set (tcmur_VERSION_MAJOR 0)
-set (tcmur_VERSION_MINOR 9)
-set (tcmur_VERSION_PATCHLEVEL 0)
+cmake_minimum_required (VERSION 3.2 FATAL_ERROR)
+project (tcmu-runner VERSION 0.9.1 LANGUAGES C)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
 
+# Red Hat has a nonstandard lib64 location.
+if(EXISTS "/etc/redhat-release")
+  set(tcmu-runner_HANDLER_PATH "/usr/lib64/tcmu-runner")
+else()
+  set(tcmu-runner_HANDLER_PATH "/usr/lib/tcmu-runner")
+endif()
+
+
+find_library(LIBNL_LIB nl-3)
+find_library(LIBNL_GENL_LIB nl-genl-3)
+set(LIBNL_LIBS
+  ${LIBNL_LIB}
+  ${LIBNL_GENL_LIB}
+  )
+
+find_path (LIBNL_INCLUDE_DIR
+  NAMES
+  netlink/netlink.h
+  PATH_SUFFIXES
+  libnl3
+  )
+
+find_package(ZLIB REQUIRED)
+find_package(PkgConfig)
+pkg_check_modules(GLIB REQUIRED gio-unix-2.0)
+
+find_library(PTHREAD pthread)
+find_library(DL dl)
+find_library(KMOD kmod)
+find_library(GFAPI gfapi)
+
 # Stuff for building the main binary
-if ("${PLATFORM}" STREQUAL "Debian")
-  message(STATUS "Running on a Debian system")
-  set(tcmur_DEBIAN 1)
-  set(tcmur_REDHAT 0)
-  set(tcmur_HANDLER_PATH "/usr/lib/tcmu-runner")
-endif()
-if ("${PLATFORM}" STREQUAL "Redhat")
-  message(STATUS "Running on a Redhat system")
-  set(tcmur_DEBIAN 0)
-  set(tcmur_REDHAT 1)
-  set(tcmur_HANDLER_PATH "/usr/lib64/tcmu-runner")
-endif()
 add_executable(tcmu-runner
   main.c
   api.c
-  tcmuhandler-generated.c)
+  tcmuhandler-generated.c
+  )
 target_compile_options(tcmu-runner
   PUBLIC -fPIC -Wl,-E
+  )
+target_include_directories(tcmu-runner
+  PUBLIC ${PROJECT_BINARY_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
+  PUBLIC ${LIBNL_INCLUDE_DIR}
+  )
+target_link_libraries(tcmu-runner
+  ${LIBNL_LIB}
+  ${LIBNL_GENL_LIB}
+  ${GLIB_LIBRARIES}
+  ${PTHREAD}
+  ${DL}
+  ${KMOD}
+  )
+
+add_custom_command(
+  OUTPUT tcmuhandler-generated.c tcmuhandler-generated.h
+  COMMAND gdbus-codegen tcmu-handler.xml --generate-c-code tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
+  MAIN_DEPENDENCY tcmu-handler.xml
   )
 
 # Stuff for building the file handler
@@ -55,6 +82,9 @@ set_target_properties(handler_glfs
   PROPERTIES
   PREFIX ""
   )
+target_link_libraries(handler_glfs
+  ${GFAPI}
+  )
 
 # Stuff for building the qcow handler
 add_library(handler_qcow
@@ -65,50 +95,6 @@ set_target_properties(handler_qcow
   PROPERTIES
   PREFIX ""
   )
-
-find_library(LIBNL_LIB nl-3)
-find_library(LIBNL_GENL_LIB nl-genl-3)
-set(LIBNL_LIBS
-  ${LIBNL_LIB}
-  ${LIBNL_GENL_LIB}
-  )
-
-find_path (LIBNL_INCLUDE_DIR
-  NAMES
-  netlink/netlink.h
-  PATH_SUFFIXES
-  libnl3
-  )
-
-find_package(PkgConfig)
-pkg_check_modules(GLIB REQUIRED gio-unix-2.0)
-
-include_directories(
-  ${PROJECT_BINARY_DIR}
-  ${GLIB_INCLUDE_DIRS}
-  ${LIBNL_INCLUDE_DIR}
-  )
-
-find_library(PTHREAD pthread)
-find_library(DL dl)
-find_library(KMOD kmod)
-
-find_library(GFAPI gfapi)
-find_package(ZLIB REQUIRED)
-
-target_link_libraries(tcmu-runner
-  ${LIBNL_LIB}
-  ${LIBNL_GENL_LIB}
-  ${GLIB_LIBRARIES}
-  ${PTHREAD}
-  ${DL}
-  ${KMOD}
-  )
-
-target_link_libraries(handler_glfs
-  ${GFAPI}
-  )
-
 target_link_libraries(handler_qcow
   ${ZLIB_LIBRARIES}
   )
@@ -120,8 +106,3 @@ configure_file (
   "${PROJECT_BINARY_DIR}/version.h"
   )
 
-add_custom_command(
-  OUTPUT tcmuhandler-generated.c tcmuhandler-generated.h
-  COMMAND gdbus-codegen tcmu-handler.xml --generate-c-code tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
-MAIN_DEPENDENCY tcmu-handler.xml
-	)
