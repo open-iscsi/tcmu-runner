@@ -2,7 +2,13 @@ language: c
 
 compiler:
   - gcc
-  - clang
+  #- clang
 
-before_install:
-  - sudo apt-get update && sudo apt-get install -y zlib-devel
+addons:
+  apt:
+    packages:
+    - zlib1g-dev
+    - glusterfs-common
+    
+#before_install:
+#  - sudo apt-get update && sudo apt-get install -y zlib-devel
