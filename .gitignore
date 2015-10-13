@@ -6,4 +6,4 @@ Makefile
 version.h
 CMakeCache*
 CMakeFiles/*
-*.cmake
+cmake_install.cmake
