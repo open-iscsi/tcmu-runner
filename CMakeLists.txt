@@ -3,12 +3,9 @@ project (tcmu-runner VERSION 0.9.1 LANGUAGES C)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
 
-# Red Hat has a nonstandard lib64 location.
-if(EXISTS "/etc/redhat-release")
-  set(tcmu-runner_HANDLER_PATH "/usr/lib64/tcmu-runner")
-else()
-  set(tcmu-runner_HANDLER_PATH "/usr/lib/tcmu-runner")
-endif()
+include(GNUInstallDirs)
+
+set(tcmu-runner_HANDLER_PATH "/usr/${CMAKE_INSTALL_LIBDIR}/tcmu-runner")
 
 
 find_library(LIBNL_LIB nl-3)
