@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.2 FATAL_ERROR)
+cmake_minimum_required (VERSION 3.0 FATAL_ERROR)
 project (tcmu-runner VERSION 0.9.1 LANGUAGES C)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
@@ -6,7 +6,6 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
 include(GNUInstallDirs)
 
 set(tcmu-runner_HANDLER_PATH "/usr/${CMAKE_INSTALL_LIBDIR}/tcmu-runner")
-
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
