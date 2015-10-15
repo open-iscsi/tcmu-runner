@@ -78,10 +78,20 @@ struct tcmu_handler {
 			  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 };
 
+/* 
+ * The handler->core API 
+ */
+
+/* each in-process plugin must implement the following */
 void handler_init(void);
 
-/* handler->core API */
+/* plugin-facing API, when running inside the tcmu-runner process */
 void tcmu_register_handler(struct tcmu_handler *handler);
+
+/* the main request-processing loop */
+int tcmu_handle_device_events(struct tcmu_device *dev);
+
+/* aux stuff needed to implement a handler */
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
 long long tcmu_get_device_size(struct tcmu_device *dev);
 uint64_t tcmu_get_lba(uint8_t *cdb);
@@ -91,9 +101,6 @@ void tcmu_seek_in_iovec(struct iovec *iovec, size_t count);
 size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src, size_t len);
 size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec, size_t iov_cnt);
 size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
-
-void dbgp(const char *fmt, ...);
-void errp(const char *fmt, ...);
 
 /*
  * Basic implementations of mandatory SCSI commands that handlers can call if
@@ -106,6 +113,12 @@ int tcmu_emulate_read_capacity_16(uint64_t num_lbas, uint32_t block_size, uint8_
 				  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_mode_select(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+
+/*
+ * These must be implemented by the host process
+ */
+void dbgp(const char *fmt, ...);
+void errp(const char *fmt, ...);
 
 #ifdef __cplusplus
 }

@@ -37,27 +37,6 @@
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-extern bool debug;
-
-void dbgp(const char *fmt, ...)
-{
-	if (debug) {
-		va_list va;
-		va_start(va, fmt);
-		vprintf(fmt, va);
-		va_end(va);
-	}
-}
-
-void errp(const char *fmt, ...)
-{
-	va_list va;
-
-	va_start(va, fmt);
-	vfprintf(stderr, fmt, va);
-	va_end(va);
-}
-
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 {
 	int fd;

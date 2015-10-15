@@ -54,8 +54,8 @@
 
 #define KERN_IFACE_VER 2
 
-char *handler_path = DEFAULT_HANDLER_PATH;
-bool debug = false;
+static char *handler_path = DEFAULT_HANDLER_PATH;
+static bool debug = false;
 
 darray(struct tcmu_handler) handlers = darray_new();
 
@@ -73,6 +73,28 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 
 static int add_device(char *dev_name, char *cfgstring);
 static void remove_device(char *dev_name, char *cfgstring);
+
+/*
+ * Debug API implementation
+ */
+void dbgp(const char *fmt, ...)
+{
+	if (debug) {
+		va_list va;
+		va_start(va, fmt);
+		vprintf(fmt, va);
+		va_end(va);
+	}
+}
+
+void errp(const char *fmt, ...)
+{
+	va_list va;
+
+	va_start(va, fmt);
+	vfprintf(stderr, fmt, va);
+	va_end(va);
+}
 
 static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 			  struct genl_info *info, void *arg)
@@ -250,88 +272,6 @@ static struct tcmu_handler *find_handler(char *cfgstring)
 	return NULL;
 }
 
-static void handle_one_command(struct tcmu_device *dev,
-		       struct tcmu_mailbox *mb,
-		       struct tcmu_cmd_entry *ent)
-{
-	uint8_t *cdb = (void *)mb + ent->req.cdb_off;
-	int i;
-	bool short_cdb = cdb[0] <= 0x1f;
-	int result;
-	uint8_t tmp_sense_buf[TCMU_SENSE_BUFFERSIZE];
-
-	/* Convert iovec addrs in-place to not be offsets */
-	for (i = 0; i < ent->req.iov_cnt; i++)
-		ent->req.iov[i].iov_base = (void *) mb +
-			(size_t)ent->req.iov[i].iov_base;
-
-	for (i = 0; i < (short_cdb ? 6 : 10); i++) {
-		dbgp("%x ", cdb[i]);
-	}
-	dbgp("\n");
-
-	result = dev->handler->handle_cmd(dev, cdb, ent->req.iov,
-					  ent->req.iov_cnt, tmp_sense_buf);
-
-	if (result == TCMU_NOT_HANDLED) {
-		/* Tell the kernel we didn't handle it */
-		char *buf = ent->rsp.sense_buffer;
-
-		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
-
-		buf[0] = 0x70;  /* fixed, current */
-		buf[2] = 0x5;   /* illegal request */
-		buf[7] = 0xa;
-		buf[12] = 0x20; /* ASC: invalid command operation code */
-		buf[13] = 0x0;  /* ASCQ: (none) */
-	} else {
-		if (result != SAM_STAT_GOOD) {
-			memcpy(ent->rsp.sense_buffer, tmp_sense_buf,
-			       TCMU_SENSE_BUFFERSIZE);
-		}
-		ent->rsp.scsi_status = result;
-	}
-}
-
-static void poke_kernel(int fd)
-{
-	uint32_t buf = 0xabcdef12;
-
-	if (write(fd, &buf, 4) != 4)
-		errp("poke_kernel write error\n");
-}
-
-static int handle_device_events(struct tcmu_device *dev)
-{
-	struct tcmu_mailbox *mb = dev->map;
-	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
-	int did_some_work = 0;
-
-	while (ent != (void *)mb + mb->cmdr_off + mb->cmd_head) {
-
-		switch (tcmu_hdr_get_op(ent->hdr.len_op)) {
-		case TCMU_OP_PAD:
-			/* do nothing */
-			break;
-		case TCMU_OP_CMD:
-			handle_one_command(dev, mb, ent);
-			break;
-		default:
-			/* We don't even know how to handle this TCMU opcode. */
-			ent->hdr.uflags |= TCMU_UFLAG_UNKNOWN_OP;
-		}
-
-		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
-		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
-		did_some_work = 1;
-	}
-
-	if (did_some_work)
-		poke_kernel(dev->fd);
-
-	return 0;
-}
-
 static void thread_cleanup(void *arg)
 {
 	struct tcmu_device *dev = arg;
@@ -348,7 +288,7 @@ static void *thread_start(void *arg)
 
 	pthread_cleanup_push(thread_cleanup, dev);
 
-	handle_device_events(dev);
+	tcmu_handle_device_events(dev);
 
 	while (1) {
 		char buf[4];
@@ -359,7 +299,7 @@ static void *thread_start(void *arg)
 			break;
 		}
 
-		handle_device_events(dev);
+		tcmu_handle_device_events(dev);
 	}
 
 	errp("thread terminating, should never happen\n");
