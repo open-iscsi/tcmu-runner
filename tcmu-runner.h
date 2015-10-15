@@ -31,6 +31,8 @@ extern "C" {
 #include <sys/uio.h>
 #include "scsi_defs.h"
 
+#define KERN_IFACE_VER 2
+
 struct tcmu_device {
 	int fd;
 	void *map;

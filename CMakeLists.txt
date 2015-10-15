@@ -73,6 +73,12 @@ set_target_properties(handler_file
   PREFIX ""
   )
 
+# The minimal library consumer
+add_executable(consumer
+  consumer.c
+  )
+target_link_libraries(consumer tcmu)
+
 # Stuff for building the glfs handler
 add_library(handler_glfs
   SHARED

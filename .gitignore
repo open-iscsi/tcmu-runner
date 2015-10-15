@@ -1,4 +1,5 @@
 tcmu-runner
+consumer
 *.o
 *.a
 *.so

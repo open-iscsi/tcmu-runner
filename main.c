@@ -52,8 +52,6 @@
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
 
-#define KERN_IFACE_VER 2
-
 static char *handler_path = DEFAULT_HANDLER_PATH;
 static bool debug = false;
 
