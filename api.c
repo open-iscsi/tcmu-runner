@@ -478,7 +478,7 @@ int tcmu_emulate_evpd_inquiry(
 		ptr[0] = 2; /* code set: ASCII */
 		ptr[1] = 1; /* identifier: T10 vendor id */
 		memcpy(&ptr[4], "LIO-ORG ", 8);
-		len = snprintf(&ptr[12], sizeof(data) - 12, "%s", wwn);
+		len = snprintf(&ptr[12], sizeof(data) - 16, "%s", wwn);
 
 		ptr[3] = 8 + len + 1;
 		used += ptr[3] + 4;
