@@ -35,7 +35,7 @@ extern "C" {
 
 struct tcmu_device {
 	int fd;
-	void *map;
+	struct tcmu_mailbox *map;
 	size_t map_len;
 	char dev_name[16]; /* e.g. "uio14" */
 	char tcm_hba_name[16]; /* e.g. "user_8" */
