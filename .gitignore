@@ -1,5 +1,6 @@
 tcmu-runner
 *.o
+*.a
 *.so
 *generated.[ch]
 Makefile
