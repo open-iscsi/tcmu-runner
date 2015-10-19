@@ -31,11 +31,15 @@ find_library(KMOD kmod)
 find_library(GFAPI gfapi)
 
 # Stuff for building the main binary
+add_library(tcmu
+  api.c
+  libtcmu.c
+  )
 add_executable(tcmu-runner
   main.c
-  api.c
   tcmuhandler-generated.c
   )
+target_link_libraries(tcmu-runner tcmu)
 target_compile_options(tcmu-runner
   PUBLIC -fPIC -Wl,-E
   )
@@ -68,6 +72,12 @@ set_target_properties(handler_file
   PROPERTIES
   PREFIX ""
   )
+
+# The minimal library consumer
+add_executable(consumer
+  consumer.c
+  )
+target_link_libraries(consumer tcmu)
 
 # Stuff for building the glfs handler
 add_library(handler_glfs
