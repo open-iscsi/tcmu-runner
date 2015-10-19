@@ -12,7 +12,7 @@
  * License for the specific language governing permissions and limitations
  * under the License.
 */
-#define _BSD_SOURCE
+#define _DEFAULT_SOURCE
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -116,16 +116,16 @@ static int file_handle_cmd(
 	case READ_10:
 	case READ_12:
 	case READ_16:
-		// A real "read" implementation goes here! 
+		// A real "read" implementation goes here!
 		return set_medium_error(sense);
-		
+
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
 	case WRITE_16:
 		// A real "write" implemention goes here!
 		return SAM_STAT_GOOD;
-	
+
 	default:
 		errp("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
@@ -265,15 +265,15 @@ int main(int argc, char **argv)
 {
 	struct tcmu_device *dev;
 
-	/* 
-	 * configure a  device
+	/*
+	 * Configure a device
  	 */
 	{
 		char buf[256];
 		int fd;
 		int ret;
 		const char *path = "/sys/class/uio/uio0/name";
-		
+
 		fd = open(path, O_RDONLY);
 		if (fd == -1) {
 			errp("main: failed to open %s\n", path);
@@ -294,8 +294,8 @@ int main(int argc, char **argv)
 	if (dev == NULL)
 		return -1;
 
-	/* 
-	 * Imagine that we have have just been notified that dev->fd is 
+	/*
+	 * Imagine that we have have just been notified that dev->fd is
 	 * readable via epoll()
  	 */
 	{
