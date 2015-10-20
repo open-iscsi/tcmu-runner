@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.2 FATAL_ERROR)
+cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
 project (tcmu-runner VERSION 0.9.1 LANGUAGES C)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
