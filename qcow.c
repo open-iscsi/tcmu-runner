@@ -43,9 +43,9 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <scsi/scsi.h>
+#include <assert.h>
 
 #include <zlib.h>
-//#include <glib.h>
 
 #include "tcmu-runner.h"
 #include "scsi_defs.h"
@@ -189,31 +189,55 @@ static void qcow2_header_bswap(struct qcow2_header *be, struct qcow2_header *dst
 	}
 }
 
+#define RC_CACHE_SIZE L2_CACHE_SIZE
+
 struct qcow_state
 {
 	int fd;
+	uint64_t size;
 	unsigned int cluster_bits;
 	unsigned int cluster_size;
 	unsigned int cluster_sectors;
 	unsigned int l2_bits;
 	unsigned int l2_size;
 	uint64_t cluster_offset_mask;
+
+	/* L1 table, load entire thing into RAM */
 	unsigned int l1_size;
 	uint64_t l1_table_offset;
 	uint64_t *l1_table;
+
 	/* L2 cache */
 	uint64_t *l2_cache;
 	uint64_t l2_cache_offsets[L2_CACHE_SIZE];
 	int l2_cache_counts[L2_CACHE_SIZE];
+
 	/* cluster decompression cache */
 	uint8_t *cluster_cache;
 	uint8_t *cluster_data;
 	uint64_t cluster_cache_offset;
+
 	struct bdev *backing_image;
 	uint64_t cluster_compressed;
 	uint64_t cluster_copied;
 	uint64_t cluster_mask;
+
+	/* qcow2 refcount top level table */
+	uint64_t refcount_table_offset;
+	uint32_t refcount_table_size;
+	uint64_t *refcount_table;
+
+	/* refcount block cache */
+	unsigned int refcount_order;
+	void *rc_cache;
+	uint64_t rc_cache_offsets[RC_CACHE_SIZE];
+	int rc_cache_counts[RC_CACHE_SIZE];
+
+	uint64_t (*block_alloc) (struct qcow_state *s, size_t size);
 };
+
+static uint64_t qcow_block_alloc(struct qcow_state *s, size_t size);
+static uint64_t qcow2_block_alloc(struct qcow_state *s, size_t size);
 
 static int qcow_probe(struct bdev *bdev, int dirfd, const char *pathname)
 {
@@ -421,6 +445,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 				bdev->size, header.size);
 		goto fail;
 	}
+	s->size = bdev->size;
 	if (bdev->block_size != 512) {
 		fprintf(stderr, "block_size misconfigured, TCMU says %" PRId32
 				" but qcow only supports 512\n",
@@ -448,7 +473,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 	s->l1_size = l1_size;
 	s->l1_table_offset = header.l1_table_offset;
 
-	s->l1_table = calloc(1, s->l1_size * sizeof(uint64_t));
+	s->l1_table = calloc(s->l1_size, sizeof(uint64_t));
 	if (!s->l1_table) {
 		fprintf(stderr, "Failed to allocate L1 table\n");
 		goto fail;
@@ -465,11 +490,6 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 		goto fail;
 	}
 
-	/* refcount table */
-	s->refcount_table_offset = header.refcount_table_offset;
-	s->refcount_table_size = header.refcount_table_clusters << (s->cluster_bits - 3);
-	/* TODO : needs cached access like l2 */
-
 	/* cluster decompression cache */
 	s->cluster_cache = calloc(1, s->cluster_size);
 	s->cluster_data = calloc(1, s->cluster_size);
@@ -485,6 +505,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 	s->cluster_compressed = QCOW_OFLAG_COMPRESSED;
 	s->cluster_mask = ~QCOW_OFLAG_COMPRESSED;
 
+	s->block_alloc = qcow_block_alloc;
 	dbgp("%d: %s\n", bdev->fd, pathname);
 	return 0;
 fail:
@@ -530,6 +551,7 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 				bdev->size, header.size);
 		goto fail;
 	}
+	s->size = bdev->size;
 	if (bdev->block_size != 512) {
 		fprintf(stderr, "block_size misconfigured, TCMU says %" PRId32
 				" but qcow only supports 512\n",
@@ -562,7 +584,7 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 	}
 	s->l1_table_offset = header.l1_table_offset;
 
-	s->l1_table = calloc(1, s->l1_size * sizeof(uint64_t));
+	s->l1_table = calloc(s->l1_size, sizeof(uint64_t));
 	if (!s->l1_table) {
 		fprintf(stderr, "Failed to allocate L1 table\n");
 		goto fail;
@@ -572,11 +594,13 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 		fprintf(stderr, "Failed to read L1 table\n");
 		goto fail;
 	}
+
 	s->l2_cache = calloc(L2_CACHE_SIZE, s->l2_size * sizeof(uint64_t));
 	if (s->l2_cache == NULL) {
 		fprintf(stderr, "Failed to allocate L2 cache\n");
 		goto fail;
 	}
+
 	/* cluster decompression cache */
 	s->cluster_cache = calloc(1, s->cluster_size);
 	s->cluster_data = calloc(1, s->cluster_size);
@@ -586,19 +610,44 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 		goto fail;
 	}
 
+	/* refcount table */
+	s->refcount_table_offset = header.refcount_table_offset;
+	s->refcount_table_size = header.refcount_table_clusters << (s->cluster_bits - 3);
+
+	s->refcount_table = calloc(s->refcount_table_size, sizeof(uint64_t));
+	if (!s->refcount_table) {
+		fprintf(stderr, "Failed to allocate refcount table\n");
+		goto fail;
+	}
+	read = pread(bdev->fd, s->refcount_table, s->refcount_table_size * sizeof(uint64_t), s->refcount_table_offset);
+	if (read != s->refcount_table_size * sizeof(uint64_t)) {
+		fprintf(stderr, "Failed to read refcount table\n");
+		goto fail;
+	}
+
+	s->refcount_order = header.refcount_order;
+	s->rc_cache = calloc(RC_CACHE_SIZE, s->cluster_size);
+	if (s->rc_cache == NULL) {
+		fprintf(stderr, "Failed to allocate refcount cache\n");
+		goto fail;
+	}
+
 	if (qcow2_setup_backing_file(bdev, &header) == -1)
 		goto fail;
 
 	s->cluster_compressed = QCOW2_OFLAG_COMPRESSED;
 	s->cluster_copied =  QCOW2_OFLAG_COPIED;
-	s->cluster_mask = ~(QCOW_OFLAG_COMPRESSED | QCOW2_OFLAG_COPIED);
+	s->cluster_mask = ~(QCOW_OFLAG_COMPRESSED | QCOW2_OFLAG_COPIED | QCOW2_OFLAG_ZERO);
 
+	s->block_alloc = qcow2_block_alloc;
 	dbgp("%d: %s\n", bdev->fd, pathname);
 	return 0;
 fail:
 	close(bdev->fd);
 	free(s->cluster_cache);
 	free(s->cluster_data);
+	free(s->rc_cache);
+	free(s->refcount_table);
 	free(s->l2_cache);
 	free(s->l1_table);
 fail_nofd:
@@ -619,6 +668,8 @@ static void qcow_image_close(struct bdev *bdev)
 	free(s->cluster_data);
 	free(s->l1_table);
 	free(s->l2_cache);
+	free(s->refcount_table);
+	free(s->rc_cache);
 	free(s);
 }
 
@@ -658,24 +709,34 @@ static uint64_t *l2_cache_lookup(struct qcow_state *s, uint64_t l2_offset)
 	return l2_table;
 }
 
-static uint64_t l2_table_alloc(struct qcow_state *s)
+static uint64_t qcow_cluster_alloc(struct qcow_state *s)
 {
+	return s->block_alloc(s, s->cluster_size);
+}
+
+/* qcow 1 simply grows the file as new clusters or L2 blocks are needed */
+static uint64_t qcow_block_alloc(struct qcow_state *s, uint64_t size)
+{
+	uint64_t offset;
 	off_t off;
-	uint64_t l2_offset;
 
 	off = lseek(s->fd, 0, SEEK_END);
 	if (off == -1)
 		return 0;
-	l2_offset = off;
-	l2_offset = (l2_offset + s->cluster_size - 1) & ~(s->cluster_size - 1);
-	if (ftruncate(s->fd, l2_offset + (s->l2_size * sizeof(uint64_t))) == -1)
+	offset = (off + size - 1) & ~(size - 1);
+	if (ftruncate(s->fd, offset + size) == -1)
 		return 0;
-	return l2_offset;
+	return offset;
+}
+
+static uint64_t l2_table_alloc(struct qcow_state *s)
+{
+	return s->block_alloc(s, s->l2_size * sizeof(uint64_t));
 }
 
 static int l1_table_update(struct qcow_state *s, unsigned int l1_index, uint64_t l2_offset)
 {
-	ssize_t ret = 0;
+	ssize_t ret;
 
 	s->l1_table[l1_index] = htobe64(l2_offset);
 	ret = pwrite(s->fd,
@@ -686,19 +747,189 @@ static int l1_table_update(struct qcow_state *s, unsigned int l1_index, uint64_t
 	return ret;
 }
 
-static uint64_t data_cluster_alloc(struct qcow_state *s)
-{
-	uint64_t cluster_offset;
-	off_t off;
+/* refcount table */
 
-	off = lseek(s->fd, 0, SEEK_END);
-	if (off == -1)
+static uint64_t get_refcount(unsigned int order, void *rcblock, size_t index)
+{
+	switch (order) {
+	case 0:
+		return (((uint8_t *)rcblock)[index / 8] >> (index % 8)) & 0x1;
+	case 1: 
+		return (((uint8_t *)rcblock)[index / 4] >> (2 * (index % 4))) & 0x3;
+	case 2:
+		return (((uint8_t *)rcblock)[index / 2] >> (4 * (index % 2))) & 0xf;
+	case 3:
+		return ((uint8_t *)rcblock)[index];
+	case 4:
+		return be16toh(((uint16_t *)rcblock)[index]);
+	case 5:
+		return be32toh(((uint32_t *)rcblock)[index]);
+	case 6:
+		return be64toh(((uint64_t *)rcblock)[index]);
+	default:
+		assert(0);
 		return 0;
-	cluster_offset = off;
-	cluster_offset = (cluster_offset + s->cluster_size - 1) & ~(s->cluster_size - 1);
-	if (ftruncate(s->fd, cluster_offset + s->cluster_size) == -1)
+	}
+}
+
+static void set_refcount(unsigned int order, void *rcblock, size_t index, uint64_t value)
+{
+	assert(!(value >> (1 << order)));
+	switch (order) {
+	case 0:
+		((uint8_t *)rcblock)[index / 8] &= ~(0x1 << (index % 8));
+		((uint8_t *)rcblock)[index / 8] |= value << (index % 8);
+		break;
+	case 1:
+		((uint8_t *)rcblock)[index / 4] &= ~(0x3 << (2 * (index % 4)));
+		((uint8_t *)rcblock)[index / 4] |= value << (2 * (index % 4));
+		break;
+	case 2:
+		((uint8_t *)rcblock)[index / 2] &= ~(0xf << (4 * (index % 2)));
+		((uint8_t *)rcblock)[index / 2] |= value << (4 * (index % 2));
+		break;
+	case 3:
+		((uint8_t *)rcblock)[index] = value;
+		break;
+	case 4:
+		((uint8_t *)rcblock)[index] = htobe16(value);
+		break;
+	case 5:
+		((uint8_t *)rcblock)[index] = htobe32(value);
+		break;
+	case 6:
+		((uint8_t *)rcblock)[index] = htobe64(value);
+		break;
+	default:
+		assert(0);
+	}
+}
+
+static void *rc_cache_lookup(struct qcow_state *s, uint64_t rc_offset)
+{
+	int i, j;
+	int min_index = 0;
+	int min_count = INT_MAX;
+	void *rc_table;
+	ssize_t read;
+
+	/* rc cache lookup */
+	for (i = 0; i < RC_CACHE_SIZE; i++) {
+		if (rc_offset == s->rc_cache_offsets[i]) {
+			if (++s->rc_cache_counts[i] == INT_MAX) {
+				for (j = 0; i < RC_CACHE_SIZE; j++) {
+					s->rc_cache_counts[j] >>= 1;
+				}
+			}
+			rc_table = s->rc_cache + (i << s->cluster_bits);
+			return rc_table;
+		}
+	}
+	/* not found, evict least used entry */
+	for (i = 0; i < RC_CACHE_SIZE; i++) {
+		if (s->rc_cache_counts[i] < min_count) {
+			min_count = s->rc_cache_counts[i];
+			min_index = i;
+		}
+		rc_table = s->rc_cache + (min_index << s->cluster_bits);
+		read = pread(s->fd, rc_table, 1 << s->cluster_bits, rc_offset);
+		if (read != 1 << s->cluster_bits)
+			return NULL;
+		s->rc_cache_offsets[min_index] = rc_offset;
+		s->rc_cache_counts[min_index] = 1;
+	}
+	return rc_table;
+}
+
+static uint64_t qcow2_get_refcount(struct qcow_state *s, int64_t cluster_offset)
+{
+	unsigned int refcount_bits;
+	uint64_t rc_index;
+	uint64_t refblock_offset;
+	uint64_t refblock_index;
+	void *refblock;
+
+	refcount_bits = s->cluster_bits - s->refcount_order + 3;
+	rc_index = cluster_offset >> refcount_bits;
+	refblock_offset = be64toh(s->refcount_table[rc_index]);
+
+	if (!refblock_offset)
 		return 0;
-	return cluster_offset;
+
+	refblock = rc_cache_lookup(s, refblock_offset);
+	if (!refblock)
+		return 0;
+
+	refblock_index = cluster_offset & ((1 << refcount_bits) - 1);
+	return get_refcount(s->refcount_order, refblock, refblock_index);
+}
+
+static int rc_table_update(struct qcow_state *s, unsigned int rc_index, uint64_t refblock_offset)
+{
+	ssize_t ret;
+
+	s->refcount_table[rc_index] = htobe64(refblock_offset);
+	ret = pwrite(s->fd,
+		&s->refcount_table[rc_index],
+		sizeof(uint64_t),
+		s->refcount_table_offset + (rc_index * sizeof(uint64_t)));
+	fdatasync(s->fd);
+	return ret;
+}
+
+static int qcow2_set_refcount(struct qcow_state *s, int64_t cluster_offset, uint64_t value)
+{
+	unsigned int refcount_bits;
+	uint64_t rc_index;
+	uint64_t refblock_offset;
+	uint64_t refblock_index;
+	void *refblock;
+	ssize_t ret;
+
+	refcount_bits = s->cluster_bits - s->refcount_order + 3;
+	rc_index = cluster_offset >> refcount_bits;
+	refblock_offset = be64toh(s->refcount_table[rc_index]);
+
+	if (!refblock_offset) {
+		if (!(refblock_offset = qcow_cluster_alloc(s)))
+			return 0;
+		rc_table_update(s, rc_index, refblock_offset | s->cluster_copied);
+	}
+
+	refblock = rc_cache_lookup(s, refblock_offset);
+	if (!refblock)
+		return -1;
+
+	refblock_index = cluster_offset & ((1 << refcount_bits) - 1);
+	set_refcount(s->refcount_order, refblock, refblock_index, value);
+
+	/* for now this writes back the entire block */
+	ret = pwrite(s->fd, refblock, s->cluster_size, refblock_offset);
+	fdatasync(s->fd);
+	return ret;
+}
+
+/* qcow 2 uses the refcount table to find free clusters */
+static uint64_t qcow2_block_alloc(struct qcow_state *s, size_t size)
+{
+	uint64_t cluster;
+	uint64_t count;
+	int ret;
+
+	/* all allocations for qcow2 should be of the same size */
+	assert(size == s->cluster_size);
+
+	for (cluster = 0; cluster < s->size; cluster += s->cluster_size) {
+		count = qcow2_get_refcount(s, cluster);
+		if (count == 0) {
+			ret = fallocate(s->fd, FALLOC_FL_ZERO_RANGE, cluster, s->cluster_size);
+			if (ret)
+				return 0;
+			qcow2_set_refcount(s, cluster, 1);
+			return cluster;
+		}
+	}
+	return 0;
 }
 
 static int l2_table_update(struct qcow_state *s,
@@ -769,7 +1000,7 @@ static int decompress_cluster(struct qcow_state *s, uint64_t cluster_offset)
  * (0 is never a valid cluster offset, it's where the file header is)
  *
  * offset: virtual image sector offset
- * allocate: true if new cluster and L2 table allocations should be happen(writes)
+ * allocate: true if new cluster and L2 table allocations should happen (writes)
  */
 static uint64_t get_cluster_offset(struct qcow_state *s, uint64_t offset, bool allocate)
 {
@@ -786,7 +1017,7 @@ static uint64_t get_cluster_offset(struct qcow_state *s, uint64_t offset, bool a
 	if (!l2_offset) {
 		if (!allocate || !(l2_offset = l2_table_alloc(s)))
 			return 0;
-		l1_table_update(s, l1_index, l2_offset);
+		l1_table_update(s, l1_index, l2_offset | s->cluster_copied);
 	}
 
 	l2_table = l2_cache_lookup(s, l2_offset);
@@ -794,26 +1025,49 @@ static uint64_t get_cluster_offset(struct qcow_state *s, uint64_t offset, bool a
 		return 0;
 
 	l2_index = (offset >> s->cluster_bits) & (s->l2_size - 1);
-	cluster_offset = be64toh(l2_table[l2_index]) & s->cluster_mask;
+	cluster_offset = be64toh(l2_table[l2_index]); // & s->cluster_mask;
 	printf("cluster offset = %" PRIx64 "\n", cluster_offset);
 
 	if (!cluster_offset) {
-		if (!allocate || !(cluster_offset = data_cluster_alloc(s))) {
+		/* sector not allocated in image file */
+		if (!allocate || !(cluster_offset = qcow_cluster_alloc(s))) {
 			printf("cluster not found\n");
 			return 0;
 		}
-		l2_table_update(s, l2_table, l2_offset, l2_index, cluster_offset);
+		l2_table_update(s, l2_table, l2_offset, l2_index, cluster_offset | s->cluster_copied);
 	} else if ((cluster_offset & s->cluster_compressed) && allocate) {
 		/* reallocate a compressed cluster for writing */
 		if (decompress_cluster(s, cluster_offset) < 0)
 			return 0;
-		if (!(cluster_offset = data_cluster_alloc(s)))
+		if (!(cluster_offset = qcow_cluster_alloc(s)))
 			return 0;
 		if (pwrite(s->fd, s->cluster_cache, s->cluster_size, cluster_offset) != s->cluster_size)
 			return 0;
-		l2_table_update(s, l2_table, l2_offset, l2_index, cluster_offset);
+		l2_table_update(s, l2_table, l2_offset, l2_index, cluster_offset | s->cluster_copied);
+	} else if (!(cluster_offset & s->cluster_copied) && allocate) {
+		/* refcount > 1 (the copied bit means refcount == 1)
+		 * need to make a new copy if this is for a write */
+		uint64_t old_offset = cluster_offset & s->cluster_mask;
+		// TODO what if this is compressed?
+		uint8_t *cow_buffer;
+		if (!(cow_buffer = malloc(s->cluster_size)))
+			goto fail;
+		if (!(cluster_offset = qcow_cluster_alloc(s)))
+			goto fail;
+		if (pread(s->fd, cow_buffer, s->cluster_size, old_offset) != s->cluster_size)
+			goto fail;
+		if (pwrite(s->fd, cow_buffer, s->cluster_size, cluster_offset) != s->cluster_size)
+			goto fail;
+		free(cow_buffer);
+		l2_table_update(s, l2_table, l2_offset, l2_index, cluster_offset | s->cluster_copied);
+		// TODO drop refcount on old cluster?
+		goto out;
+	fail:
+		free(cow_buffer);
+		return 0;
 	}
-	return cluster_offset;
+out:
+	return cluster_offset & ~(s->cluster_copied);
 }
 
 static ssize_t qcow_pread(struct bdev *bdev, void *buf, size_t count, off_t offset)
@@ -847,6 +1101,9 @@ static ssize_t qcow_pread(struct bdev *bdev, void *buf, size_t count, off_t offs
 				if (read != n * 512)
 					break;
 			}
+		} else if (cluster_offset == QCOW2_OFLAG_ZERO) {
+			/* cluster discarded, read as 0s */
+			memset(_buf, 0, 512 * n);
 		} else if (cluster_offset & s->cluster_compressed) {
 			if (decompress_cluster(s, cluster_offset) < 0) {
 				fprintf(stderr, "decompression failure\n");
@@ -907,9 +1164,6 @@ static ssize_t qcow_pwrite(struct bdev *bdev, const void *buf, size_t count, off
 		return -1;
 	return _buf - buf;
 }
-// TODO
-static ssize_t qcow2_pwrite(struct bdev *bdev, const void *buf, size_t count, off_t offset)
-{ return -1; }
 
 static struct bdev_ops qcow_ops = {
 	.probe = qcow_probe,
@@ -924,7 +1178,7 @@ static struct bdev_ops qcow2_ops = {
 	.open = qcow2_image_open,
 	.close = qcow_image_close,
 	.pread = qcow_pread,
-	.pwrite = qcow2_pwrite,
+	.pwrite = qcow_pwrite,
 };
 
 /* raw image support for backing files */
