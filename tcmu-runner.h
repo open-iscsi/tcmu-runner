@@ -31,23 +31,9 @@ extern "C" {
 #include <sys/uio.h>
 #include "scsi_defs.h"
 
-#define KERN_IFACE_VER 2
+#include "libtcmu_common.h"
 
-struct tcmu_device {
-	int fd;
-	struct tcmu_mailbox *map;
-	size_t map_len;
-	char dev_name[16]; /* e.g. "uio14" */
-	char tcm_hba_name[16]; /* e.g. "user_8" */
-	char tcm_dev_name[128]; /* e.g. "backup2" */
-	char cfgstring[256];
-
-	struct tcmu_handler *handler;
-
-	void *hm_private; /* private ptr for handler module */
-};
-
-struct tcmu_handler {
+struct tcmur_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */
 	const char *cfg_desc;	/* Description of this backstore's config string */
@@ -80,45 +66,16 @@ struct tcmu_handler {
 			  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 };
 
-/* 
- * The handler->core API 
+/*
+ * Each tcmu-runner (tcmur) handler plugin must export the
+ * following. It usually just calls tcmur_register_handler.
  */
-
-/* each in-process plugin must implement the following */
-void handler_init(void);
-
-/* plugin-facing API, when running inside the tcmu-runner process */
-void tcmu_register_handler(struct tcmu_handler *handler);
-
-/* the main request-processing loop */
-int tcmu_handle_device_events(struct tcmu_device *dev);
-
-/* aux stuff needed to implement a handler */
-int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
-long long tcmu_get_device_size(struct tcmu_device *dev);
-uint64_t tcmu_get_lba(uint8_t *cdb);
-uint32_t tcmu_get_xfer_length(uint8_t *cdb);
-off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size);
-void tcmu_seek_in_iovec(struct iovec *iovec, size_t count);
-size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src, size_t len);
-size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec, size_t iov_cnt);
-size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
+void tcmur_handler_init(void);
 
 /*
- * Basic implementations of mandatory SCSI commands that handlers can call if
- * they want.
+ * APIs for tcmur only
  */
-int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info);
-int tcmu_emulate_inquiry(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
-int tcmu_emulate_test_unit_ready(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
-int tcmu_emulate_read_capacity_16(uint64_t num_lbas, uint32_t block_size, uint8_t *cdb,
-				  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
-int tcmu_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
-int tcmu_emulate_mode_select(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
-
-/*
- * These must be implemented by the host process
- */
+void tcmur_register_handler(struct tcmur_handler *handler);
 void dbgp(const char *fmt, ...);
 void errp(const char *fmt, ...);
 

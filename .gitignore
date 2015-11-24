@@ -2,7 +2,8 @@ tcmu-runner
 consumer
 *.o
 *.a
-*.so
+handler_*.so
+libtcmu.so*
 *generated.[ch]
 Makefile
 version.h

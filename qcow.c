@@ -747,9 +747,12 @@ static bool qcow_check_config(const char *cfgstring, char **reason)
 	}
 	path += 1; /* get past '/' */
 
-	if (access(path, R_OK|W_OK) != -1)
-		return true; /* File exists and is writable */
-	return false;
+	if (access(path, R_OK|W_OK) == -1) {
+		asprintf(reason, "File not present, or not writable");
+		return false;
+	}
+
+	return true; /* File exists and is writable */
 }
 
 static int qcow_open(struct tcmu_device *dev)
@@ -760,7 +763,8 @@ static int qcow_open(struct tcmu_device *dev)
 	bdev = calloc(1, sizeof(*bdev));
 	if (!bdev)
 		return -1;
-	dev->hm_private = bdev;
+
+	tcmu_set_dev_private(dev, bdev);
 
 	bdev->block_size = tcmu_get_attribute(dev, "hw_block_size");
 	if (bdev->block_size == -1) {
@@ -776,7 +780,7 @@ static int qcow_open(struct tcmu_device *dev)
 
 	bdev->num_lbas = bdev->size / bdev->block_size;
 
-	config = strchr(dev->cfgstring, '/');
+	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
 		fprintf(stderr, "no configuration found in cfgstring\n");
 		goto err;
@@ -793,7 +797,7 @@ err:
 
 static void qcow_close(struct tcmu_device *dev)
 {
-	struct bdev *bdev = dev->hm_private;
+	struct bdev *bdev = tcmu_get_dev_private(dev);
 
 	bdev->ops->close(bdev);
 	free(bdev);
@@ -814,7 +818,7 @@ static int qcow_handle_cmd(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
-	struct bdev *bdev = dev->hm_private;
+	struct bdev *bdev = tcmu_get_dev_private(dev);
 	uint8_t cmd;
 	ssize_t ret;
 
@@ -902,7 +906,7 @@ static int qcow_handle_cmd(
 
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";
 
-static struct tcmu_handler qcow_handler = {
+static struct tcmur_handler qcow_handler = {
 	.name = "QEMU Copy-On-Write image file",
 	.subtype = "qcow",
 	.cfg_desc = qcow_cfg_desc,
@@ -917,5 +921,5 @@ static struct tcmu_handler qcow_handler = {
 /* Entry point must be named "handler_init". */
 void handler_init(void)
 {
-	tcmu_register_handler(&qcow_handler);
+	tcmur_register_handler(&qcow_handler);
 }

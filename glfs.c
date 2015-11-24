@@ -74,7 +74,7 @@ static int parse_imagepath(
 	char *p, *sep;
 
 	if (!origp)
-		goto fail;;
+		goto fail;
 
 	p = origp;
 	sep = strchr(p, '@');
@@ -167,9 +167,9 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	gfsp = calloc(1, sizeof(*gfsp));
 	if (!gfsp)
-		return -1;
+		return -ENOMEM;
 
-	dev->hm_private = gfsp;
+	tcmu_set_dev_private(dev, gfsp);
 
 	FETCH_ATTRIBUTE(dev, gfsp->block_size, "hw_block_size");
 
@@ -181,7 +181,7 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	gfsp->num_lbas = size / gfsp->block_size;
 
-	config = strchr(dev->cfgstring, '/');
+	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
 		errp("no configuration found in cfgstring\n");
 		goto fail;
@@ -245,7 +245,7 @@ fail:
 
 static void tcmu_glfs_close(struct tcmu_device *dev)
 {
-	struct glfs_state *gfsp = dev->hm_private;
+	struct glfs_state *gfsp = tcmu_get_dev_private(dev);
 
 	glfs_close(gfsp->gfd);
 	glfs_fini(gfsp->fs);
@@ -270,7 +270,7 @@ int tcmu_glfs_handle_cmd(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
-	struct glfs_state *state = dev->hm_private;
+	struct glfs_state *state = tcmu_get_dev_private(dev);
 	uint8_t cmd;
 
 	glfs_fd_t *gfd = state->gfd;
@@ -492,7 +492,7 @@ static const char glfs_cfg_desc[] =
 	"  hostname:  The server's hostname\n"
 	"  filename:  The backing file";
 
-struct tcmu_handler glfs_handler = {
+struct tcmur_handler glfs_handler = {
 	.name = "Gluster glfs handler",
 	.subtype = "glfs",
 	.cfg_desc = glfs_cfg_desc,
@@ -507,5 +507,5 @@ struct tcmu_handler glfs_handler = {
 /* Entry point must be named "handler_init". */
 void handler_init(void)
 {
-	tcmu_register_handler(&glfs_handler);
+	tcmur_register_handler(&glfs_handler);
 }

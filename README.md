@@ -61,3 +61,37 @@ To delete:
 
 1. `rmdir /sys/kernel/config/target/core/user_1/test`
 2. `rmdir /sys/kernel/config/target/core/user_1`
+
+### Writing a TCMU handler
+
+#### libtcmu and tcmu-runner
+
+There are two different ways to write a TCMU handler. The primary
+difference is who is responsible for the event loop.
+
+##### tcmu-runner plugin handler
+
+With a tcmu-runner handler, tcmu-runner is in charge of the event loop
+for your plugin, and your handler's `handle_cmd` function is called
+repeatedly to respond to each incoming SCSI command. While your
+handler sees all SCSI commands, there are helper functions provided
+that save each handler from writing boilerplate code for mandatory
+SCSI commands, if desired.
+
+The `glfs`, `qcow`, and `file` handlers are examples of this type.
+
+##### tcmulib
+
+If you want to add handling of TCMU devices to an existing daemon or
+other program that already is processing its own event loop, the best
+option is to use tcmulib directly. This requires your code to keep
+track of tcmulib's file descriptors. While tcmulib's 'master' file
+descriptor must be handled with `tcmulib_master_fd_ready()`
+single-threadedly, per-device fds can be handled on the main thread
+(with `tcmulib_get_next_command` and `tcmulib_command_complete`) or
+separate threads if desired. SCSI command-processing helper functions
+are still available for use.
+
+`tcmu-runner` itself uses tcmulib in this manner and may be used as an
+example of multi-threaded tcmulib use. The `consumer.c` example
+demonstrates single-threaded tcmulib processing.

@@ -30,31 +30,51 @@ find_library(DL dl)
 find_library(KMOD kmod)
 find_library(GFAPI gfapi)
 
-# Stuff for building the main binary
+# Stuff for building the shared library
 add_library(tcmu
+  SHARED
   api.c
   libtcmu.c
   )
+set_target_properties(tcmu
+  PROPERTIES
+  SOVERSION "1"
+  )
+target_include_directories(tcmu
+  PUBLIC ${LIBNL_INCLUDE_DIR}
+  )
+target_link_libraries(tcmu
+  ${LIBNL_LIB}
+  ${LIBNL_GENL_LIB}
+  )
+
+
+# Stuff for building the static library
+add_library(tcmu_static
+  api.c
+  libtcmu.c
+  )
+target_include_directories(tcmu_static
+  PUBLIC ${LIBNL_INCLUDE_DIR}
+  )
+
+# Stuff for building the main binary
 add_executable(tcmu-runner
   main.c
   tcmuhandler-generated.c
   )
 target_link_libraries(tcmu-runner tcmu)
-target_compile_options(tcmu-runner
-  PUBLIC -fPIC -Wl,-E
-  )
 target_include_directories(tcmu-runner
   PUBLIC ${PROJECT_BINARY_DIR}
   PUBLIC ${GLIB_INCLUDE_DIRS}
-  PUBLIC ${LIBNL_INCLUDE_DIR}
   )
 target_link_libraries(tcmu-runner
-  ${LIBNL_LIB}
-  ${LIBNL_GENL_LIB}
   ${GLIB_LIBRARIES}
   ${PTHREAD}
   ${DL}
   ${KMOD}
+  -Wl,--no-export-dynamic
+  -Wl,--dynamic-list=main-syms.txt
   )
 
 add_custom_command(
