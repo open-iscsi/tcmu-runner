@@ -1397,8 +1397,16 @@ static int qcow_handle_cmd(
 	{
 		uint64_t offset = bdev->block_size * tcmu_get_lba(cdb);
 		size_t length = tcmu_get_xfer_length(cdb) * bdev->block_size;
+#if 1
+		void *buf = calloc(1, length);
+		ret = bdev->ops->pread(bdev, buf, length, offset);
+		if (ret == -1) {
+			dbgp("read failed: %m\n");
+			return set_medium_error(sense);
+		}
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, length);
+#else
 		size_t remaining = length;
-
 		while (remaining) {
 			size_t to_copy = min(iovec->iov_len, remaining);
 
@@ -1412,7 +1420,7 @@ static int qcow_handle_cmd(
 			remaining -= to_copy;
 			iovec++;
 		}
-
+#endif
 		return SAM_STAT_GOOD;
 	}
 	break;
@@ -1423,14 +1431,22 @@ static int qcow_handle_cmd(
 	{
 		uint64_t offset = bdev->block_size * tcmu_get_lba(cdb);
 		size_t length = tcmu_get_xfer_length(cdb) * bdev->block_size;
+#if 1
+		void *buf = calloc(1, length);
+		tcmu_memcpy_from_iovec(buf, length, iovec, iov_cnt);
+		ret = bdev->ops->pwrite(bdev, buf, length, offset);
+		if (ret == -1) {
+			dbgp("write failed: %m\n");
+			return set_medium_error(sense);
+		}
+#else
 		size_t remaining = length;
-
 		while (remaining) {
 			size_t to_copy = min(iovec->iov_len, remaining);
 
 			ret = bdev->ops->pwrite(bdev, iovec->iov_base, to_copy, offset);
 			if (ret == -1) {
-				errp("write failed: %m\n");
+				dbgp("write failed: %m\n");
 				return set_medium_error(sense);
 			}
 
@@ -1438,7 +1454,7 @@ static int qcow_handle_cmd(
 			remaining -= to_copy;
 			iovec++;
 		}
-
+#endif
 		return SAM_STAT_GOOD;
 	}
 	break;
