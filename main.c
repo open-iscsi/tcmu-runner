@@ -682,7 +682,7 @@ static void dbus_name_lost(GDBusConnection *connection,
 }
 
 int load_our_module(void) {
-	struct kmod_list *list, *itr;
+	struct kmod_list *list = NULL, *itr;
 	int err;
 	struct kmod_ctx *ctx;
 
