@@ -39,7 +39,7 @@ add_executable(tcmu-runner
   main.c
   tcmuhandler-generated.c
   )
-target_link_libraries(tcmu-runner tcmu)
+target_link_libraries(tcmu-runner -Wl,--whole-archive tcmu -Wl,--no-whole-archive)
 target_compile_options(tcmu-runner
   PUBLIC -fPIC -Wl,-E
   )
