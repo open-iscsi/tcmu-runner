@@ -33,6 +33,8 @@ extern "C" {
 
 #define KERN_IFACE_VER 2
 
+#define TCMU_UFLAG_ASYNC	0x80
+
 struct tcmu_device {
 	int fd;
 	struct tcmu_mailbox *map;
@@ -43,6 +45,7 @@ struct tcmu_device {
 	char cfgstring[256];
 
 	struct tcmu_handler *handler;
+	int did_some_work;
 
 	void *hm_private; /* private ptr for handler module */
 };
@@ -72,6 +75,8 @@ struct tcmu_handler {
 	void (*close)(struct tcmu_device *dev);
 
 #define TCMU_NOT_HANDLED -1
+#define TCMU_ASYNC_HANDLED -2
+#define TCMU_IGNORED -3
 	/*
 	 * Returns SCSI status if handled (either good/bad), or TCMU_NOT_HANDLED
 	 * if opcode is not handled.
@@ -92,6 +97,11 @@ void tcmu_register_handler(struct tcmu_handler *handler);
 
 /* the main request-processing loop */
 int tcmu_handle_device_events(struct tcmu_device *dev);
+
+/* signal command completion */
+struct tcmu_cmd_entry;
+void tcmu_complete_command(struct tcmu_device *dev, struct tcmu_cmd_entry *ent,
+			   int result, uint8_t *sense);
 
 /* aux stuff needed to implement a handler */
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
