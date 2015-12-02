@@ -62,11 +62,23 @@ static int poke_kernel(struct tcmu_device *dev)
 	return 0;
 }
 
+static inline struct tcmu_cmd_entry *
+mailbox_cmd_head(struct tcmu_mailbox *mb)
+{
+	return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + mb->cmd_head);
+}
+
+static inline struct tcmu_cmd_entry *
+mailbox_cmd_tail(struct tcmu_mailbox *mb)
+{
+	return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + mb->cmd_tail);
+}
+
 void tcmu_complete_command(struct tcmu_device *dev, struct tcmu_cmd_entry *ent,
 			   int result, uint8_t *sense)
 {
 	struct tcmu_mailbox *mb = dev->map;
-	struct tcmu_cmd_entry *rsp_ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+	struct tcmu_cmd_entry *rsp_ent = mailbox_cmd_tail(mb);
 
 	if (rsp_ent != ent) {
 		uint32_t len_op;
@@ -109,9 +121,7 @@ int tcmu_handle_device_events(struct tcmu_device *dev)
 	struct tcmu_cmd_entry *ent;
 
 	dev->did_some_work = 0;
-	while ((ent = (void *) mb + mb->cmdr_off + mb->cmd_tail) !=
-			(void *)mb + mb->cmdr_off + mb->cmd_head) {
-
+	while ((ent = mailbox_cmd_tail(mb)) != mailbox_cmd_head(mb)) {
 		switch (tcmu_hdr_get_op(ent->hdr.len_op)) {
 		default:
 			/* We don't even know how to handle this TCMU opcode. */
