@@ -15,9 +15,8 @@
 */
 
 /*
- * A daemon that ties handler modules together with TCMU devices exported via
- * UIO. It listens for device change notifications via netlink, and handles the
- * messy parts of the TCMU command ring so the handlers don't have to.
+ * A daemon that supports a simplified interface for writing TCMU
+ * handlers.
  */
 
 #define _GNU_SOURCE
@@ -28,9 +27,6 @@
 #include <errno.h>
 #include <dirent.h>
 #include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <sys/mman.h>
 #include <assert.h>
 #include <dlfcn.h>
@@ -39,14 +35,13 @@
 #include <glib.h>
 #include <gio/gio.h>
 #include <getopt.h>
+#include <poll.h>
 
-#include <libnl3/netlink/genl/genl.h>
-#include <libnl3/netlink/genl/mngt.h>
-#include <libnl3/netlink/genl/ctrl.h>
 #include <libkmod.h>
 #include <linux/target_core_user.h>
 #include "darray.h"
 #include "tcmu-runner.h"
+#include "libtcmu.h"
 #include "tcmuhandler-generated.h"
 #include "version.h"
 
@@ -55,22 +50,14 @@
 static char *handler_path = DEFAULT_HANDLER_PATH;
 static bool debug = false;
 
-darray(struct tcmu_handler) handlers = darray_new();
+darray(struct tcmur_handler) g_runner_handlers = darray_new();
 
 struct tcmu_thread {
 	pthread_t thread_id;
-	char dev_name[16]; /* e.g. "uio14" */
+	struct tcmu_device *dev;
 };
 
-static darray(struct tcmu_thread) threads = darray_new();
-
-static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
-	[TCMU_ATTR_DEVICE]	= { .type = NLA_STRING },
-	[TCMU_ATTR_MINOR]	= { .type = NLA_U32 },
-};
-
-static int add_device(char *dev_name, char *cfgstring);
-static void remove_device(char *dev_name, char *cfgstring);
+static darray(struct tcmu_thread) g_threads = darray_new();
 
 /*
  * Debug API implementation
@@ -94,103 +81,9 @@ void errp(const char *fmt, ...)
 	va_end(va);
 }
 
-static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
-			  struct genl_info *info, void *arg)
+void tcmur_register_handler(struct tcmur_handler *handler)
 {
-	char buf[32];
-
-	if (!info->attrs[TCMU_ATTR_MINOR] || !info->attrs[TCMU_ATTR_DEVICE]) {
-		errp("TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
-		return 0;
-	}
-
-	snprintf(buf, sizeof(buf), "uio%d", nla_get_u32(info->attrs[TCMU_ATTR_MINOR]));
-
-	switch (cmd->c_id) {
-	case TCMU_CMD_ADDED_DEVICE:
-		add_device(buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
-		break;
-	case TCMU_CMD_REMOVED_DEVICE:
-		remove_device(buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
-		break;
-	default:
-		errp("Unknown notification %d\n", cmd->c_id);
-	}
-
-	return 0;
-}
-
-static struct genl_cmd tcmu_cmds[] = {
-	{
-		.c_id		= TCMU_CMD_ADDED_DEVICE,
-		.c_name		= "ADDED DEVICE",
-		.c_msg_parser	= handle_netlink,
-		.c_maxattr	= TCMU_ATTR_MAX,
-		.c_attr_policy	= tcmu_attr_policy,
-	},
-	{
-		.c_id		= TCMU_CMD_REMOVED_DEVICE,
-		.c_name		= "REMOVED DEVICE",
-		.c_msg_parser	= handle_netlink,
-		.c_maxattr	= TCMU_ATTR_MAX,
-		.c_attr_policy	= tcmu_attr_policy,
-	},
-};
-
-static struct genl_ops tcmu_ops = {
-	.o_name		= "TCM-USER",
-	.o_cmds		= tcmu_cmds,
-	.o_ncmds	= ARRAY_SIZE(tcmu_cmds),
-};
-
-static struct nl_sock *setup_netlink(void)
-{
-	struct nl_sock *sock;
-	int ret;
-
-	sock = nl_socket_alloc();
-	if (!sock) {
-		errp("couldn't alloc socket\n");
-		exit(1);
-	}
-
-	nl_socket_disable_seq_check(sock);
-
-	nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, genl_handle_msg, NULL);
-
-	ret = genl_connect(sock);
-	if (ret < 0) {
-		errp("couldn't connect\n");
-		exit(1);
-	}
-
-	ret = genl_register_family(&tcmu_ops);
-	if (ret < 0) {
-		errp("couldn't register family\n");
-		exit(1);	}
-
-	ret = genl_ops_resolve(sock, &tcmu_ops);
-	if (ret < 0) {
-		errp("couldn't resolve ops, is target_core_user.ko loaded?\n");
-		exit(1);
-	}
-
-	ret = genl_ctrl_resolve_grp(sock, "TCM-USER", "config");
-
-	dbgp("multicast id %d\n", ret);
-
-	ret = nl_socket_add_membership(sock, ret);
-	if (ret < 0) {
-		errp("couldn't add membership\n");
-		exit(1);
-	}
-
-	return sock;
-}
-
-void tcmu_register_handler(struct tcmu_handler *handler)
-{
-	darray_append(handlers, *handler);
+	darray_append(g_runner_handlers, *handler);
 }
 
 static int is_handler(const struct dirent *dirent)
@@ -253,51 +146,55 @@ static int open_handlers(void)
 	return num_good;
 }
 
-static struct tcmu_handler *find_handler(char *cfgstring)
-{
-	struct tcmu_handler *handler;
-	size_t len;
-	char *found_at;
-
-	found_at = strchrnul(cfgstring, '/');
-	len = found_at - cfgstring;
-
-	darray_foreach(handler, handlers) {
-		if (!strncmp(cfgstring, handler->subtype, len))
-		    return handler;
-	}
-
-	return NULL;
-}
-
 static void thread_cleanup(void *arg)
 {
 	struct tcmu_device *dev = arg;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
 
-	dev->handler->close(dev);
-	munmap(dev->map, dev->map_len);
-	close(dev->fd);
+	r_handler->close(dev);
 	free(dev);
 }
 
 static void *thread_start(void *arg)
 {
 	struct tcmu_device *dev = arg;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+	struct tcmulib_cmd cmd;
+	struct pollfd pfd;
+	int ret;
 
 	pthread_cleanup_push(thread_cleanup, dev);
 
-	tcmu_handle_device_events(dev);
-
 	while (1) {
-		char buf[4];
-		int ret = read(dev->fd, buf, 4);
+		while (tcmulib_get_next_command(dev, &cmd)) {
+			int i;
+			bool short_cdb = cmd.cdb[0] <= 0x1f;
 
-		if (ret != 4) {
-			errp("read didn't get 4! thread terminating\n");
-			break;
+			for (i = 0; i < (short_cdb ? 6 : 10); i++) {
+				dbgp("%x ", cmd.cdb[i]);
+			}
+			dbgp("\n");
+
+			ret = r_handler->handle_cmd(dev, cmd.cdb, cmd.iovec,
+						  cmd.iov_cnt, cmd.sense_buf);
+
+			tcmulib_command_complete(dev, &cmd, ret);
 		}
 
-		tcmu_handle_device_events(dev);
+		tcmulib_processing_complete(dev);
+
+		pfd.fd = tcmu_get_dev_fd(dev);
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+
+		poll(&pfd, 1, -1);
+
+		if (pfd.revents != POLLIN) {
+			errp("poll received unexpected revent: 0x%x\n", pfd.revents);
+			break;
+		}
 	}
 
 	errp("thread terminating, should never happen\n");
@@ -305,140 +202,6 @@ static void *thread_start(void *arg)
 	pthread_cleanup_pop(1);
 
 	return NULL;
-}
-
-static int add_device(char *dev_name, char *cfgstring)
-{
-	struct tcmu_device *dev;
-	struct tcmu_thread thread;
-	struct tcmu_mailbox *mb;
-	char str_buf[256];
-	int fd;
-	int ret;
-	char *ptr, *oldptr;
-	int len;
-
-	dev = calloc(1, sizeof(*dev));
-	if (!dev) {
-		errp("calloc failed in add_device\n");
-		return -1;
-	}
-
-	snprintf(dev->dev_name, sizeof(dev->dev_name), "%s", dev_name);
-	snprintf(thread.dev_name, sizeof(thread.dev_name), "%s", dev_name);
-
-	oldptr = cfgstring;
-	ptr = strchr(oldptr, '/');
-	if (!ptr) {
-		errp("invalid cfgstring\n");
-		goto err_free;
-	}
-
-	if (strncmp(cfgstring, "tcm-user", ptr-oldptr)) {
-		errp("invalid cfgstring\n");
-		goto err_free;
-	}
-
-	/* Get HBA name */
-	oldptr = ptr+1;
-	ptr = strchr(oldptr, '/');
-	if (!ptr) {
-		errp("invalid cfgstring\n");
-		goto err_free;
-	}
-	len = ptr-oldptr;
-	snprintf(dev->tcm_hba_name, sizeof(dev->tcm_hba_name), "user_%.*s", len, oldptr);
-
-	/* Get device name */
-	oldptr = ptr+1;
-	ptr = strchr(oldptr, '/');
-	if (!ptr) {
-		errp("invalid cfgstring\n");
-		goto err_free;
-	}
-	len = ptr-oldptr;
-	snprintf(dev->tcm_dev_name, sizeof(dev->tcm_dev_name), "%.*s", len, oldptr);
-
-	/* The rest is the handler-specific cfgstring */
-	oldptr = ptr+1;
-	ptr = strchr(oldptr, '/');
-	snprintf(dev->cfgstring, sizeof(dev->cfgstring), "%s", oldptr);
-
-	snprintf(str_buf, sizeof(str_buf), "/dev/%s", dev_name);
-
-	dev->fd = open(str_buf, O_RDWR);
-	if (dev->fd == -1) {
-		errp("could not open %s\n", str_buf);
-		goto err_free;
-	}
-
-	snprintf(str_buf, sizeof(str_buf), "/sys/class/uio/%s/maps/map0/size", dev->dev_name);
-	fd = open(str_buf, O_RDONLY);
-	if (fd == -1) {
-		errp("could not open %s\n", str_buf);
-		goto err_fd_close;
-	}
-
-	ret = read(fd, str_buf, sizeof(str_buf));
-	close(fd);
-	if (ret <= 0) {
-		errp("could not read size of map0\n");
-		goto err_fd_close;
-	}
-	str_buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
-
-	dev->map_len = strtoull(str_buf, NULL, 0);
-	if (dev->map_len == ULLONG_MAX) {
-		errp("could not get map length\n");
-		goto err_fd_close;
-	}
-
-	dev->map = mmap(NULL, dev->map_len, PROT_READ|PROT_WRITE, MAP_SHARED, dev->fd, 0);
-	if (dev->map == MAP_FAILED) {
-		errp("could not mmap: %m\n");
-		goto err_fd_close;
-	}
-
-	mb = dev->map;
-	if (mb->version != KERN_IFACE_VER) {
-		errp("Kernel interface version mismatch: wanted %d got %d\n",
-		    KERN_IFACE_VER, mb->version);
-		goto err_munmap;
-	}
-
-	dev->handler = find_handler(dev->cfgstring);
-	if (!dev->handler) {
-		errp("could not find handler for %s\n", dev->dev_name);
-		goto err_munmap;
-	}
-
-	ret = dev->handler->open(dev);
-	if (ret < 0) {
-		errp("handler open failed for %s\n", dev->dev_name);
-		goto err_munmap;
-	}
-
-	/* dev will be freed by the new thread */
-	ret = pthread_create(&thread.thread_id, NULL, thread_start, dev);
-	if (ret) {
-		errp("Could not start thread\n");
-		goto err_handler_close;
-	}
-
-	darray_append(threads, thread);
-
-	return 0;
-
-err_handler_close:
-	dev->handler->close(dev);
-err_munmap:
-	munmap(dev->map, dev->map_len);
-err_fd_close:
-	close(dev->fd);
-err_free:
-	free(dev);
-
-	return -1;
 }
 
 static void cancel_thread(pthread_t thread)
@@ -462,119 +225,13 @@ static void cancel_thread(pthread_t thread)
 		errp("unexpected join retval: %p\n", join_retval);
 }
 
-static void remove_device(char *dev_name, char *cfgstring)
-{
-	struct tcmu_thread *thread;
-	int i = 0;
-	bool found = false;
-
-	darray_foreach(thread, threads) {
-		if (strncmp(thread->dev_name, dev_name, strnlen(thread->dev_name, sizeof(thread->dev_name))))
-			i++;
-		else {
-			found = true;
-			break;
-		}
-	}
-
-	if (!found) {
-		errp("could not remove device %s: not found\n", dev_name);
-		return;
-	}
-
-	cancel_thread(thread->thread_id);
-
-	darray_remove(threads, i);
-}
-
-static int is_uio(const struct dirent *dirent)
-{
-	int fd;
-	char tmp_path[64];
-	char buf[256];
-	ssize_t ret;
-
-	if (strncmp(dirent->d_name, "uio", 3))
-		return 0;
-
-	snprintf(tmp_path, sizeof(tmp_path), "/sys/class/uio/%s/name", dirent->d_name);
-
-	fd = open(tmp_path, O_RDONLY);
-	if (fd == -1) {
-		errp("could not open %s!\n", tmp_path);
-		return 0;
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-	if (ret <= 0 || ret >= sizeof(buf)) {
-		errp("read of %s had issues\n", tmp_path);
-		return 0;
-	}
-	buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
-
-	/* we only want uio devices whose name is a format we expect */
-	if (strncmp(buf, "tcm-user", 8))
-		return 0;
-
-	return 1;
-}
-
-static int open_devices(void)
-{
-	struct dirent **dirent_list;
-	int num_devs;
-	int num_good_devs = 0;
-	int i;
-
-	num_devs = scandir("/dev", &dirent_list, is_uio, alphasort);
-
-	if (num_devs == -1)
-		return -1;
-
-	for (i = 0; i < num_devs; i++) {
-		char tmp_path[64];
-		char buf[256];
-		int fd;
-		int ret;
-
-		snprintf(tmp_path, sizeof(tmp_path), "/sys/class/uio/%s/name",
-			 dirent_list[i]->d_name);
-
-		fd = open(tmp_path, O_RDONLY);
-		if (fd == -1) {
-			errp("could not open %s!\n", tmp_path);
-			continue;
-		}
-
-		ret = read(fd, buf, sizeof(buf));
-		close(fd);
-		if (ret <= 0 || ret >= sizeof(buf)) {
-			errp("read of %s had issues\n", tmp_path);
-			continue;
-		}
-		buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
-
-		ret = add_device(dirent_list[i]->d_name, buf);
-		if (ret < 0)
-			continue;
-
-		num_good_devs++;
-	}
-
-	for (i = 0; i < num_devs; i++)
-		free(dirent_list[i]);
-	free(dirent_list);
-
-	return num_good_devs;
-}
-
 static void sighandler(int signal)
 {
 	struct tcmu_thread *thread;
 
 	errp("signal %d received!\n", signal);
 
-	darray_foreach(thread, threads) {
+	darray_foreach(thread, g_threads) {
 		cancel_thread(thread->thread_id);
 	}
 
@@ -585,18 +242,13 @@ static struct sigaction tcmu_sigaction = {
 	.sa_handler = sighandler,
 };
 
-gboolean nl_callback(GIOChannel *source,
-		     GIOCondition condition,
-		     gpointer data)
+gboolean tcmulib_callback(GIOChannel *source,
+			  GIOCondition condition,
+			  gpointer data)
 {
-	struct nl_sock *nl_sock = data;
-	int ret;
+	struct tcmulib_context *cxt = data;
 
-	ret = nl_recvmsgs_default(nl_sock);
-	if (ret < 0) {
-		errp("nl_recvmsgs_default poll returned %d", ret);
-		exit(1);
-	}
+	tcmulib_master_fd_ready(cxt);
 
 	return TRUE;
 }
@@ -607,14 +259,16 @@ on_check_config(TCMUService1 *interface,
 		gchar *cfgstring,
 		gpointer user_data)
 {
-	struct tcmu_handler *handler = user_data;
-	char *reason = "";
+	struct tcmur_handler *handler = user_data;
+	char *reason = NULL;
 	bool str_ok = true;
 
 	if (handler->check_config)
 		str_ok = handler->check_config(cfgstring, &reason);
 
-	/* TODO: call handler to check config */
+	if (str_ok)
+		reason = "success";
+
 	GVariant *array[2];
 	GVariant *tuple;
 	array[0] = g_variant_new_boolean(str_ok);
@@ -623,6 +277,9 @@ on_check_config(TCMUService1 *interface,
 	tuple = g_variant_new_tuple(array, 2);
 
 	g_dbus_method_invocation_return_value(invocation, tuple);
+
+	if (!str_ok)
+		free(reason);
 
 	return TRUE;
 }
@@ -633,14 +290,14 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
-	struct tcmu_handler *handler;
+	struct tcmur_handler *handler;
 	GDBusObjectSkeleton *object;
 
 	dbgp("bus %s acquired\n", name);
 
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
-	darray_foreach(handler, handlers) {
+	darray_foreach(handler, g_runner_handlers) {
 		char obj_name[128];
 		TCMUService1 *interface;
 
@@ -708,12 +365,61 @@ int load_our_module(void) {
 			return -1;
 		}
 
-		dbgp("Module %s inserted\n", kmod_module_get_name(mod));
+		dbgp("Module %s inserted (or already loaded)\n", kmod_module_get_name(mod));
 
 		kmod_module_unref(mod);
 	}
 
 	return 0;
+}
+
+static int dev_added(struct tcmu_device *dev)
+{
+	int ret;
+	struct tcmu_thread thread;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+
+	ret = r_handler->open(dev);
+	if (ret)
+		return ret;
+
+	thread.dev = dev;
+
+	ret = pthread_create(&thread.thread_id, NULL, thread_start, dev);
+	if (ret) {
+		r_handler->close(dev);
+		return ret;
+	}
+
+	darray_append(g_threads, thread);
+
+	return 0;
+}
+
+static void dev_removed(struct tcmu_device *dev)
+{
+	struct tcmu_thread *thread;
+	int i = 0;
+	bool found = false;
+
+	darray_foreach(thread, g_threads) {
+		if (thread->dev == dev) {
+			found = true;
+			break;
+		} else {
+			i++;
+		}
+	}
+
+	if (!found) {
+		errp("could not remove a device: not found\n");
+		return;
+	}
+
+	cancel_thread(thread->thread_id);
+
+	darray_remove(g_threads, i);
 }
 
 static void usage(void) {
@@ -738,12 +444,14 @@ static struct option long_options[] = {
 
 int main(int argc, char **argv)
 {
-	struct nl_sock *nl_sock;
 	int ret;
 	GMainLoop *loop;
-	GIOChannel *nl_gio;
+	GIOChannel *libtcmu_gio;
 	guint reg_id;
 	int c;
+	struct tcmulib_context *tcmulib_context;
+	darray(struct tcmulib_handler) handlers = darray_new();
+	struct tcmur_handler *tmp_r_handler;
 
 	while (1) {
 		int option_index = 0;
@@ -782,25 +490,43 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	nl_sock = setup_netlink();
-	if (!nl_sock) {
-		errp("couldn't setup netlink\n");
-		exit(1);
-	}
-
 	ret = open_handlers();
 	if (ret < 0) {
 		errp("couldn't open handlers\n");
 		exit(1);
 	}
-	dbgp("%d handlers found\n", ret);
+	dbgp("%d runner handlers found\n", ret);
 
-	ret = open_devices();
-	if (ret < 0) {
-		errp("couldn't open devices\n");
+	/*
+	 * Convert from tcmu-runner's handler struct to libtcmu's
+	 * handler struct, an array of which we pass in, below.
+	 */
+	darray_foreach(tmp_r_handler, g_runner_handlers) {
+		struct tcmulib_handler tmp_handler;
+
+		tmp_handler.name = tmp_r_handler->name;
+		tmp_handler.subtype = tmp_r_handler->subtype;
+		tmp_handler.cfg_desc = tmp_r_handler->cfg_desc;
+		tmp_handler.check_config = tmp_r_handler->check_config;
+		tmp_handler.added = dev_added;
+		tmp_handler.removed = dev_removed;
+
+		/*
+		 * Can hand out a ref to an internal pointer to the
+		 * darray b/c handlers will never be added or removed
+		 * once open_handlers() is done.
+		 */
+		tmp_handler.hm_private = tmp_r_handler;
+
+		darray_append(handlers, tmp_handler);
+	}
+
+
+	tcmulib_context = tcmulib_initialize(handlers.item, handlers.size, errp);
+	if (!tcmulib_context) {
+		errp("tcmulib_initialize failed\n");
 		exit(1);
 	}
-	dbgp("%d devices found\n", ret);
 
 	ret = sigaction(SIGINT, &tcmu_sigaction, NULL);
 	if (ret) {
@@ -808,9 +534,9 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	/* Set up event for netlink */
-	nl_gio = g_io_channel_unix_new(nl_socket_get_fd(nl_sock));
-	g_io_add_watch(nl_gio, G_IO_IN, nl_callback, nl_sock);
+	/* Set up event for libtcmu */
+	libtcmu_gio = g_io_channel_unix_new(tcmulib_get_master_fd(tcmulib_context));
+	g_io_add_watch(libtcmu_gio, G_IO_IN, tcmulib_callback, tcmulib_context);
 
 	/* Set up DBus name, see callback */
 	reg_id = g_bus_own_name(G_BUS_TYPE_SYSTEM,

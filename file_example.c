@@ -38,6 +38,7 @@
 #include <fcntl.h>
 #include <endian.h>
 #include <scsi/scsi.h>
+#include <errno.h>
 
 #include "tcmu-runner.h"
 
@@ -82,9 +83,9 @@ static int file_open(struct tcmu_device *dev)
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
-		return -1;
+		return -ENOMEM;
 
-	dev->hm_private = state;
+	tcmu_set_dev_private(dev, state);
 
 	state->block_size = tcmu_get_attribute(dev, "hw_block_size");
 	if (state->block_size == -1) {
@@ -100,7 +101,7 @@ static int file_open(struct tcmu_device *dev)
 
 	state->num_lbas = size / state->block_size;
 
-	config = strchr(dev->cfgstring, '/');
+	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
 		errp("no configuration found in cfgstring\n");
 		goto err;
@@ -117,12 +118,12 @@ static int file_open(struct tcmu_device *dev)
 
 err:
 	free(state);
-	return -1;
+	return -EINVAL;
 }
 
 static void file_close(struct tcmu_device *dev)
 {
-	struct file_state *state = dev->hm_private;
+	struct file_state *state = tcmu_get_dev_private(dev);
 
 	close(state->fd);
 	free(state);
@@ -143,7 +144,7 @@ static int file_handle_cmd(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
-	struct file_state *state = dev->hm_private;
+	struct file_state *state = tcmu_get_dev_private(dev);
 	uint8_t cmd;
 	int remaining;
 	size_t ret;
@@ -251,7 +252,7 @@ static int file_handle_cmd(
 static const char file_cfg_desc[] =
 	"The path to the file to use as a backstore.";
 
-static struct tcmu_handler file_handler = {
+static struct tcmur_handler file_handler = {
 	.name = "File-backed Handler (example code)",
 	.subtype = "file",
 	.cfg_desc = file_cfg_desc,
@@ -266,5 +267,5 @@ static struct tcmu_handler file_handler = {
 /* Entry point must be named "handler_init". */
 void handler_init(void)
 {
-	tcmu_register_handler(&file_handler);
+	tcmur_register_handler(&file_handler);
 }
