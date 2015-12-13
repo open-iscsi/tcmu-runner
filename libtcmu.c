@@ -497,13 +497,25 @@ struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)
 	return dev->handler;
 }
 
+static inline struct tcmu_cmd_entry *
+mailbox_cmd_head(struct tcmu_mailbox *mb)
+{
+	return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + mb->cmd_head);
+}
+
+static inline struct tcmu_cmd_entry *
+mailbox_cmd_tail(struct tcmu_mailbox *mb)
+{
+	return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + mb->cmd_tail);
+}
+
 bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmu_mailbox *mb = dev->map;
-	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+	struct tcmu_cmd_entry *ent;
 	int i;
 
-	while (ent != (void *)mb + mb->cmdr_off + mb->cmd_head) {
+	while ((ent = mailbox_cmd_tail(mb)) != mailbox_cmd_head(mb)) {
 
 		switch (tcmu_hdr_get_op(ent->hdr.len_op)) {
 		case TCMU_OP_PAD:
@@ -515,6 +527,7 @@ bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 				ent->req.iov[i].iov_base = (void *) mb +
 					(size_t)ent->req.iov[i].iov_base;
 
+			cmd->cmd_id = ent->hdr.cmd_id;
 			cmd->cdb = (void *)mb + ent->req.cdb_off;
 			cmd->iovec = ent->req.iov;
 			cmd->iov_cnt = ent->req.iov_cnt;
@@ -525,7 +538,6 @@ bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		}
 
 		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
-		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 	}
 
 	return false;
@@ -537,7 +549,10 @@ void tcmulib_command_complete(
 	int result)
 {
 	struct tcmu_mailbox *mb = dev->map;
-	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+	struct tcmu_cmd_entry *ent = mailbox_cmd_tail(mb);
+
+	if (cmd->cmd_id != ent->hdr.cmd_id)
+		ent->hdr.cmd_id = cmd->cmd_id;
 
 	if (result == TCMU_NOT_HANDLED) {
 		/* Tell the kernel we didn't handle it */
@@ -559,6 +574,71 @@ void tcmulib_command_complete(
 	}
 
 	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
+}
+
+#define VARIABLE_LENGTH_CMD   0x7f
+
+/* defined in T10 SCSI Primary Commands-2 (SPC2) */
+struct scsi_varlen_cdb_hdr {
+	uint8_t opcode;         /* opcode always == VARIABLE_LENGTH_CMD */
+	uint8_t control;
+	uint8_t misc[5];
+	uint8_t additional_cdb_length;  /* total cdb length - 8 */
+	uint16_t service_action;
+	/* service specific data follows */
+};
+
+static inline unsigned
+scsi_varlen_cdb_length(const void *hdr)
+{
+	 return ((struct scsi_varlen_cdb_hdr *)hdr)->additional_cdb_length + 8;
+}
+
+/* Command group 3 is reserved and should never be used.  */
+static const unsigned char scsi_command_size_tbl[8] =
+{
+	 6, 10, 10, 12,
+	 16, 12, 10, 10
+};
+
+#define COMMAND_SIZE(opcode) scsi_command_size_tbl[((opcode) >> 5) & 7]
+
+static inline unsigned
+scsi_command_size(const unsigned char *cdb)
+{
+	 return (cdb[0] == VARIABLE_LENGTH_CMD) ?
+		 scsi_varlen_cdb_length(cdb) : COMMAND_SIZE(cdb[0]);
+}
+
+struct tcmulib_cmd *tcmulib_async_command_init(struct tcmulib_cmd *cmd)
+{
+	struct tcmulib_cmd *ret;
+	unsigned cdb_len = scsi_command_size(cmd->cdb);
+
+	/* alloc memory for cmd itself, iovec and cdb */
+	ret = malloc(sizeof(*ret) + sizeof(*ret->iovec) * cmd->iov_cnt + cdb_len);
+	if (!ret)
+		return NULL;
+	*ret = *cmd;
+
+	/* copy iovec that currently points to the command ring */
+	ret->iovec = (struct iovec *) (ret + 1);
+	memcpy(ret->iovec, cmd->iovec, cmd->iov_cnt);
+
+	/* copy cdb that currently points to the command ring */
+	ret->cdb = (uint8_t *) (ret->iovec + ret->iov_cnt);
+	memcpy(ret->cdb, cmd->cdb, cdb_len);
+
+	return ret;
+}
+
+void tcmulib_async_command_complete(
+	struct tcmu_device *dev,
+	struct tcmulib_cmd *cmd,
+	int result)
+{
+	tcmulib_command_complete(dev, cmd, result);
+	free(cmd);
 }
 
 void tcmulib_processing_complete(struct tcmu_device *dev)

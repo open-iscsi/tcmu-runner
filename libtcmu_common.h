@@ -27,6 +27,19 @@ extern "C" {
 
 struct tcmu_device;
 
+#define TCMU_NOT_HANDLED -1
+#define TCMU_ASYNC_HANDLED -2
+
+#define SENSE_BUFFERSIZE 96
+
+struct tcmulib_cmd {
+	uint16_t cmd_id;
+	uint8_t *cdb;
+	struct iovec *iovec;
+	size_t iov_cnt;
+	uint8_t sense_buf[SENSE_BUFFERSIZE];
+};
+
 /* Set/Get methods for the opaque tcmu_device */
 void *tcmu_get_dev_private(struct tcmu_device *dev);
 void tcmu_set_dev_private(struct tcmu_device *dev, void *priv);
