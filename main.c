@@ -177,10 +177,9 @@ static void *thread_start(void *arg)
 			}
 			dbgp("\n");
 
-			ret = r_handler->handle_cmd(dev, cmd.cdb, cmd.iovec,
-						  cmd.iov_cnt, cmd.sense_buf);
-
-			tcmulib_command_complete(dev, &cmd, ret);
+			ret = r_handler->handle_cmd(dev, &cmd);
+			if (ret != TCMU_ASYNC_HANDLED)
+				tcmulib_command_complete(dev, &cmd, ret);
 		}
 
 		tcmulib_processing_complete(dev);
