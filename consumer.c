@@ -209,16 +209,16 @@ int main(int argc, char **argv)
 
 		for (i = 0; i < dev_array_len; i++) {
 			if (pollfds[i+1].revents) {
-				struct tcmulib_cmd cmd;
+				struct tcmulib_cmd *cmd;
 				struct tcmu_device *dev = tcmu_dev_array[i];
 
-				while (tcmulib_get_next_command(dev, &cmd)) {
+				while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
 					ret = foo_handle_cmd(dev,
-							     cmd.cdb,
-							     cmd.iovec,
-							     cmd.iov_cnt,
-							     cmd.sense_buf);
-					tcmulib_command_complete(dev, &cmd, ret);
+							     cmd->cdb,
+							     cmd->iovec,
+							     cmd->iov_cnt,
+							     cmd->sense_buf);
+					tcmulib_command_complete(dev, cmd, ret);
 				}
 
 				tcmulib_processing_complete(dev);

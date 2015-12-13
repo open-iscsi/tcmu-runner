@@ -159,7 +159,7 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 	return size;
 }
 
-static inline int get_cdb_length(uint8_t *cdb)
+int tcmu_get_cdb_length(uint8_t *cdb)
 {
 	uint8_t opcode = cdb[0];
 
@@ -169,6 +169,8 @@ static inline int get_cdb_length(uint8_t *cdb)
 		return 6;
 	else if (opcode <= 0x5f)
 		return 10;
+	else if (opcode == 0x7f)
+		return cdb[7] + 8;
 	else if (opcode >= 0x80 && opcode <= 0x9f)
 		return 16;
 	else if (opcode >= 0xa0 && opcode <= 0xbf)
@@ -181,7 +183,7 @@ uint64_t tcmu_get_lba(uint8_t *cdb)
 {
 	uint8_t val6;
 
-	switch (get_cdb_length(cdb)) {
+	switch (tcmu_get_cdb_length(cdb)) {
 	case 6:
 		val6 = be16toh(*((uint16_t *)&cdb[2]));
 		return val6 ? val6 : 256;
@@ -198,7 +200,7 @@ uint64_t tcmu_get_lba(uint8_t *cdb)
 
 uint32_t tcmu_get_xfer_length(uint8_t *cdb)
 {
-	switch (get_cdb_length(cdb)) {
+	switch (tcmu_get_cdb_length(cdb)) {
 	case 6:
 		return cdb[4];
 	case 10:

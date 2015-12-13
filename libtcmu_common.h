@@ -27,6 +27,19 @@ extern "C" {
 
 struct tcmu_device;
 
+#define TCMU_NOT_HANDLED -1
+#define TCMU_ASYNC_HANDLED -2
+
+#define SENSE_BUFFERSIZE 96
+
+struct tcmulib_cmd {
+	uint16_t cmd_id;
+	uint8_t *cdb;
+	struct iovec *iovec;
+	size_t iov_cnt;
+	uint8_t sense_buf[SENSE_BUFFERSIZE];
+};
+
 /* Set/Get methods for the opaque tcmu_device */
 void *tcmu_get_dev_private(struct tcmu_device *dev);
 void tcmu_set_dev_private(struct tcmu_device *dev, void *private);
@@ -37,6 +50,7 @@ struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
 /* Helper routines for processing commands */
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
 long long tcmu_get_device_size(struct tcmu_device *dev);
+int tcmu_get_cdb_length(uint8_t *cdb);
 uint64_t tcmu_get_lba(uint8_t *cdb);
 uint32_t tcmu_get_xfer_length(uint8_t *cdb);
 off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size);

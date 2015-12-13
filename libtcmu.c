@@ -281,6 +281,7 @@ static int add_device(struct tcmulib_context_priv *pcxt,
 		    KERN_IFACE_VER, mb->version);
 		goto err_munmap;
 	}
+	dev->cmd_tail = mb->cmd_tail;
 
 	dev->handler = find_handler(pcxt, dev->cfgstring);
 	if (!dev->handler) {
@@ -502,38 +503,70 @@ struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)
 	return dev->handler;
 }
 
-bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static inline struct tcmu_cmd_entry *
+device_cmd_head(struct tcmu_device *dev)
 {
 	struct tcmu_mailbox *mb = dev->map;
-	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
-	int i;
 
-	while (ent != (void *)mb + mb->cmdr_off + mb->cmd_head) {
+	return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + mb->cmd_head);
+}
+
+static inline struct tcmu_cmd_entry *
+device_cmd_tail(struct tcmu_device *dev)
+{
+	struct tcmu_mailbox *mb = dev->map;
+
+	return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + dev->cmd_tail);
+}
+
+struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
+{
+	struct tcmu_mailbox *mb = dev->map;
+	struct tcmu_cmd_entry *ent;
+
+	while ((ent = device_cmd_tail(dev)) != device_cmd_head(dev)) {
 
 		switch (tcmu_hdr_get_op(ent->hdr.len_op)) {
 		case TCMU_OP_PAD:
 			/* do nothing */
 			break;
-		case TCMU_OP_CMD:
-			/* Convert iovec addrs in-place to not be offsets */
-			for (i = 0; i < ent->req.iov_cnt; i++)
-				ent->req.iov[i].iov_base = (void *) mb +
-					(size_t)ent->req.iov[i].iov_base;
+		case TCMU_OP_CMD: {
+			int i;
+			struct tcmulib_cmd *cmd;
+			uint8_t *cdb = (uint8_t *) mb + ent->req.cdb_off;
+			unsigned cdb_len = tcmu_get_cdb_length(cdb);
 
-			cmd->cdb = (void *)mb + ent->req.cdb_off;
-			cmd->iovec = ent->req.iov;
+			/* Alloc memory for cmd itself, iovec and cdb */
+			cmd = malloc(sizeof(*cmd) + sizeof(*cmd->iovec) * ent->req.iov_cnt + cdb_len);
+			if (!cmd)
+				return NULL;
+			cmd->cmd_id = ent->hdr.cmd_id;
+
+			/* Convert iovec addrs in-place to not be offsets */
 			cmd->iov_cnt = ent->req.iov_cnt;
-			return true;
+			cmd->iovec = (struct iovec *) (cmd + 1);
+			for (i = 0; i < ent->req.iov_cnt; i++) {
+				cmd->iovec[i].iov_base = (void *) mb +
+					(size_t) ent->req.iov[i].iov_base;
+				cmd->iovec[i].iov_len = ent->req.iov[i].iov_len;
+			}
+
+			/* Copy cdb that currently points to the command ring */
+			cmd->cdb = (uint8_t *) (cmd->iovec + cmd->iov_cnt);
+			memcpy(cmd->cdb, (void *) mb + ent->req.cdb_off, cdb_len);
+
+			dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
+			return cmd;
+		}
 		default:
 			/* We don't even know how to handle this TCMU opcode. */
 			ent->hdr.uflags |= TCMU_UFLAG_UNKNOWN_OP;
 		}
 
-		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
-		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+		dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
 	}
 
-	return false;
+	return NULL;
 }
 
 void tcmulib_command_complete(
@@ -543,6 +576,19 @@ void tcmulib_command_complete(
 {
 	struct tcmu_mailbox *mb = dev->map;
 	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+
+	/* current command could be PAD in async case */
+	while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
+		if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
+			break;
+		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
+		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+	}
+
+	/* cmd_id could be different in async case */
+	if (cmd->cmd_id != ent->hdr.cmd_id) {
+		ent->hdr.cmd_id = cmd->cmd_id;
+	}
 
 	if (result == TCMU_NOT_HANDLED) {
 		/* Tell the kernel we didn't handle it */
@@ -564,6 +610,7 @@ void tcmulib_command_complete(
 	}
 
 	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
+	free(cmd);
 }
 
 void tcmulib_processing_complete(struct tcmu_device *dev)

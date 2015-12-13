@@ -49,6 +49,8 @@ struct tcmu_device {
 	int fd;
 	struct tcmu_mailbox *map;
 	size_t map_len;
+	uint32_t cmd_tail;
+
 	char dev_name[16]; /* e.g. "uio14" */
 	char tcm_hba_name[16]; /* e.g. "user_8" */
 	char tcm_dev_name[128]; /* e.g. "backup2" */
