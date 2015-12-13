@@ -59,15 +59,6 @@ struct tcmulib_handler {
 	void *hm_private; /* private ptr for handler module */
 };
 
-#define SENSE_BUFFERSIZE 96
-
-struct tcmulib_cmd {
-	uint8_t *cdb;
-	struct iovec *iovec;
-	size_t iov_cnt;
-	uint8_t sense_buf[SENSE_BUFFERSIZE];
-};
-
 /*
  * APIs for libtcmu only
  *
@@ -103,10 +94,25 @@ bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
  * Mark the command as complete.
  * Must be called before get_next_command() is called again.
  *
- * result is scsi status, or TCMU_NOT_HANDLED.
+ * result is scsi status, or TCMU_NOT_HANDLED or TCMU_ASYNC_HANDLED.
  */
-#define TCMU_NOT_HANDLED -1
 void tcmulib_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd, int result);
+
+/*
+ * Init async command completion
+ * Must be called before returning TCMU_ASYNC_HANDLED
+ *
+ * result is the copy of original command that can be safely
+ * processed asynchronously. Command completion should be signalled using
+ * tcmulib_async_command_complete().
+ */
+struct tcmulib_cmd *tcmulib_async_command_init(struct tcmulib_cmd *cmd);
+
+/*
+ * Mark the command as complete.
+ * The command is expected to be obtained from tcmulib_async_command_init()
+ */
+void tcmulib_async_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd, int result);
 
 /* Call when done processing commands (get_next_command() returned false.) */
 void tcmulib_processing_complete(struct tcmu_device *dev);
