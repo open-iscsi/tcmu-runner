@@ -168,6 +168,8 @@ static void *thread_start(void *arg)
 	pthread_cleanup_push(thread_cleanup, dev);
 
 	while (1) {
+		int completed = 0;
+
 		while (tcmulib_get_next_command(dev, &cmd)) {
 			int i;
 			bool short_cdb = cmd.cdb[0] <= 0x1f;
@@ -178,11 +180,14 @@ static void *thread_start(void *arg)
 			dbgp("\n");
 
 			ret = r_handler->handle_cmd(dev, &cmd);
-			if (ret != TCMU_ASYNC_HANDLED)
+			if (ret != TCMU_ASYNC_HANDLED) {
 				tcmulib_command_complete(dev, &cmd, ret);
+				completed = 1;
+			}
 		}
 
-		tcmulib_processing_complete(dev);
+		if (completed)
+			tcmulib_processing_complete(dev);
 
 		pfd.fd = tcmu_get_dev_fd(dev);
 		pfd.events = POLLIN;
