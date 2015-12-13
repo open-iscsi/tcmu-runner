@@ -543,8 +543,7 @@ bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 			ent->hdr.uflags |= TCMU_UFLAG_UNKNOWN_OP;
 		}
 
-		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
-		dev->cmd_tail = mb->cmd_tail;
+		dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
 	}
 
 	return false;
@@ -557,6 +556,14 @@ void tcmulib_command_complete(
 {
 	struct tcmu_mailbox *mb = dev->map;
 	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+
+	/* current command could be PAD in async case */
+	while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
+		if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
+			break;
+		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
+		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+	}
 
 	if (cmd->cmd_id != ent->hdr.cmd_id) {
 		ent->hdr.cmd_id = cmd->cmd_id;
