@@ -29,7 +29,7 @@ struct tcmu_device;
 
 /* Set/Get methods for the opaque tcmu_device */
 void *tcmu_get_dev_private(struct tcmu_device *dev);
-void tcmu_set_dev_private(struct tcmu_device *dev, void *private);
+void tcmu_set_dev_private(struct tcmu_device *dev, void *priv);
 int tcmu_get_dev_fd(struct tcmu_device *dev);
 char *tcmu_get_dev_cfgstring(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
