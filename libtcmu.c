@@ -44,8 +44,9 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_MINOR]	= { .type = NLA_U32 },
 };
 
-void errp(struct tcmulib_context_priv *pcxt,
-	  char *fmt, ...)
+static void my_errp(struct tcmulib_context_priv *pcxt,
+		 char *fmt,
+		 ...)
 {
 	if (pcxt->err_print) {
 		va_list va;
@@ -65,7 +66,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 	char buf[32];
 
 	if (!info->attrs[TCMU_ATTR_MINOR] || !info->attrs[TCMU_ATTR_DEVICE]) {
-		errp(pcxt, "TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
+		my_errp(pcxt, "TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
 		return 0;
 	}
 
@@ -79,7 +80,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 		remove_device(pcxt, buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
 		break;
 	default:
-		errp(pcxt, "Unknown notification %d\n", cmd->c_id);
+		my_errp(pcxt, "Unknown notification %d\n", cmd->c_id);
 	}
 
 	return 0;
@@ -115,7 +116,7 @@ static struct nl_sock *setup_netlink(struct tcmulib_context_priv *pcxt)
 
 	sock = nl_socket_alloc();
 	if (!sock) {
-		errp(pcxt, "couldn't alloc socket\n");
+		my_errp(pcxt, "couldn't alloc socket\n");
 		return NULL;
 	}
 
@@ -125,19 +126,19 @@ static struct nl_sock *setup_netlink(struct tcmulib_context_priv *pcxt)
 
 	ret = genl_connect(sock);
 	if (ret < 0) {
-		errp(pcxt, "couldn't connect\n");
+		my_errp(pcxt, "couldn't connect\n");
 		goto err_free;
 	}
 
 	ret = genl_register_family(&tcmu_ops);
 	if (ret < 0) {
-		errp(pcxt, "couldn't register family\n");
+		my_errp(pcxt, "couldn't register family\n");
 		goto err_close;
 	}
 
 	ret = genl_ops_resolve(sock, &tcmu_ops);
 	if (ret < 0) {
-		errp(pcxt, "couldn't resolve ops, is target_core_user.ko loaded?\n");
+		my_errp(pcxt, "couldn't resolve ops, is target_core_user.ko loaded?\n");
 		goto err_close;
 	}
 
@@ -145,7 +146,7 @@ static struct nl_sock *setup_netlink(struct tcmulib_context_priv *pcxt)
 
 	ret = nl_socket_add_membership(sock, ret);
 	if (ret < 0) {
-		errp(pcxt, "couldn't add membership\n");
+		my_errp(pcxt, "couldn't add membership\n");
 		goto err_close;
 	}
 
@@ -197,7 +198,7 @@ static int add_device(struct tcmulib_context_priv *pcxt,
 
 	dev = calloc(1, sizeof(*dev));
 	if (!dev) {
-		errp(pcxt, "calloc failed in add_device\n");
+		my_errp(pcxt, "calloc failed in add_device\n");
 		return -ENOMEM;
 	}
 
@@ -206,12 +207,12 @@ static int add_device(struct tcmulib_context_priv *pcxt,
 	oldptr = cfgstring;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		errp(pcxt, "invalid cfgstring\n");
+		my_errp(pcxt, "invalid cfgstring\n");
 		goto err_free;
 	}
 
 	if (strncmp(cfgstring, "tcm-user", ptr-oldptr)) {
-		errp(pcxt, "invalid cfgstring\n");
+		my_errp(pcxt, "invalid cfgstring\n");
 		goto err_free;
 	}
 
@@ -219,7 +220,7 @@ static int add_device(struct tcmulib_context_priv *pcxt,
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		errp(pcxt, "invalid cfgstring\n");
+		my_errp(pcxt, "invalid cfgstring\n");
 		goto err_free;
 	}
 	len = ptr-oldptr;
@@ -229,7 +230,7 @@ static int add_device(struct tcmulib_context_priv *pcxt,
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		errp(pcxt, "invalid cfgstring\n");
+		my_errp(pcxt, "invalid cfgstring\n");
 		goto err_free;
 	}
 	len = ptr-oldptr;
@@ -244,47 +245,47 @@ static int add_device(struct tcmulib_context_priv *pcxt,
 
 	dev->fd = open(str_buf, O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (dev->fd == -1) {
-		errp(pcxt, "could not open %s\n", str_buf);
+		my_errp(pcxt, "could not open %s\n", str_buf);
 		goto err_free;
 	}
 
 	snprintf(str_buf, sizeof(str_buf), "/sys/class/uio/%s/maps/map0/size", dev->dev_name);
 	fd = open(str_buf, O_RDONLY);
 	if (fd == -1) {
-		errp(pcxt, "could not open %s\n", str_buf);
+		my_errp(pcxt, "could not open %s\n", str_buf);
 		goto err_fd_close;
 	}
 
 	ret = read(fd, str_buf, sizeof(str_buf));
 	close(fd);
 	if (ret <= 0) {
-		errp(pcxt, "could not read size of map0\n");
+		my_errp(pcxt, "could not read size of map0\n");
 		goto err_fd_close;
 	}
 	str_buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
 
 	dev->map_len = strtoull(str_buf, NULL, 0);
 	if (dev->map_len == ULLONG_MAX) {
-		errp(pcxt, "could not get map length\n");
+		my_errp(pcxt, "could not get map length\n");
 		goto err_fd_close;
 	}
 
 	dev->map = mmap(NULL, dev->map_len, PROT_READ|PROT_WRITE, MAP_SHARED, dev->fd, 0);
 	if (dev->map == MAP_FAILED) {
-		errp(pcxt, "could not mmap: %m\n");
+		my_errp(pcxt, "could not mmap: %m\n");
 		goto err_fd_close;
 	}
 
 	mb = dev->map;
 	if (mb->version != KERN_IFACE_VER) {
-		errp(pcxt, "Kernel interface version mismatch: wanted %d got %d\n",
-		    KERN_IFACE_VER, mb->version);
+		my_errp(pcxt, "Kernel interface version mismatch: wanted %d got %d\n",
+			KERN_IFACE_VER, mb->version);
 		goto err_munmap;
 	}
 
 	dev->handler = find_handler(pcxt, dev->cfgstring);
 	if (!dev->handler) {
-		errp(pcxt, "could not find handler for %s\n", dev->dev_name);
+		my_errp(pcxt, "could not find handler for %s\n", dev->dev_name);
 		goto err_munmap;
 	}
 
@@ -294,7 +295,7 @@ static int add_device(struct tcmulib_context_priv *pcxt,
 
 	ret = dev->handler->added(dev);
 	if (ret < 0) {
-		errp(pcxt, "handler open failed for %s\n", dev->dev_name);
+		my_errp(pcxt, "handler open failed for %s\n", dev->dev_name);
 		goto err_munmap;
 	}
 
@@ -330,7 +331,7 @@ static void remove_device(struct tcmulib_context_priv *pcxt,
 	}
 
 	if (!found) {
-		errp(pcxt, "could not remove device %s: not found\n", dev_name);
+		my_errp(pcxt, "could not remove device %s: not found\n", dev_name);
 		return;
 	}
 
@@ -391,14 +392,14 @@ static int open_devices(struct tcmulib_context_priv *pcxt)
 
 		fd = open(tmp_path, O_RDONLY);
 		if (fd == -1) {
-			errp(pcxt, "could not open %s!\n", tmp_path);
+			my_errp(pcxt, "could not open %s!\n", tmp_path);
 			continue;
 		}
 
 		ret = read(fd, buf, sizeof(buf));
 		close(fd);
 		if (ret <= 0 || ret >= sizeof(buf)) {
-			errp(pcxt, "read of %s had issues\n", tmp_path);
+			my_errp(pcxt, "read of %s had issues\n", tmp_path);
 			continue;
 		}
 		buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
@@ -430,6 +431,9 @@ struct tcmulib_context *tcmulib_initialize(
 	if (!pcxt)
 		return NULL;
 
+	// Stash this away early, so that debug output works from here forth
+	pcxt->err_print = err_print;
+	
 	pcxt->nl_sock = setup_netlink(pcxt);
 	if (!pcxt->nl_sock) {
 		free(pcxt);

@@ -172,9 +172,9 @@ int main(int argc, char **argv)
 	/* If any TCMU devices that exist that match subtype,
 	   handler->added() will now be called from within
 	   tcmulib_initialize(). */
-	tcmulib_cxt = tcmulib_initialize(&foo_handler, 1, NULL);
-	if (tcmulib_cxt < 0) {
-		errp("tcmulib_initialize failed\n");
+	tcmulib_cxt = tcmulib_initialize(&foo_handler, 1, errp);
+	if (tcmulib_cxt <= 0) {
+		errp("tcmulib_initialize failed with %p\n", tcmulib_cxt);
 		exit(1);
 	}
 

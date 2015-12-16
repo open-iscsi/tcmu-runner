@@ -39,7 +39,7 @@ struct tcmulib_context_priv {
 
 	struct nl_sock *nl_sock;
 
-	void (*err_print)(char *fmt, ...);
+	void (*err_print)(const char *fmt, ...);
 };
 
 void errp(struct tcmulib_context_priv *pcxt,
