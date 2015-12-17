@@ -53,20 +53,20 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		errp(dev->pcxt, "Could not open configfs to read attribute %s\n", name);
+		errp(dev->cxt, "Could not open configfs to read attribute %s\n", name);
 		return -EINVAL;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	close(fd);
 	if (ret == -1) {
-		errp(dev->pcxt, "Could not read configfs to read attribute %s\n", name);
+		errp(dev->cxt, "Could not read configfs to read attribute %s\n", name);
 		return -EINVAL;
 	}
 
 	val = strtoul(buf, NULL, 0);
 	if (val == ULONG_MAX) {
-		errp(dev->pcxt, "could not convert string to value\n");
+		errp(dev->cxt, "could not convert string to value\n");
 		return -EINVAL;
 	}
 
@@ -93,14 +93,14 @@ static char *tcmu_get_wwn(struct tcmu_device *dev)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		errp(dev->pcxt, "Could not open configfs to read unit serial\n");
+		errp(dev->cxt, "Could not open configfs to read unit serial\n");
 		return NULL;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	close(fd);
 	if (ret == -1) {
-		errp(dev->pcxt, "Could not read configfs to read unit serial\n");
+		errp(dev->cxt, "Could not read configfs to read unit serial\n");
 		return NULL;
 	}
 
@@ -110,7 +110,7 @@ static char *tcmu_get_wwn(struct tcmu_device *dev)
 	/* Skip to the good stuff */
 	ret = asprintf(&ret_buf, "%s", &buf[28]);
 	if (ret == -1) {
-		errp(dev->pcxt, "could not convert string to value\n");
+		errp(dev->cxt, "could not convert string to value\n");
 		return NULL;
 	}
 
@@ -131,28 +131,28 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		errp(dev->pcxt, "Could not open configfs to read dev info\n");
+		errp(dev->cxt, "Could not open configfs to read dev info\n");
 		return -EINVAL;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	close(fd);
 	if (ret == -1) {
-		errp(dev->pcxt, "Could not read configfs to read dev info\n");
+		errp(dev->cxt, "Could not read configfs to read dev info\n");
 		return -EINVAL;
 	}
 	buf[sizeof(buf)-1] = '\0'; /* paranoid? Ensure null terminated */
 
 	rover = strstr(buf, " Size: ");
 	if (!rover) {
-		errp(dev->pcxt, "Could not find \" Size: \" in %s\n", path);
+		errp(dev->cxt, "Could not find \" Size: \" in %s\n", path);
 		return -EINVAL;
 	}
 	rover += 7; /* get to the value */
 
 	size = strtoull(rover, NULL, 0);
 	if (size == ULLONG_MAX) {
-		errp(dev->pcxt, "Could not get size\n");
+		errp(dev->cxt, "Could not get size\n");
 		return -EINVAL;
 	}
 
