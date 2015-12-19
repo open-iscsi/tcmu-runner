@@ -74,12 +74,12 @@ target_link_libraries(tcmu-runner
   ${DL}
   ${KMOD}
   -Wl,--no-export-dynamic
-  -Wl,--dynamic-list=main-syms.txt
+  -Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/main-syms.txt
   )
 
 add_custom_command(
   OUTPUT tcmuhandler-generated.c tcmuhandler-generated.h
-  COMMAND gdbus-codegen tcmu-handler.xml --generate-c-code tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
+  COMMAND gdbus-codegen ${CMAKE_SOURCE_DIR}/tcmu-handler.xml --generate-c-code tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
   MAIN_DEPENDENCY tcmu-handler.xml
   )
 

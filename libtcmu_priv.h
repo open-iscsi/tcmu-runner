@@ -31,7 +31,8 @@
 
 #define KERN_IFACE_VER 2
 
-struct tcmulib_context_priv {
+// The full (private) declaration
+struct tcmulib_context {
 	darray(struct tcmulib_handler) handlers;
 
 	/* Just keep ptrs b/c we hand these to clients */
@@ -42,7 +43,7 @@ struct tcmulib_context_priv {
 	void (*err_print)(const char *fmt, ...);
 };
 
-void errp(struct tcmulib_context_priv *pcxt,
+void errp(struct tcmulib_context *cxt,
 	  char *fmt, ...);
 
 struct tcmu_device {
@@ -55,7 +56,7 @@ struct tcmu_device {
 	char cfgstring[256];
 
 	struct tcmulib_handler *handler;
-	struct tcmulib_context_priv *pcxt;
+	struct tcmulib_context *cxt;
 
 	void *hm_private; /* private ptr for handler module */
 };
