@@ -161,7 +161,6 @@ static void *thread_start(void *arg)
 	struct tcmu_device *dev = arg;
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 	struct tcmur_handler *r_handler = handler->hm_private;
-	struct tcmulib_cmd cmd;
 	struct pollfd pfd;
 	int ret;
 
@@ -169,19 +168,20 @@ static void *thread_start(void *arg)
 
 	while (1) {
 		int completed = 0;
+		struct tcmulib_cmd *cmd;
 
-		while (tcmulib_get_next_command(dev, &cmd)) {
+		while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
 			int i;
-			bool short_cdb = cmd.cdb[0] <= 0x1f;
+			bool short_cdb = cmd->cdb[0] <= 0x1f;
 
 			for (i = 0; i < (short_cdb ? 6 : 10); i++) {
-				dbgp("%x ", cmd.cdb[i]);
+				dbgp("%x ", cmd->cdb[i]);
 			}
 			dbgp("\n");
 
-			ret = r_handler->handle_cmd(dev, &cmd);
+			ret = r_handler->handle_cmd(dev, cmd);
 			if (ret != TCMU_ASYNC_HANDLED) {
-				tcmulib_command_complete(dev, &cmd, ret);
+				tcmulib_command_complete(dev, cmd, ret);
 				completed = 1;
 			}
 		}

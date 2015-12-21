@@ -88,7 +88,7 @@ int tcmulib_master_fd_ready(struct tcmulib_context *cxt);
  * 'cmd' struct.
  * Repeat until it returns false.
  */
-bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
+struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev);
 
 /*
  * Mark the command as complete.
@@ -97,22 +97,6 @@ bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
  * result is scsi status, or TCMU_NOT_HANDLED or TCMU_ASYNC_HANDLED.
  */
 void tcmulib_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd, int result);
-
-/*
- * Init async command completion
- * Must be called before returning TCMU_ASYNC_HANDLED
- *
- * result is the copy of original command that can be safely
- * processed asynchronously. Command completion should be signalled using
- * tcmulib_async_command_complete().
- */
-struct tcmulib_cmd *tcmulib_async_command_init(struct tcmulib_cmd *cmd);
-
-/*
- * Mark the command as complete.
- * The command is expected to be obtained from tcmulib_async_command_init()
- */
-void tcmulib_async_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd, int result);
 
 /* Call when done processing commands (get_next_command() returned false.) */
 void tcmulib_processing_complete(struct tcmu_device *dev);
