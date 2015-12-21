@@ -514,11 +514,10 @@ device_cmd_tail(struct tcmu_device *dev)
 	return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + dev->cmd_tail);
 }
 
-bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 {
 	struct tcmu_mailbox *mb = dev->map;
 	struct tcmu_cmd_entry *ent;
-	int i;
 
 	while ((ent = device_cmd_tail(dev)) != device_cmd_head(dev)) {
 
@@ -526,18 +525,34 @@ bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		case TCMU_OP_PAD:
 			/* do nothing */
 			break;
-		case TCMU_OP_CMD:
-			/* Convert iovec addrs in-place to not be offsets */
-			for (i = 0; i < ent->req.iov_cnt; i++)
-				ent->req.iov[i].iov_base = (void *) mb +
-					(size_t)ent->req.iov[i].iov_base;
+		case TCMU_OP_CMD: {
+			int i;
+			struct tcmulib_cmd *cmd;
+			uint8_t *cdb = (uint8_t *) mb + ent->req.cdb_off;
+			unsigned cdb_len = tcmu_get_cdb_length(cdb);
 
+			/* Alloc memory for cmd itself, iovec and cdb */
+			cmd = malloc(sizeof(*cmd) + sizeof(*cmd->iovec) * ent->req.iov_cnt + cdb_len);
+			if (!cmd)
+				return NULL;
 			cmd->cmd_id = ent->hdr.cmd_id;
-			cmd->cdb = (void *)mb + ent->req.cdb_off;
-			cmd->iovec = ent->req.iov;
+
+			/* Convert iovec addrs in-place to not be offsets */
 			cmd->iov_cnt = ent->req.iov_cnt;
+			cmd->iovec = (struct iovec *) (cmd + 1);
+			for (i = 0; i < ent->req.iov_cnt; i++) {
+				cmd->iovec[i].iov_base = (void *) mb +
+					(size_t) ent->req.iov[i].iov_base;
+				cmd->iovec[i].iov_len = ent->req.iov[i].iov_len;
+			}
+
+			/* Copy cdb that currently points to the command ring */
+			cmd->cdb = (uint8_t *) (cmd->iovec + cmd->iov_cnt);
+			memcpy(cmd->cdb, (void *) mb + ent->req.cdb_off, cdb_len);
+
 			dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
-			return true;
+			return cmd;
+		}
 		default:
 			/* We don't even know how to handle this TCMU opcode. */
 			ent->hdr.uflags |= TCMU_UFLAG_UNKNOWN_OP;
@@ -546,7 +561,7 @@ bool tcmulib_get_next_command(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
 	}
 
-	return false;
+	return NULL;
 }
 
 void tcmulib_command_complete(
@@ -565,6 +580,7 @@ void tcmulib_command_complete(
 		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 	}
 
+	/* cmd_id could be different in async case */
 	if (cmd->cmd_id != ent->hdr.cmd_id) {
 		ent->hdr.cmd_id = cmd->cmd_id;
 	}
@@ -589,38 +605,6 @@ void tcmulib_command_complete(
 	}
 
 	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
-}
-
-struct tcmulib_cmd *tcmulib_async_command_init(struct tcmulib_cmd *cmd)
-{
-	struct tcmulib_cmd *ret;
-	unsigned cdb_len = tcmu_get_cdb_length(cmd->cdb);
-
-	/* alloc memory for cmd itself, iovec and cdb */
-	ret = malloc(sizeof(*ret) + sizeof(*ret->iovec) * cmd->iov_cnt + cdb_len);
-	if (!ret)
-		return NULL;
-	*ret = *cmd;
-
-	/* copy iovec that currently points to the command ring */
-	ret->iovec = (struct iovec *) (ret + 1);
-	if (cmd->iov_cnt > 0)
-		memcpy(ret->iovec, cmd->iovec, cmd->iov_cnt * sizeof(*ret->iovec));
-
-	/* copy cdb that currently points to the command ring */
-	ret->cdb = (uint8_t *) (ret->iovec + ret->iov_cnt);
-	memcpy(ret->cdb, cmd->cdb, cdb_len);
-
-	return ret;
-}
-
-void tcmulib_async_command_complete(
-	struct tcmu_device *dev,
-	struct tcmulib_cmd *cmd,
-	int result)
-{
-	tcmulib_command_complete(dev, cmd, result);
-	tcmulib_processing_complete(dev);
 	free(cmd);
 }
 
