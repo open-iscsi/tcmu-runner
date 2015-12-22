@@ -159,34 +159,24 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 	return size;
 }
 
-#define VARIABLE_LENGTH_CMD   0x7f
-
-/* defined in T10 SCSI Primary Commands-2 (SPC2) */
-struct scsi_varlen_cdb_hdr {
-	uint8_t opcode;         /* opcode always == VARIABLE_LENGTH_CMD */
-	uint8_t control;
-	uint8_t misc[5];
-	uint8_t additional_cdb_length;  /* total cdb length - 8 */
-	uint16_t service_action;
-	/* service specific data follows */
-};
-
-/* Command group 3 is reserved and should never be used.  */
-static const unsigned char scsi_command_size_tbl[8] =
-{
-	 6, 10, 10, 12,
-	 16, 12, 10, 10
-};
-
-#define COMMAND_SIZE(opcode) scsi_command_size_tbl[((opcode) >> 5) & 7]
-
 int tcmu_get_cdb_length(uint8_t *cdb)
 {
 	uint8_t opcode = cdb[0];
 
-	return (opcode == VARIABLE_LENGTH_CMD) ?
-		((struct scsi_varlen_cdb_hdr *) cdb)->additional_cdb_length + 8 :
-		COMMAND_SIZE(opcode);
+	// See spc-4 4.2.5.1 operation code
+	//
+	if (opcode <= 0x1f)
+		return 6;
+	else if (opcode <= 0x5f)
+		return 10;
+	else if (opcode == 0x7f)
+		return cdb[7] + 8;
+	else if (opcode >= 0x80 && opcode <= 0x9f)
+		return 16;
+	else if (opcode >= 0xa0 && opcode <= 0xbf)
+		return 12;
+	else
+		return -EINVAL;
 }
 
 uint64_t tcmu_get_lba(uint8_t *cdb)
