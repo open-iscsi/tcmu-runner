@@ -57,13 +57,13 @@ struct tcmur_handler {
 	int (*open)(struct tcmu_device *dev);
 	void (*close)(struct tcmu_device *dev);
 
-#define TCMU_NOT_HANDLED -1
 	/*
-	 * Returns SCSI status if handled (either good/bad), or TCMU_NOT_HANDLED
-	 * if opcode is not handled.
+	 * Returns
+	 * - SCSI status if handled (either good/bad)
+	 * - TCMU_NOT_HANDLED if opcode is not handled
+	 * - TCMU_ASYNC_HANDLED if optcode is handled asynchronously
 	 */
-	int (*handle_cmd)(struct tcmu_device *dev, uint8_t *cdb,
-			  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+	int (*handle_cmd)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 };
 
 /*

@@ -139,11 +139,12 @@ static int set_medium_error(uint8_t *sense)
  */
 static int file_handle_cmd(
 	struct tcmu_device *dev,
-	uint8_t *cdb,
-	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	struct tcmulib_cmd *tcmulib_cmd)
 {
+	uint8_t *cdb = tcmulib_cmd->cdb;
+	struct iovec *iovec = tcmulib_cmd->iovec;
+	size_t iov_cnt = tcmulib_cmd->iov_cnt;
+	uint8_t *sense = tcmulib_cmd->sense_buf;
 	struct file_state *state = tcmu_get_dev_private(dev);
 	uint8_t cmd;
 	int remaining;
