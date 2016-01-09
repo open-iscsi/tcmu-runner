@@ -170,6 +170,7 @@ static void *thread_start(void *arg)
 		int completed = 0;
 		struct tcmulib_cmd *cmd;
 
+		tcmulib_processing_start(dev);
 		while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
 			int i;
 			bool short_cdb = cmd->cdb[0] <= 0x1f;
