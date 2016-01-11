@@ -184,19 +184,13 @@ static int file_handle_cmd(
 		uint64_t offset = state->block_size * tcmu_get_lba(cdb);
 		int length = tcmu_get_xfer_length(cdb) * state->block_size;
 
-		ret = lseek(state->fd, offset, SEEK_SET);
-		if (ret == -1) {
-			errp("lseek failed: %m\n");
-			return set_medium_error(sense);
-		}
-
 		/* Using this buf DTRT even if seek is beyond EOF */
 		buf = malloc(length);
 		if (!buf)
 			return set_medium_error(sense);
 		memset(buf, 0, length);
 
-		ret = read(state->fd, buf, length);
+		ret = pread(state->fd, buf, length, offset);
 		if (ret == -1) {
 			errp("read failed: %m\n");
 			free(buf);
@@ -218,12 +212,6 @@ static int file_handle_cmd(
 		uint64_t offset = state->block_size * tcmu_get_lba(cdb);
 		int length = be16toh(*((uint16_t *)&cdb[7])) * state->block_size;
 
-		ret = lseek(state->fd, offset, SEEK_SET);
-		if (ret == -1) {
-			errp("lseek failed: %m\n");
-			return set_medium_error(sense);
-		}
-
 		remaining = length;
 
 		while (remaining) {
@@ -231,13 +219,14 @@ static int file_handle_cmd(
 
 			to_copy = (remaining > iovec->iov_len) ? iovec->iov_len : remaining;
 
-			ret = write(state->fd, iovec->iov_base, to_copy);
+			ret = pwrite(state->fd, iovec->iov_base, to_copy, offset);
 			if (ret == -1) {
 				errp("Could not write: %m\n");
 				return set_medium_error(sense);
 			}
 
 			remaining -= to_copy;
+			offset += to_copy;
 			iovec++;
 		}
 
