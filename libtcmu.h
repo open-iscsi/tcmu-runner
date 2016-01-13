@@ -99,7 +99,10 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev);
  */
 void tcmulib_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd, int result);
 
-/* Call when done processing commands (get_next_command() returned false.) */
+/* Call when start processing commands (before calling tcmulib_get_next_command()) */
+void tcmulib_processing_start(struct tcmu_device *dev);
+
+/* Call when complete processing commands (tcmulib_get_next_command() returned NULL) */
 void tcmulib_processing_complete(struct tcmu_device *dev);
 
 /* Clean up loose ends when exiting */
