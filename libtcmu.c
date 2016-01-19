@@ -608,12 +608,17 @@ void tcmulib_command_complete(
 	free(cmd);
 }
 
-void tcmulib_processing_complete(struct tcmu_device *dev)
+void tcmulib_processing_start(struct tcmu_device *dev)
 {
 	uint32_t buf;
 
 	/* Clear the event on the fd */
 	read(dev->fd, &buf, 4);
+}
+
+void tcmulib_processing_complete(struct tcmu_device *dev)
+{
+	uint32_t buf;
 
 	/* Tell the kernel there are completed commands */
 	write(dev->fd, &buf, 4);

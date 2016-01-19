@@ -212,6 +212,8 @@ int main(int argc, char **argv)
 				struct tcmulib_cmd *cmd;
 				struct tcmu_device *dev = tcmu_dev_array[i];
 
+				tcmulib_processing_start(dev);
+
 				while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
 					ret = foo_handle_cmd(dev,
 							     cmd->cdb,
