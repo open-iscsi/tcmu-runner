@@ -1422,7 +1422,7 @@ static int qcow_open(struct tcmu_device *dev)
 	}
 	config += 1; /* get past '/' */
 
-	dbgp("%s\n", dev->cfgstring);
+	dbgp("%s\n", tcmu_get_dev_cfgstring(dev));
 	dbgp("%s\n", config);
 
 	if (bdev_open(bdev, AT_FDCWD, config, O_RDWR) == -1)
