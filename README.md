@@ -34,7 +34,7 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 
 1. Install cmake.
 1. Clone this repo.
-1. Install development packages for dependencies: libnl3, libglib2, libpthread, libdl, libkmod, libgfapi (Gluster), zlib.
+1. Install development packages for dependencies: libnl3, libglib2 (or glib2-devel on Fedora), libpthread, libdl, libkmod, libgfapi (Gluster), zlib.
 1. Type `cmake .`.
 1. Type `make`.
 
