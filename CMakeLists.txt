@@ -47,7 +47,7 @@ target_link_libraries(tcmu
   ${LIBNL_LIB}
   ${LIBNL_GENL_LIB}
   )
-
+install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Stuff for building the static library
 add_library(tcmu_static
@@ -76,6 +76,7 @@ target_link_libraries(tcmu-runner
   -Wl,--no-export-dynamic
   -Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/main-syms.txt
   )
+install(TARGETS tcmu-runner RUNTIME DESTINATION bin)
 
 add_custom_command(
   OUTPUT tcmuhandler-generated.c tcmuhandler-generated.h
@@ -123,6 +124,7 @@ set_target_properties(handler_glfs
 target_link_libraries(handler_glfs
   ${GFAPI}
   )
+install(TARGETS handler_glfs DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 
 # Stuff for building the qcow handler
 add_library(handler_qcow
@@ -136,6 +138,7 @@ set_target_properties(handler_qcow
 target_link_libraries(handler_qcow
   ${ZLIB_LIBRARIES}
   )
+install(TARGETS handler_qcow DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 
 # stamp out a header file to pass some of the CMake settings
 # to the source code
@@ -143,4 +146,14 @@ configure_file (
   "${PROJECT_SOURCE_DIR}/version.h.in"
   "${PROJECT_BINARY_DIR}/version.h"
   )
+
+
+install(FILES libtcmu.h libtcmu_common.h
+  DESTINATION include)
+install(FILES org.kernel.TCMUService1.service
+  DESTINATION /usr/share/dbus-1/system-services)
+install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
+if (SUPPORT_SYSTEMD)
+  install(FILES tcmu-runner.service DESTINATION /usr/lib/systemd/system/)
+endif (SUPPORT_SYSTEMD)
 
