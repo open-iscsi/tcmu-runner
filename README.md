@@ -2,10 +2,6 @@
 
 A daemon that handles the userspace side of the LIO TCM-User backstore.
 
-## Development status
-
-tcmu-runner is beta-level software with the goal of hitting 1.0 by November 2015.
-
 ## Background
 
 [LIO](http://linux-iscsi.org/wiki/Main_Page) is the [SCSI](http://en.wikipedia.org/wiki/SCSI) [target](http://en.wikipedia.org/wiki/SCSI_initiator_and_target) in the [Linux kernel](http://kernel.org). It is entirely kernel code, and allows exported SCSI [logical units (LUNs)](http://en.wikipedia.org/wiki/Logical_unit_number) to be backed by regular files or block devices. But, if we want to get fancier with the capabilities of the device we're emulating, the kernel is not necessarily the right place. While there are userspace libraries for compression, encryption, and clustered storage solutions like [Ceph](http://ceph.com/) or [Gluster](http://www.gluster.org/), these are not accessible from the kernel.
