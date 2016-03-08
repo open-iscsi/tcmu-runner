@@ -624,7 +624,7 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 	s->l1_size = l1_size;
 	// why did they add this to qcow2 ?
 	if (header.l1_size != s->l1_size) {
-		errp("WTF L1\n");
+		errp("L1 size is incorrect\n");
 		goto fail;
 	}
 	s->l1_table_offset = header.l1_table_offset;
@@ -1022,15 +1022,6 @@ static int l2_table_update(struct qcow_state *s,
 {
 	ssize_t ret;
 
-	uint64_t *dbgbuf;
-	int cmp;
-	dbgbuf = malloc(s->l2_size * sizeof(uint64_t));
-	pread(s->fd, dbgbuf, s->l2_size * sizeof(uint64_t), l2_table_offset);
-	cmp = memcmp(l2_table, dbgbuf, s->l2_size * sizeof(uint64_t));
-	if (cmp)
-		errp("l2 comparison failed (%d)\n", cmp);
-	free(dbgbuf);
-
 	dbgp("%s: setting %llx[%d] to %llx\n", __func__, l2_table_offset, l2_index, cluster_offset);
 	l2_table[l2_index] = htobe64(cluster_offset);
 
@@ -1235,7 +1226,6 @@ static ssize_t qcow_preadv(struct bdev *bdev, struct iovec *iov, int iovcnt, off
 	size_t _off = 0;
 
 	size_t count = tcmu_iovec_length(iov, iovcnt);
-//	dbgp("%s %llx %zd\n", __func__, offset, count);
 
 	assert(!(count & 511));
 	sector_count = count / 512;
@@ -1271,7 +1261,6 @@ static ssize_t qcow_preadv(struct bdev *bdev, struct iovec *iov, int iovcnt, off
 			tcmu_memcpy_into_iovec(_iov, _cnt, s->cluster_cache + sector_index * 512, 512 * n);
 		} else {
 			read = preadv(bdev->fd, _iov, _cnt, cluster_offset + (sector_index * 512));
-//			dbgp("pread %d bytes returned %d\n", n * 512, read);
 			if (read != n * 512)
 				break;
 		}
@@ -1297,7 +1286,6 @@ static ssize_t qcow_pwritev(struct bdev *bdev, struct iovec *iov, int iovcnt, of
 	size_t _off = 0;
 
 	size_t count = tcmu_iovec_length(iov, iovcnt);
-//	dbgp("%s %llx %zd\n", __func__, offset, count);
 
 	assert(!(count & 511));
 	sector_count = count / 512;
@@ -1320,7 +1308,6 @@ static ssize_t qcow_pwritev(struct bdev *bdev, struct iovec *iov, int iovcnt, of
 			return -1;
 		} else {
 			written = pwritev(bdev->fd, _iov, _cnt, cluster_offset + (sector_index * 512));
-//			dbgp("pwrite %d bytes returned %d\n", n * 512, written);
 			if (written < 0)
 				break;
 		}
@@ -1488,8 +1475,6 @@ static int qcow_handle_cmd(
 	struct bdev *bdev = tcmu_get_dev_private(dev);
 	uint8_t cmd;
 	ssize_t ret;
-
-//	dbgp("%s\n", __func__);
 
 	cmd = cdb[0];
 
