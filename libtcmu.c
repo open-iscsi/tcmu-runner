@@ -431,7 +431,7 @@ struct tcmulib_context *tcmulib_initialize(
 
 	// Stash this away early, so that debug output works from here forth
 	cxt->err_print = err_print;
-	
+
 	cxt->nl_sock = setup_netlink(cxt);
 	if (!cxt->nl_sock) {
 		free(cxt);

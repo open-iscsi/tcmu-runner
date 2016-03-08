@@ -253,7 +253,7 @@ struct qcow_state
 
 	uint64_t (*block_alloc) (struct qcow_state *s, size_t size);
 	int (*set_refcount) (struct qcow_state *s, uint64_t cluster_offset, uint64_t value);
-	
+
 	uint64_t first_free_cluster;
 };
 
@@ -805,7 +805,7 @@ static uint64_t get_refcount(unsigned int order, void *rcblock, size_t index)
 	switch (order) {
 	case 0:
 		return (((uint8_t *)rcblock)[index / 8] >> (index % 8)) & 0x1;
-	case 1: 
+	case 1:
 		return (((uint8_t *)rcblock)[index / 4] >> (2 * (index % 4))) & 0x3;
 	case 2:
 		return (((uint8_t *)rcblock)[index / 2] >> (4 * (index % 2))) & 0xf;
@@ -1201,7 +1201,7 @@ size_t iovec_segment(struct iovec *iov, struct iovec *seg, size_t off, size_t le
 	return seg - seg_start;
 }
 
-void iovec_memset(struct iovec *iov, int iovcnt, int c, size_t len) 
+void iovec_memset(struct iovec *iov, int iovcnt, int c, size_t len)
 {
 	while (len && iovcnt) {
 		size_t n = min(iov->iov_len, len);
