@@ -759,7 +759,7 @@ static uint64_t qcow_cluster_alloc(struct qcow_state *s)
 }
 
 /* qcow 1 simply grows the file as new clusters or L2 blocks are needed */
-static uint64_t qcow_block_alloc(struct qcow_state *s, uint64_t size)
+static uint64_t qcow_block_alloc(struct qcow_state *s, size_t size)
 {
 	uint64_t offset;
 	off_t off;
