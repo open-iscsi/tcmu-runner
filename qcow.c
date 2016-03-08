@@ -470,7 +470,11 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 		goto fail_nofd;
 	}
 
-	pread(bdev->fd, &buf, sizeof(buf), 0);
+	if (pread(bdev->fd, &buf, sizeof(buf), 0) != sizeof(buf)) {
+		errp("Failed to read file: &s\n", pathname);
+		goto fail;
+	}
+
 	qcow_header_bswap(&buf, &header);
 	if (qcow_validate_header(&header) < 0)
 		goto fail;
@@ -577,7 +581,11 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 		goto fail_nofd;
 	}
 
-	pread(bdev->fd, &buf, sizeof(buf), 0);
+	if (pread(bdev->fd, &buf, sizeof(buf), 0) != sizeof(buf)) {
+		errp("Failed to read file: %s\n", pathname);
+		goto fail;
+	}
+
 	qcow2_header_bswap(&buf, &header);
 	if (qcow2_validate_header(&header) < 0)
 		goto fail;
@@ -1395,13 +1403,15 @@ static bool qcow_check_config(const char *cfgstring, char **reason)
 
 	path = strchr(cfgstring, '/');
 	if (!path) {
-		asprintf(reason, "No path found");
+		if (asprintf(reason, "No path found") == -1)
+			*reason = NULL;
 		return false;
 	}
 	path += 1; /* get past '/' */
 
 	if (access(path, R_OK|W_OK) == -1) {
-		asprintf(reason, "File not present, or not writable");
+		if (asprintf(reason, "File not present, or not writable") == -1)
+			*reason = NULL;
 		return false;
 	}
 

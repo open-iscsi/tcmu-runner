@@ -278,8 +278,10 @@ on_check_config(TCMUService1 *interface,
 	GVariant *array[2];
 	GVariant *tuple;
 	array[0] = g_variant_new_boolean(str_ok);
-	array[1] = g_variant_new_string(reason);
-
+	if (reason)
+		array[1] = g_variant_new_string(reason);
+	else
+		array[1] = g_variant_new_string("unknown");
 	tuple = g_variant_new_tuple(array, 2);
 
 	g_dbus_method_invocation_return_value(invocation, tuple);
