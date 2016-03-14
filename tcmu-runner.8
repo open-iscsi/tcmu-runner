@@ -1,0 +1,65 @@
+.TH tcmu-runner 8
+.SH NAME
+.B tcmu-runner
+.SH DESCRIPTION
+.B tcmu-runner
+is a service that provides an operating environment for LIO TCM-User
+handlers. These currently include handlers for Gluster glfs and the
+qcow and qcow2 image formats.
+
+.SH USAGE
+While normally started automatically via D-Bus system activation,
+.B tcmu-runner
+can also be run as root directly, usually for debugging and
+development purposes.
+
+.SH OPTIONS
+.TP
+.B \-h, \-\-help
+Print usage information
+.TP
+.B \-d, \-\-debug
+Enable debug messages
+.TP
+.B \-V, \-\-version
+Print tcmu-runner's version
+.P
+.SH CONFIGURING HANDLERS
+TCMU-backed handlers are typically configured using normal LIO
+configuration tools, such as
+.BR targetcli .
+Part of doing this will be entering a handler-specific configuration
+string.
+.SS CONFIGURING GLUSTER HANDLER (glfs)
+This handler uses the Gluster glfs API to use Gluster as a backstore
+for the image file.
+.P
+Its configuration string is:
+.IP "" 4
+\fIvolume\fB@\fIhostname\fB/\fIfilename\fR
+.br
+volume: The volume on the Gluster server
+.br
+hostname: The server's hostname
+.br
+filename: The backing file
+.SS CONFIGURING QCOW HANDLER (qcow)
+This handler supports qcow, qcow2, or raw image file
+formats.
+.P
+Its configuration string is:
+.IP "" 4
+\fIpath\fR
+.br
+path: The full path to a file of a supported file format
+
+.SH SEE ALSO
+.BR targetcli (8),
+.BR targetctl (8)
+
+.SH AUTHOR
+Andy Grover <agrover@redhat.com>
+.SH REPORTING BUGS
+Report bugs via <target-devel@vger.kernel.org>
+.br
+or <https://github.com/agrover/tcmu-runner/issues>
