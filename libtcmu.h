@@ -28,7 +28,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/uio.h>
-#include "scsi_defs.h"
 
 #include "libtcmu_common.h"
 
