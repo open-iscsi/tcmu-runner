@@ -38,6 +38,7 @@
 #define _BITS_UIO_H
 #include <linux/target_core_user.h>
 #include "libtcmu.h"
+#include "scsi_defs.h"
 
 /*
  * Debug API implementation

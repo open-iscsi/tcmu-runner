@@ -43,8 +43,7 @@ struct tcmulib_context {
 	void (*err_print)(const char *fmt, ...);
 };
 
-void errp(struct tcmulib_context *cxt,
-	  char *fmt, ...);
+void tcmu_errp(struct tcmulib_context *cxt, char *fmt, ...);
 
 struct tcmu_device {
 	int fd;

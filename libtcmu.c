@@ -44,7 +44,7 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_MINOR]	= { .type = NLA_U32 },
 };
 
-static void my_errp(struct tcmulib_context *cxt, char *fmt, ...)
+void tcmu_errp(struct tcmulib_context *cxt, char *fmt, ...)
 {
 	if (cxt->err_print) {
 		va_list va;
@@ -64,7 +64,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 	char buf[32];
 
 	if (!info->attrs[TCMU_ATTR_MINOR] || !info->attrs[TCMU_ATTR_DEVICE]) {
-		my_errp(cxt, "TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
+		tcmu_errp(cxt, "TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
 		return 0;
 	}
 
@@ -78,7 +78,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 		remove_device(cxt, buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
 		break;
 	default:
-		my_errp(cxt, "Unknown notification %d\n", cmd->c_id);
+		tcmu_errp(cxt, "Unknown notification %d\n", cmd->c_id);
 	}
 
 	return 0;
@@ -114,7 +114,7 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *cxt)
 
 	sock = nl_socket_alloc();
 	if (!sock) {
-		my_errp(cxt, "couldn't alloc socket\n");
+		tcmu_errp(cxt, "couldn't alloc socket\n");
 		return NULL;
 	}
 
@@ -124,19 +124,19 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *cxt)
 
 	ret = genl_connect(sock);
 	if (ret < 0) {
-		my_errp(cxt, "couldn't connect\n");
+		tcmu_errp(cxt, "couldn't connect\n");
 		goto err_free;
 	}
 
 	ret = genl_register_family(&tcmu_ops);
 	if (ret < 0) {
-		my_errp(cxt, "couldn't register family\n");
+		tcmu_errp(cxt, "couldn't register family\n");
 		goto err_close;
 	}
 
 	ret = genl_ops_resolve(sock, &tcmu_ops);
 	if (ret < 0) {
-		my_errp(cxt, "couldn't resolve ops, is target_core_user.ko loaded?\n");
+		tcmu_errp(cxt, "couldn't resolve ops, is target_core_user.ko loaded?\n");
 		goto err_close;
 	}
 
@@ -144,7 +144,7 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *cxt)
 
 	ret = nl_socket_add_membership(sock, ret);
 	if (ret < 0) {
-		my_errp(cxt, "couldn't add membership\n");
+		tcmu_errp(cxt, "couldn't add membership\n");
 		goto err_close;
 	}
 
@@ -195,7 +195,7 @@ static int add_device(struct tcmulib_context *cxt,
 
 	dev = calloc(1, sizeof(*dev));
 	if (!dev) {
-		my_errp(cxt, "calloc failed in add_device\n");
+		tcmu_errp(cxt, "calloc failed in add_device\n");
 		return -ENOMEM;
 	}
 
@@ -204,12 +204,12 @@ static int add_device(struct tcmulib_context *cxt,
 	oldptr = cfgstring;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		my_errp(cxt, "invalid cfgstring\n");
+		tcmu_errp(cxt, "invalid cfgstring\n");
 		goto err_free;
 	}
 
 	if (strncmp(cfgstring, "tcm-user", ptr-oldptr)) {
-		my_errp(cxt, "invalid cfgstring\n");
+		tcmu_errp(cxt, "invalid cfgstring\n");
 		goto err_free;
 	}
 
@@ -217,7 +217,7 @@ static int add_device(struct tcmulib_context *cxt,
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		my_errp(cxt, "invalid cfgstring\n");
+		tcmu_errp(cxt, "invalid cfgstring\n");
 		goto err_free;
 	}
 	len = ptr-oldptr;
@@ -227,7 +227,7 @@ static int add_device(struct tcmulib_context *cxt,
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		my_errp(cxt, "invalid cfgstring\n");
+		tcmu_errp(cxt, "invalid cfgstring\n");
 		goto err_free;
 	}
 	len = ptr-oldptr;
@@ -242,40 +242,40 @@ static int add_device(struct tcmulib_context *cxt,
 
 	dev->fd = open(str_buf, O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (dev->fd == -1) {
-		my_errp(cxt, "could not open %s\n", str_buf);
+		tcmu_errp(cxt, "could not open %s\n", str_buf);
 		goto err_free;
 	}
 
 	snprintf(str_buf, sizeof(str_buf), "/sys/class/uio/%s/maps/map0/size", dev->dev_name);
 	fd = open(str_buf, O_RDONLY);
 	if (fd == -1) {
-		my_errp(cxt, "could not open %s\n", str_buf);
+		tcmu_errp(cxt, "could not open %s\n", str_buf);
 		goto err_fd_close;
 	}
 
 	ret = read(fd, str_buf, sizeof(str_buf));
 	close(fd);
 	if (ret <= 0) {
-		my_errp(cxt, "could not read size of map0\n");
+		tcmu_errp(cxt, "could not read size of map0\n");
 		goto err_fd_close;
 	}
 	str_buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
 
 	dev->map_len = strtoull(str_buf, NULL, 0);
 	if (dev->map_len == ULLONG_MAX) {
-		my_errp(cxt, "could not get map length\n");
+		tcmu_errp(cxt, "could not get map length\n");
 		goto err_fd_close;
 	}
 
 	dev->map = mmap(NULL, dev->map_len, PROT_READ|PROT_WRITE, MAP_SHARED, dev->fd, 0);
 	if (dev->map == MAP_FAILED) {
-		my_errp(cxt, "could not mmap: %m\n");
+		tcmu_errp(cxt, "could not mmap: %m\n");
 		goto err_fd_close;
 	}
 
 	mb = dev->map;
 	if (mb->version != KERN_IFACE_VER) {
-		my_errp(cxt, "Kernel interface version mismatch: wanted %d got %d\n",
+		tcmu_errp(cxt, "Kernel interface version mismatch: wanted %d got %d\n",
 			KERN_IFACE_VER, mb->version);
 		goto err_munmap;
 	}
@@ -283,7 +283,7 @@ static int add_device(struct tcmulib_context *cxt,
 
 	dev->handler = find_handler(cxt, dev->cfgstring);
 	if (!dev->handler) {
-		my_errp(cxt, "could not find handler for %s\n", dev->dev_name);
+		tcmu_errp(cxt, "could not find handler for %s\n", dev->dev_name);
 		goto err_munmap;
 	}
 
@@ -293,7 +293,7 @@ static int add_device(struct tcmulib_context *cxt,
 
 	ret = dev->handler->added(dev);
 	if (ret < 0) {
-		my_errp(cxt, "handler open failed for %s\n", dev->dev_name);
+		tcmu_errp(cxt, "handler open failed for %s\n", dev->dev_name);
 		goto err_munmap;
 	}
 
@@ -329,7 +329,7 @@ static void remove_device(struct tcmulib_context *cxt,
 	}
 
 	if (!found) {
-		my_errp(cxt, "could not remove device %s: not found\n", dev_name);
+		tcmu_errp(cxt, "could not remove device %s: not found\n", dev_name);
 		return;
 	}
 
@@ -390,14 +390,14 @@ static int open_devices(struct tcmulib_context *cxt)
 
 		fd = open(tmp_path, O_RDONLY);
 		if (fd == -1) {
-			my_errp(cxt, "could not open %s!\n", tmp_path);
+			tcmu_errp(cxt, "could not open %s!\n", tmp_path);
 			continue;
 		}
 
 		ret = read(fd, buf, sizeof(buf));
 		close(fd);
 		if (ret <= 0 || ret >= sizeof(buf)) {
-			my_errp(cxt, "read of %s had issues\n", tmp_path);
+			tcmu_errp(cxt, "read of %s had issues\n", tmp_path);
 			continue;
 		}
 		buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
