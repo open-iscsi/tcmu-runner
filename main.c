@@ -50,7 +50,7 @@
 static char *handler_path = DEFAULT_HANDLER_PATH;
 static bool debug = false;
 
-darray(struct tcmur_handler) g_runner_handlers = darray_new();
+darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
 struct tcmu_thread {
 	pthread_t thread_id;
@@ -83,7 +83,7 @@ void errp(const char *fmt, ...)
 
 void tcmur_register_handler(struct tcmur_handler *handler)
 {
-	darray_append(g_runner_handlers, *handler);
+	darray_append(g_runner_handlers, handler);
 }
 
 static int is_handler(const struct dirent *dirent)
@@ -298,7 +298,7 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
-	struct tcmur_handler *handler;
+	struct tcmur_handler **handler;
 	GDBusObjectSkeleton *object;
 
 	dbgp("bus %s acquired\n", name);
@@ -310,7 +310,7 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 		TCMUService1 *interface;
 
 		snprintf(obj_name, sizeof(obj_name), "/org/kernel/TCMUService1/%s",
-			 handler->subtype);
+			 (*handler)->subtype);
 
 		object = g_dbus_object_skeleton_new(obj_name);
 
@@ -321,9 +321,9 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 		g_signal_connect(interface,
 				 "handle-check-config",
 				 G_CALLBACK (on_check_config),
-				 handler); /* user_data */
+				 *handler); /* user_data */
 
-		tcmuservice1_set_config_desc(interface, handler->cfg_desc);
+		tcmuservice1_set_config_desc(interface, (*handler)->cfg_desc);
 
 		g_dbus_object_manager_server_export(manager, G_DBUS_OBJECT_SKELETON(object));
 		g_object_unref(object);
@@ -459,7 +459,7 @@ int main(int argc, char **argv)
 	int c;
 	struct tcmulib_context *tcmulib_context;
 	darray(struct tcmulib_handler) handlers = darray_new();
-	struct tcmur_handler *tmp_r_handler;
+	struct tcmur_handler **tmp_r_handler;
 
 	while (1) {
 		int option_index = 0;
@@ -512,10 +512,10 @@ int main(int argc, char **argv)
 	darray_foreach(tmp_r_handler, g_runner_handlers) {
 		struct tcmulib_handler tmp_handler;
 
-		tmp_handler.name = tmp_r_handler->name;
-		tmp_handler.subtype = tmp_r_handler->subtype;
-		tmp_handler.cfg_desc = tmp_r_handler->cfg_desc;
-		tmp_handler.check_config = tmp_r_handler->check_config;
+		tmp_handler.name = (*tmp_r_handler)->name;
+		tmp_handler.subtype = (*tmp_r_handler)->subtype;
+		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;
+		tmp_handler.check_config = (*tmp_r_handler)->check_config;
 		tmp_handler.added = dev_added;
 		tmp_handler.removed = dev_removed;
 
@@ -524,7 +524,7 @@ int main(int argc, char **argv)
 		 * darray b/c handlers will never be added or removed
 		 * once open_handlers() is done.
 		 */
-		tmp_handler.hm_private = tmp_r_handler;
+		tmp_handler.hm_private = *tmp_r_handler;
 
 		darray_append(handlers, tmp_handler);
 	}
