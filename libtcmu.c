@@ -356,15 +356,19 @@ static int is_uio(const struct dirent *dirent)
 
 	ret = read(fd, buf, sizeof(buf));
 	if (ret <= 0 || ret >= sizeof(buf))
-		return 0;
+		goto not_uio;
 
 	buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
 
 	/* we only want uio devices whose name is a format we expect */
 	if (strncmp(buf, "tcm-user", 8))
-		return 0;
+		goto not_uio;
 
+	close(fd);
 	return 1;
+not_uio:
+	close(fd);
+	return 0;
 }
 
 static int open_devices(struct tcmulib_context *cxt)
