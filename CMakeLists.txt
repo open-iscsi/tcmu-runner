@@ -24,10 +24,10 @@ find_path (LIBNL_INCLUDE_DIR
 find_package(ZLIB REQUIRED)
 find_package(PkgConfig)
 pkg_check_modules(GLIB REQUIRED gio-unix-2.0)
+pkg_check_modules(KMOD REQUIRED libkmod)
 
 find_library(PTHREAD pthread)
 find_library(DL dl)
-find_library(KMOD kmod)
 find_library(GFAPI gfapi)
 
 # Stuff for building the shared library
@@ -67,12 +67,13 @@ target_link_libraries(tcmu-runner tcmu)
 target_include_directories(tcmu-runner
   PUBLIC ${PROJECT_BINARY_DIR}
   PUBLIC ${GLIB_INCLUDE_DIRS}
+  PUBLIC ${KMOD_INCLUDE_DIRS}
   )
 target_link_libraries(tcmu-runner
   ${GLIB_LIBRARIES}
   ${PTHREAD}
   ${DL}
-  ${KMOD}
+  ${KMOD_LIBRARIES}
   -Wl,--no-export-dynamic
   -Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/main-syms.txt
   )
