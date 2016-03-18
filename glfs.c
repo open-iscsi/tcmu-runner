@@ -203,28 +203,33 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	ret = glfs_set_volfile_server(gfsp->fs, "tcp", gfsp->servername,
 				      GLUSTER_PORT);
+	if (ret) {
+		errp("glfs_set_volfile_server failed: %m\n");
+		goto fail;
+	}
+
 
 	ret = glfs_init(gfsp->fs);
 	if (ret) {
-		errp("glfs_init failed\n");
+		errp("glfs_init failed: %m\n");
 		goto fail;
 	}
 
 	gfsp->gfd = glfs_open(gfsp->fs, gfsp->pathname, ALLOWED_BSOFLAGS);
 	if (!gfsp->gfd) {
-		errp("glfs_open failed\n");
+		errp("glfs_open failed: %m\n");
 		goto fail;
 	}
 
 	ret = glfs_lstat(gfsp->fs, gfsp->pathname, &st);
 	if (ret) {
-		errp("glfs_lstat failed\n");
+		errp("glfs_lstat failed: %m\n");
 		goto fail;
 	}
 
 	if (st.st_size != tcmu_get_device_size(dev)) {
 		errp("device size and backing size disagree: "
-		       "device %lld backing %lld",
+		       "device %lld backing %lld\n",
 		       tcmu_get_device_size(dev),
 		       (long long) st.st_size);
 		goto fail;
@@ -457,7 +462,7 @@ write:
 		ret = glfs_preadv(gfd, iovec, iov_cnt, offset, SEEK_SET);
 
 		if (ret != length) {
-			errp("Error on read %x %x", ret, length);
+			errp("Error on read %x %x\n", ret, length);
 			result = set_medium_error(sense);
 		}
 		break;
