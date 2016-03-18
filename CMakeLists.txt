@@ -1,5 +1,5 @@
 cmake_minimum_required (VERSION 3.0 FATAL_ERROR)
-project (tcmu-runner VERSION 1.0.0 LANGUAGES C)
+project (tcmu-runner VERSION 1.0.1 LANGUAGES C)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
 
