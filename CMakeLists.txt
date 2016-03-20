@@ -7,6 +7,8 @@ include(GNUInstallDirs)
 
 set(tcmu-runner_HANDLER_PATH "/usr/${CMAKE_INSTALL_LIBDIR}/tcmu-runner")
 
+option(with-glfs "build Gluster glfs handler" true)
+
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
 set(LIBNL_LIBS
@@ -28,7 +30,6 @@ pkg_check_modules(KMOD REQUIRED libkmod)
 
 find_library(PTHREAD pthread)
 find_library(DL dl)
-find_library(GFAPI gfapi)
 
 # Stuff for building the shared library
 add_library(tcmu
@@ -113,19 +114,23 @@ add_executable(consumer
   )
 target_link_libraries(consumer tcmu)
 
-# Stuff for building the glfs handler
-add_library(handler_glfs
-  SHARED
-  glfs.c
-  )
-set_target_properties(handler_glfs
-  PROPERTIES
-  PREFIX ""
-  )
-target_link_libraries(handler_glfs
-  ${GFAPI}
-  )
-install(TARGETS handler_glfs DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+if (with-glfs)
+	find_library(GFAPI gfapi)
+
+	# Stuff for building the glfs handler
+	add_library(handler_glfs
+	  SHARED
+	  glfs.c
+	  )
+	set_target_properties(handler_glfs
+	  PROPERTIES
+	  PREFIX ""
+	  )
+	target_link_libraries(handler_glfs
+	  ${GFAPI}
+	  )
+	install(TARGETS handler_glfs DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-glfs)
 
 # Stuff for building the qcow handler
 add_library(handler_qcow
