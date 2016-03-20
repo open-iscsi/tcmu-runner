@@ -8,6 +8,7 @@ include(GNUInstallDirs)
 set(tcmu-runner_HANDLER_PATH "/usr/${CMAKE_INSTALL_LIBDIR}/tcmu-runner")
 
 option(with-glfs "build Gluster glfs handler" true)
+option(with-qcow "build qcow handler" true)
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
@@ -23,7 +24,6 @@ find_path (LIBNL_INCLUDE_DIR
   libnl3
   )
 
-find_package(ZLIB REQUIRED)
 find_package(PkgConfig)
 pkg_check_modules(GLIB REQUIRED gio-unix-2.0)
 pkg_check_modules(KMOD REQUIRED libkmod)
@@ -132,19 +132,23 @@ if (with-glfs)
 	install(TARGETS handler_glfs DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-glfs)
 
-# Stuff for building the qcow handler
-add_library(handler_qcow
-  SHARED
-  qcow.c
-  )
-set_target_properties(handler_qcow
-  PROPERTIES
-  PREFIX ""
-  )
-target_link_libraries(handler_qcow
-  ${ZLIB_LIBRARIES}
-  )
-install(TARGETS handler_qcow DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+if (with-qcow)
+	find_package(ZLIB REQUIRED)
+
+	# Stuff for building the qcow handler
+	add_library(handler_qcow
+	  SHARED
+	  qcow.c
+	  )
+	set_target_properties(handler_qcow
+	  PROPERTIES
+	  PREFIX ""
+	  )
+	target_link_libraries(handler_qcow
+	  ${ZLIB_LIBRARIES}
+	  )
+	install(TARGETS handler_qcow DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-qcow)
 
 # stamp out a header file to pass some of the CMake settings
 # to the source code
