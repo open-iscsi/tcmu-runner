@@ -275,16 +275,8 @@ on_check_config(TCMUService1 *interface,
 	if (str_ok)
 		reason = "success";
 
-	GVariant *array[2];
-	GVariant *tuple;
-	array[0] = g_variant_new_boolean(str_ok);
-	if (reason)
-		array[1] = g_variant_new_string(reason);
-	else
-		array[1] = g_variant_new_string("unknown");
-	tuple = g_variant_new_tuple(array, 2);
-
-	g_dbus_method_invocation_return_value(invocation, tuple);
+	g_dbus_method_invocation_return_value(invocation,
+		    g_variant_new("(bs)", str_ok, reason ? : "unknown"));
 
 	if (!str_ok)
 		free(reason);
