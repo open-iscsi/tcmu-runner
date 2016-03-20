@@ -90,6 +90,19 @@ target_link_libraries(tcmu-runner
   )
 install(TARGETS tcmu-runner RUNTIME DESTINATION bin)
 
+add_executable(tcmu-synthesizer
+  tcmu-synthesizer.c
+  )
+target_link_libraries(tcmu-synthesizer tcmu)
+target_include_directories(tcmu-synthesizer
+  PUBLIC ${PROJECT_BINARY_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
+  )
+target_link_libraries(tcmu-synthesizer
+  ${GLIB_LIBRARIES}
+  )
+install(TARGETS tcmu-synthesizer RUNTIME DESTINATION bin)
+
 add_custom_command(
   OUTPUT tcmuhandler-generated.c tcmuhandler-generated.h
   COMMAND gdbus-codegen ${CMAKE_SOURCE_DIR}/tcmu-handler.xml --generate-c-code tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
