@@ -25,6 +25,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/uio.h>
+#include <gio/gio.h>
 
 #include "scsi_defs.h"
 #include "darray.h"
@@ -41,6 +42,10 @@ struct tcmulib_context {
 	struct nl_sock *nl_sock;
 
 	void (*err_print)(const char *fmt, ...);
+
+	unsigned reg_count_down;
+
+	GDBusConnection *connection;
 };
 
 void tcmu_errp(struct tcmulib_context *ctx, char *fmt, ...);

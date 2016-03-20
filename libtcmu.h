@@ -77,6 +77,10 @@ struct tcmulib_context *tcmulib_initialize(
 	size_t handler_count,
 	void (*err_print)(const char *fmt, ...));
 
+/* Register to TCMU DBus service, for the claimed subtypes to be configurable
+ * in targetcli. */
+void tcmulib_register(struct tcmulib_context *ctx);
+
 /* Gets the master file descriptor used by tcmulib. */
 int tcmulib_get_master_fd(struct tcmulib_context *ctx);
 
