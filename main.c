@@ -271,6 +271,8 @@ gboolean tcmulib_callback(GIOChannel *source,
 	return TRUE;
 }
 
+static GDBusObjectManagerServer *manager = NULL;
+
 static gboolean
 on_check_config(TCMUService1 *interface,
 		GDBusMethodInvocation *invocation,
@@ -295,8 +297,6 @@ on_check_config(TCMUService1 *interface,
 
 	return TRUE;
 }
-
-static GDBusObjectManagerServer *manager = NULL;
 
 static void dbus_bus_acquired(GDBusConnection *connection,
 			      const gchar *name,
