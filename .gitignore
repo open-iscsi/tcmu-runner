@@ -1,4 +1,5 @@
 tcmu-runner
+tcmu-synthesizer
 consumer
 *.o
 *.a
