@@ -298,39 +298,49 @@ on_check_config(TCMUService1 *interface,
 	return TRUE;
 }
 
+static void
+dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
+{
+	GDBusObjectSkeleton *object;
+	char obj_name[128];
+	TCMUService1 *interface;
+
+	snprintf(obj_name, sizeof(obj_name), "/org/kernel/TCMUService1/%s",
+		 handler->subtype);
+	object = g_dbus_object_skeleton_new(obj_name);
+	interface = tcmuservice1_skeleton_new();
+	g_dbus_object_skeleton_add_interface(object, G_DBUS_INTERFACE_SKELETON(interface));
+	g_signal_connect(interface,
+			 "handle-check-config",
+			 check_config,
+			 handler); /* user_data */
+	tcmuservice1_set_config_desc(interface, handler->cfg_desc);
+	g_dbus_object_manager_server_export(manager, G_DBUS_OBJECT_SKELETON(object));
+	g_object_unref(object);
+}
+
+static bool
+dbus_unexport_handler(struct tcmur_handler *handler)
+{
+	char obj_name[128];
+
+	snprintf(obj_name, sizeof(obj_name), "/org/kernel/TCMUService1/%s",
+		 handler->subtype);
+	return g_dbus_object_manager_server_unexport(manager, obj_name) == TRUE;
+}
+
 static void dbus_bus_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
 	struct tcmur_handler **handler;
-	GDBusObjectSkeleton *object;
 
 	dbgp("bus %s acquired\n", name);
 
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
 	darray_foreach(handler, g_runner_handlers) {
-		char obj_name[128];
-		TCMUService1 *interface;
-
-		snprintf(obj_name, sizeof(obj_name), "/org/kernel/TCMUService1/%s",
-			 (*handler)->subtype);
-
-		object = g_dbus_object_skeleton_new(obj_name);
-
-		interface = tcmuservice1_skeleton_new();
-
-		g_dbus_object_skeleton_add_interface(object, G_DBUS_INTERFACE_SKELETON(interface));
-
-		g_signal_connect(interface,
-				 "handle-check-config",
-				 G_CALLBACK (on_check_config),
-				 *handler); /* user_data */
-
-		tcmuservice1_set_config_desc(interface, (*handler)->cfg_desc);
-
-		g_dbus_object_manager_server_export(manager, G_DBUS_OBJECT_SKELETON(object));
-		g_object_unref(object);
+		dbus_export_handler(*handler, G_CALLBACK(on_check_config));
 	}
 
 	g_dbus_object_manager_server_set_connection(manager, connection);
