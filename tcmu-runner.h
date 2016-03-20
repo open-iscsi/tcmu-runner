@@ -78,6 +78,7 @@ void tcmur_handler_init(void);
  * APIs for tcmur only
  */
 void tcmur_register_handler(struct tcmur_handler *handler);
+bool tcmur_unregister_handler(struct tcmur_handler *handler);
 void dbgp(const char *fmt, ...);
 void errp(const char *fmt, ...);
 

@@ -86,6 +86,18 @@ void tcmur_register_handler(struct tcmur_handler *handler)
 	darray_append(g_runner_handlers, handler);
 }
 
+bool tcmur_unregister_handler(struct tcmur_handler *handler)
+{
+	int i;
+	for (i = 0; i < darray_size(g_runner_handlers); i++) {
+		if (darray_item(g_runner_handlers, i) == handler) {
+			darray_remove(g_runner_handlers, i);
+			return true;
+		}
+	}
+	return false;
+}
+
 static int is_handler(const struct dirent *dirent)
 {
 	if (strncmp(dirent->d_name, "handler_", 8))
