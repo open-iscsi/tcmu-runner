@@ -43,10 +43,12 @@ set_target_properties(tcmu
   )
 target_include_directories(tcmu
   PUBLIC ${LIBNL_INCLUDE_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
   )
 target_link_libraries(tcmu
   ${LIBNL_LIB}
   ${LIBNL_GENL_LIB}
+  ${GLIB_LIBRARIES}
   )
 install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
@@ -57,6 +59,10 @@ add_library(tcmu_static
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
+  )
+target_link_libraries(tcmu_static
+  ${GLIB_LIBRARIES}
   )
 
 # Stuff for building the main binary
