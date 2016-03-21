@@ -20,6 +20,10 @@ One goal of TCMU is that configuring a userspace-backed LUN should be as easy as
 
 tcmu-runner is [Apache 2.0 licensed](http://www.apache.org/licenses/LICENSE-2.0).
 
+### Releases
+
+Tarballs are available from https://fedorahosted.org/released/tcmu-runner/ .
+
 ### Development
 
 We encourage pull requests and issues tracking via Github, and the [target-devel mailing list](mailto:target-devel@vger.kernel.org) ([list info](http://vger.kernel.org/vger-lists.html#target-devel)) may be used for discussion.
