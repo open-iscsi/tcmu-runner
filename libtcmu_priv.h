@@ -39,6 +39,7 @@ struct tcmulib_context {
 	darray(struct tcmu_device*) devices;
 
 	struct nl_sock *nl_sock;
+	int epoll_fd;
 
 	void (*err_print)(const char *fmt, ...);
 };

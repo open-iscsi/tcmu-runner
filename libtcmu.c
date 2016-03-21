@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <dirent.h>
 #include <scsi/scsi.h>
+#include <sys/epoll.h>
 
 #include <linux/target_core_user.h>
 
@@ -426,6 +427,7 @@ struct tcmulib_context *tcmulib_initialize(
 	void (*err_print)(const char *fmt, ...))
 {
 	struct tcmulib_context *cxt;
+	struct epoll_event ev;
 	int ret;
 	int i;
 
@@ -436,10 +438,21 @@ struct tcmulib_context *tcmulib_initialize(
 	// Stash this away early, so that debug output works from here forth
 	cxt->err_print = err_print;
 
+	cxt->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+	if (cxt->epoll_fd < 0) {
+		tcmu_errp(cxt, "epoll_create1 failed: %m\n");
+		goto err_cxt_free;
+	}
+
 	cxt->nl_sock = setup_netlink(cxt);
-	if (!cxt->nl_sock) {
-		free(cxt);
-		return NULL;
+	if (!cxt->nl_sock)
+		goto err_free_epfd;
+
+	ev.events = EPOLLIN;
+	ev.data.fd = nl_socket_get_fd(cxt->nl_sock);
+	if (epoll_ctl(cxt->epoll_fd, EPOLL_CTL_ADD, ev.data.fd, &ev) == -1) {
+		tcmu_errp(cxt, "epoll_ctl CTL_ADD failed: %m\n");
+		goto err_free_nl;
 	}
 
 	darray_init(cxt->handlers);
@@ -449,14 +462,21 @@ struct tcmulib_context *tcmulib_initialize(
 		darray_append(cxt->handlers, handlers[i]);
 
 	ret = open_devices(cxt);
-	if (ret < 0) {
-		teardown_netlink(cxt->nl_sock);
-		darray_free(cxt->handlers);
-		darray_free(cxt->devices);
-		return NULL;
-	}
+	if (ret < 0)
+		goto err_free_darrays;
 
 	return cxt;
+
+err_free_darrays:
+	darray_free(cxt->handlers);
+	darray_free(cxt->devices);
+err_free_nl:
+	teardown_netlink(cxt->nl_sock);
+err_free_epfd:
+	close(cxt->epoll_fd);
+err_cxt_free:
+	free(cxt);
+	return NULL;
 }
 
 void tcmulib_close(struct tcmulib_context *cxt)
@@ -464,16 +484,33 @@ void tcmulib_close(struct tcmulib_context *cxt)
 	teardown_netlink(cxt->nl_sock);
 	darray_free(cxt->handlers);
 	darray_free(cxt->devices);
+	close(cxt->epoll_fd);
 	free(cxt);
 }
 
 int tcmulib_get_master_fd(struct tcmulib_context *cxt)
 {
-	return nl_socket_get_fd(cxt->nl_sock);
+	return cxt->epoll_fd;
 }
 
 int tcmulib_master_fd_ready(struct tcmulib_context *cxt)
 {
+	struct epoll_event events[1];
+	int nfds;
+
+	// should never block
+	nfds = epoll_wait(cxt->epoll_fd, events, ARRAY_SIZE(events), -1);
+	if (nfds == -1) {
+		tcmu_errp(cxt, "epoll_wait failed: %m\n");
+		return -1;
+	} else if (nfds != 1) {
+		tcmu_errp(cxt, "unexpected nfds in tcmulib_master_fd_ready\n");
+		return -1;
+	} else if (events[0].data.fd != nl_socket_get_fd(cxt->nl_sock)) {
+		tcmu_errp(cxt, "unexpected netlink fd in tcmulib_master_fd_ready\n");
+		return -1;
+	}
+
 	return nl_recvmsgs_default(cxt->nl_sock);
 }
 
