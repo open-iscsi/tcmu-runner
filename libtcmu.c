@@ -614,18 +614,26 @@ void tcmulib_command_complete(
 
 void tcmulib_processing_start(struct tcmu_device *dev)
 {
+	int r;
 	uint32_t buf;
 
 	/* Clear the event on the fd */
-	if (read(dev->fd, &buf, 4) == -1)
+	do {
+		r = read(dev->fd, &buf, 4);
+	} while (r == -1 && errno == EINTR);
+	if (r == -1)
 		perror("read");
 }
 
 void tcmulib_processing_complete(struct tcmu_device *dev)
 {
+	int r;
 	uint32_t buf = 0;
 
 	/* Tell the kernel there are completed commands */
-	if (write(dev->fd, &buf, 4) == -1)
+	do {
+		r = write(dev->fd, &buf, 4);
+	} while (r == -1 && errno == EINTR);
+	if (r == -1)
 		perror("write");
 }
