@@ -828,6 +828,8 @@ static uint64_t get_refcount(unsigned int order, void *rcblock, size_t index)
 	default:
 		assert(0);
 	}
+
+	return 0;	/* NOT REACHED */
 }
 
 static void set_refcount(unsigned int order, void *rcblock, size_t index, uint64_t value)
