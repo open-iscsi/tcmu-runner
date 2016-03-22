@@ -112,19 +112,23 @@ add_executable(consumer
   )
 target_link_libraries(consumer tcmu)
 
-# Stuff for building the glfs handler
-add_library(handler_glfs
-  SHARED
-  glfs.c
-  )
-set_target_properties(handler_glfs
-  PROPERTIES
-  PREFIX ""
-  )
-target_link_libraries(handler_glfs
-  ${GFAPI}
-  )
-install(TARGETS handler_glfs DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+if (GFAPI_INCLUDE_DIR)
+  # Stuff for building the glfs handler
+  add_library(handler_glfs
+    SHARED
+    glfs.c
+    )
+  set_target_properties(handler_glfs
+    PROPERTIES
+    PREFIX ""
+    )
+  target_link_libraries(handler_glfs
+    ${GFAPI}
+    )
+  install(TARGETS handler_glfs DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+else()
+  MESSAGE("Disabled GlusterFS support")
+endif()
 
 # Stuff for building the qcow handler
 add_library(handler_qcow
