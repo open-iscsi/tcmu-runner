@@ -140,25 +140,79 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 	char *servername = NULL;
 	char *volname = NULL;
 	char *pathname = NULL;
+	glfs_t *fs = NULL;
+	glfs_fd_t *gfd = NULL;
+	struct stat st;
+	int ret;
 	bool result = true;
 
 	path = strchr(cfgstring, '/');
 	if (!path) {
 		if (asprintf(reason, "No path found") == -1)
 			*reason = NULL;
-		return false;
+		result = false;
+		goto done;
 	}
 	path += 1; /* get past '/' */
 
 	if (parse_imagepath(path, &servername, &volname, &pathname) == -1) {
 		if (asprintf(reason, "Invalid imagepath") == -1)
 			*reason = NULL;
-		return false;
+		result = false;
+		goto done;
 	}
 
-	/* TODO?: Try more stuff from glfs_open() and see if it succeeds */
+	/* Actually attempt to open the volume to verify things are working */
+	/* TODO: consolidate this with v. similar tcmu_glfs_open code? */
+	fs = glfs_new(volname);
+	if (!fs) {
+		if (asprintf(reason, "glfs_new failed") == -1)
+			*reason = NULL;
+		result = false;
+		goto done;
+	}
 
-	free(servername); free(volname); free(pathname);
+	ret = glfs_set_volfile_server(fs, "tcp", servername,
+				      GLUSTER_PORT);
+	if (ret) {
+		if (asprintf(reason, "glfs_set_volfile_server failed: %m") == -1)
+			*reason = NULL;
+		result = false;
+		goto done;
+	}
+
+	ret = glfs_init(fs);
+	if (ret) {
+		if (asprintf(reason, "glfs_init failed: %m") == -1)
+			*reason = NULL;
+		result = false;
+		goto done;
+	}
+
+	gfd = glfs_open(fs, pathname, ALLOWED_BSOFLAGS);
+	if (!gfd) {
+		if (asprintf(reason, "glfs_open failed: %m") == -1)
+			*reason = NULL;
+		result = false;
+		goto done;
+	}
+
+	ret = glfs_lstat(fs, pathname, &st);
+	if (ret) {
+		if (asprintf(reason, "glfs_lstat failed: %m") == -1)
+			*reason = NULL;
+		result = false;
+		goto done;
+	}
+
+done:
+	if (gfd)
+		glfs_close(gfd);
+	if (fs)
+		glfs_fini(fs);
+	free(servername);
+	free(volname);
+	free(pathname);
 
 	return result;
 }
