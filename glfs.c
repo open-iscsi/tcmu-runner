@@ -58,8 +58,8 @@ struct glfs_state {
 };
 
 /*
- * Break image string into server, volume, and path components and set
- * gfsp members. Returns -1 on failure.
+ * Break image string into server, volume, and path components.
+ * Returns -1 on failure.
  */
 static int parse_imagepath(
 	char *cfgstring,
@@ -76,8 +76,20 @@ static int parse_imagepath(
 	if (!origp)
 		goto fail;
 
+	/* part before '@' is the volume name */
 	p = origp;
 	sep = strchr(p, '@');
+	if (!sep)
+		goto fail;
+
+	*sep = '\0';
+	t_volname = strdup(p);
+	if (!t_volname)
+		goto fail;
+
+	/* part between '@' and 1st '/' is the server name */
+	p = sep + 1;
+	sep = strchr(p, '/');
 	if (!sep)
 		goto fail;
 
@@ -86,23 +98,14 @@ static int parse_imagepath(
 	if (!t_servername)
 		goto fail;
 
+	/* The rest is the path name */
 	p = sep + 1;
-	sep = strchr(p, '/');
-	if (!sep)
-		goto fail;
-
-	t_volname = strdup(sep + 1);
-	if (!t_volname)
-		goto fail;
-
-	/* p points to path\0 */
-	*sep = '\0';
 	t_pathname = strdup(p);
 	if (!t_pathname)
 		goto fail;
 
 	if (!strlen(t_servername) || !strlen(t_volname) || !strlen(t_pathname))
-	    goto fail;
+		goto fail;
 
 	free(origp);
 	*servername = t_servername;
@@ -114,6 +117,7 @@ static int parse_imagepath(
 fail:
 	free(t_volname);
 	free(t_servername);
+	free(t_pathname);
 	free(origp);
 
 	return -1;
