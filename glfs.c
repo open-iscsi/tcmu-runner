@@ -434,8 +434,10 @@ write:
 			if (((cmd != WRITE_6) && (cdb[1] & 0x8))
 			    || !state->wce)
 				glfs_fdatasync(gfd);
-		} else
+		} else {
 			result = set_medium_error(sense);
+			break;
+		}
 
 		if (!do_verify)
 			break;
@@ -451,6 +453,7 @@ write:
 
 		if (ret != length) {
 			result = set_medium_error(sense);
+			free(tmpbuf);
 			break;
 		}
 
