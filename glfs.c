@@ -123,17 +123,6 @@ fail:
 	return -1;
 }
 
-#define FETCH_ATTRIBUTE(dev, r_value, name)			\
-do { 								\
-	int attribute = tcmu_get_attribute(dev, name); 		\
-	if (attribute == -1) {					\
-		errp("Could not get %s setting\n", #name);	\
-		goto fail;					\
-	} else {						\
-		(r_value) = (attribute) ? true: false;		\
-	}							\
-} while(0)
-
 static bool glfs_check_config(const char *cfgstring, char **reason)
 {
 	char *path;
@@ -224,6 +213,7 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	char *config;
 	long long size;
 	struct stat st;
+	int attribute;
 
 	gfsp = calloc(1, sizeof(*gfsp));
 	if (!gfsp)
@@ -231,7 +221,12 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	tcmu_set_dev_private(dev, gfsp);
 
-	FETCH_ATTRIBUTE(dev, gfsp->block_size, "hw_block_size");
+	attribute = tcmu_get_attribute(dev, "hw_block_size");
+	if (attribute == -1) {
+		errp("Could not get hw_block_size setting\n");
+		goto fail;
+	}
+	gfsp->block_size = attribute;
 
 	size = tcmu_get_device_size(dev);
 	if (size == -1) {
