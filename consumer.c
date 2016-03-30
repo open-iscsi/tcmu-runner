@@ -165,7 +165,7 @@ static struct tcmulib_handler foo_handler = {
 
 int main(int argc, char **argv)
 {
-	struct tcmulib_context *tcmulib_cxt;
+	struct tcmulib_context *tcmulib_ctx;
 	struct pollfd pollfds[16];
 	int i;
 	int ret;
@@ -173,14 +173,14 @@ int main(int argc, char **argv)
 	/* If any TCMU devices that exist that match subtype,
 	   handler->added() will now be called from within
 	   tcmulib_initialize(). */
-	tcmulib_cxt = tcmulib_initialize(&foo_handler, 1, errp);
-	if (tcmulib_cxt <= 0) {
-		errp("tcmulib_initialize failed with %p\n", tcmulib_cxt);
+	tcmulib_ctx = tcmulib_initialize(&foo_handler, 1, errp);
+	if (tcmulib_ctx <= 0) {
+		errp("tcmulib_initialize failed with %p\n", tcmulib_ctx);
 		exit(1);
 	}
 
 	while (1) {
-		pollfds[0].fd = tcmulib_get_master_fd(tcmulib_cxt);
+		pollfds[0].fd = tcmulib_get_master_fd(tcmulib_ctx);
 		pollfds[0].events = POLLIN;
 		pollfds[0].revents = 0;
 
@@ -201,7 +201,7 @@ int main(int argc, char **argv)
 			/* If any tcmu devices have been added or removed, the
 			   added() and removed() handler callbacks will be called
 			   from within this. */
-			tcmulib_master_fd_ready(tcmulib_cxt);
+			tcmulib_master_fd_ready(tcmulib_ctx);
 
 			/* Since devices (may) have changed, re-poll() instead of
 			   processing per-device fds. */

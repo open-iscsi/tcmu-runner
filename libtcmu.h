@@ -75,13 +75,13 @@ struct tcmulib_context *tcmulib_initialize(
 	void (*err_print)(const char *fmt, ...));
 
 /* Gets the master file descriptor used by tcmulib. */
-int tcmulib_get_master_fd(struct tcmulib_context *cxt);
+int tcmulib_get_master_fd(struct tcmulib_context *ctx);
 
 /*
  * Call this when the master fd becomes ready, from your main thread.
  * Handlers' callbacks may be called before it returns.
  */
-int tcmulib_master_fd_ready(struct tcmulib_context *cxt);
+int tcmulib_master_fd_ready(struct tcmulib_context *ctx);
 
 /*
  * When a device fd becomes ready, call this to get SCSI cmd info in
@@ -105,7 +105,7 @@ void tcmulib_processing_start(struct tcmu_device *dev);
 void tcmulib_processing_complete(struct tcmu_device *dev);
 
 /* Clean up loose ends when exiting */
-void tcmulib_close(struct tcmulib_context *cxt);
+void tcmulib_close(struct tcmulib_context *ctx);
 
 #ifdef __cplusplus
 }
