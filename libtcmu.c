@@ -621,7 +621,7 @@ void tcmulib_processing_start(struct tcmu_device *dev)
 	do {
 		r = read(dev->fd, &buf, 4);
 	} while (r == -1 && errno == EINTR);
-	if (r == -1)
+	if (r == -1 && errno != EAGAIN)
 		perror("read");
 }
 
@@ -634,6 +634,6 @@ void tcmulib_processing_complete(struct tcmu_device *dev)
 	do {
 		r = write(dev->fd, &buf, 4);
 	} while (r == -1 && errno == EINTR);
-	if (r == -1)
+	if (r == -1 && errno != EAGAIN)
 		perror("write");
 }
