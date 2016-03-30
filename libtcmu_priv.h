@@ -43,7 +43,7 @@ struct tcmulib_context {
 	void (*err_print)(const char *fmt, ...);
 };
 
-void tcmu_errp(struct tcmulib_context *cxt, char *fmt, ...);
+void tcmu_errp(struct tcmulib_context *ctx, char *fmt, ...);
 
 struct tcmu_device {
 	int fd;
@@ -57,7 +57,7 @@ struct tcmu_device {
 	char cfgstring[256];
 
 	struct tcmulib_handler *handler;
-	struct tcmulib_context *cxt;
+	struct tcmulib_context *ctx;
 
 	void *hm_private; /* private ptr for handler module */
 };
