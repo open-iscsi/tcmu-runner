@@ -581,7 +581,8 @@ int tcmu_emulate_read_capacity_16(
 
 	memset(buf, 0, sizeof(buf));
 
-	val64 = htobe64(num_lbas);
+	// Return the LBA of the last logical block, so subtract 1.
+	val64 = htobe64(num_lbas-1);
 	memcpy(&buf[0], &val64, 8);
 
 	val32 = htobe32(block_size);
