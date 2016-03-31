@@ -420,7 +420,7 @@ int tcmu_glfs_handle_cmd(
 	case WRITE_10:
 	case WRITE_12:
 	case WRITE_16:
-		length = tcmu_get_xfer_length(cdb);
+		length = tl;
 write:
 		ret = glfs_pwritev(gfd, iovec, iov_cnt, offset, ALLOWED_BSOFLAGS);
 
@@ -430,6 +430,7 @@ write:
 			    || !state->wce)
 				glfs_fdatasync(gfd);
 		} else {
+			errp("Error on write %x %x\n", ret, length);
 			result = set_medium_error(sense);
 			break;
 		}
