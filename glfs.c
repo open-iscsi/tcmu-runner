@@ -541,7 +541,10 @@ write:
 
 	dbgp("io done %p %x %d %u\n", cdb, cmd, result, length);
 
-	if (result != SAM_STAT_GOOD) {
+	if (result == TCMU_NOT_HANDLED)
+		dbgp("io not handled %p %x %x %d %d %llu\n",
+		     cdb, result, cmd, ret, length, (unsigned long long)offset);
+	else if (result != SAM_STAT_GOOD) {
 		errp("io error %p %x %x %d %d %llu\n",
 		     cdb, result, cmd, ret, length, (unsigned long long)offset);
 	}
