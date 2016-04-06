@@ -629,6 +629,7 @@ int tcmu_emulate_mode_sense(
 {
 	bool sense_ten = (cdb[0] == MODE_SENSE_10);
 	uint8_t page_code = cdb[2] & 0x3f;
+	uint8_t subpage_code = cdb[3];
 	size_t alloc_len = tcmu_get_xfer_length(cdb);
 	int i;
 	int ret;
@@ -662,7 +663,8 @@ int tcmu_emulate_mode_sense(
 	}
 	else {
 		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
-			if (page_code == modesense_handlers[i].page) {
+			if (page_code == modesense_handlers[i].page
+			    && subpage_code == modesense_handlers[i].subpage) {
 				ret = modesense_handlers[i].get(&buf[used_len],
 								sizeof(buf) - used_len);
 				if (ret <= 0)
@@ -711,6 +713,7 @@ int tcmu_emulate_mode_select(
 {
 	bool select_ten = (cdb[0] == MODE_SELECT_10);
 	uint8_t page_code = cdb[2] & 0x3f;
+	uint8_t subpage_code = cdb[3];
 	size_t alloc_len = tcmu_get_xfer_length(cdb);
 	int i;
 	int ret = 0;
@@ -733,7 +736,8 @@ int tcmu_emulate_mode_select(
 
 	memset(buf, 0, sizeof(buf));
 	for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
-		if (page_code == modesense_handlers[i].page) {
+		if (page_code == modesense_handlers[i].page
+		    && subpage_code == modesense_handlers[i].subpage) {
 			ret = modesense_handlers[i].get(&buf[hdr_len],
 							sizeof(buf) - hdr_len);
 			if (ret <= 0)
