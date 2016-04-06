@@ -595,12 +595,25 @@ int tcmu_emulate_read_capacity_16(
 	return SAM_STAT_GOOD;
 }
 
+int handle_cache_page(uint8_t *buf, size_t buf_len)
+{
+	if (buf_len < 20)
+		return -1;
+
+	buf[0] = 0x8;
+	buf[1] = 0x12;
+	buf[2] = 0x4; // WCE=1
+
+	return 20;
+}
+
 static struct {
 	uint8_t page;
 	uint8_t subpage;
 	int (*get)(uint8_t *buf, size_t buf_len);
 } modesense_handlers[] = {
-	/* TODO: implement caching mode page (8) */
+	{8, 0, handle_cache_page},
+	// TODO: control page
 };
 
 /*
