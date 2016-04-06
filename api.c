@@ -643,6 +643,8 @@ int tcmu_emulate_mode_sense(
 	used_len = sense_ten ? 8 : 4;
 
 	/* Don't fill in device-specific parameter */
+	/* This helper fn doesn't support sw write protect (SWP) */
+
 	/* Don't report block descriptors */
 
 	if (page_code == 0x3f) {
