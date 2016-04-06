@@ -616,7 +616,7 @@ int tcmu_emulate_mode_sense(
 {
 	bool sense_ten = (cdb[0] == MODE_SENSE_10);
 	uint8_t page_code = cdb[2] & 0x3f;
-	size_t alloc_len = cdb[4];
+	size_t alloc_len = tcmu_get_xfer_length(cdb);
 	int i;
 	int ret;
 	size_t used_len;
