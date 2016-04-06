@@ -45,16 +45,10 @@ struct glfs_state {
 	unsigned int block_size;
 
 	/*
-	 * The below will all be 0 because the handler is now responsible for
-	 * enabling support, and this handler does not yet do so.
+	 * Current tcmu helper API reports WCE=1, but doesn't
+	 * implement inquiry VPD 0xb2, so clients will not know UNMAP
+	 * or WRITE_SAME are supported. TODO: fix this
 	 */
-
-	/* write caching supported */
-	bool wce;
-	/* logical block provisioning (UNMAP) supported */
-	bool tpu;
-	/* logical block provisioning (WRITE_SAME) supported */
-	bool tpws;
 };
 
 /*
@@ -425,9 +419,8 @@ write:
 		ret = glfs_pwritev(gfd, iovec, iov_cnt, offset, ALLOWED_BSOFLAGS);
 
 		if (ret == length) {
-			/* If FUA or !WCE then sync */
-			if (((cmd != WRITE_6) && (cdb[1] & 0x8))
-			    || !state->wce)
+			/* Sync if FUA */
+			if ((cmd != WRITE_6) && (cdb[1] & 0x8))
 				glfs_fdatasync(gfd);
 		} else {
 			errp("Error on write %x %x\n", ret, length);
@@ -463,12 +456,12 @@ write:
 
 	case WRITE_SAME:
 	case WRITE_SAME_16:
-		if (!state->tpws) {
-			result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					    ASC_INVALID_FIELD_IN_CDB, NULL);
-			break;
-		}
+		errp("WRITE_SAME called, but has vpd b2 been implemented?\n");
+		result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					     ASC_INVALID_FIELD_IN_CDB, NULL);
+		break;
 
+#if 0
 		/* WRITE_SAME used to punch hole in file */
 		if (cdb[1] & 0x08) {
 			ret = glfs_discard(gfd, offset, tl);
@@ -511,6 +504,7 @@ write:
 			tl     -= blocksize;
 		}
 		break;
+#endif
 	case READ_6:
 	case READ_10:
 	case READ_12:
@@ -524,12 +518,6 @@ write:
 		}
 		break;
 	case UNMAP:
-		if (!state->tpu) {
-			result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						     ASC_INVALID_FIELD_IN_CDB, NULL);
-			break;
-		}
-
 		/* TODO: implement UNMAP */
 		result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					     ASC_INVALID_FIELD_IN_CDB, NULL);
