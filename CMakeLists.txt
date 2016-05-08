@@ -144,6 +144,12 @@ if (with-qcow)
 	  PROPERTIES
 	  PREFIX ""
 	  )
+	if (HAVE_LINUX_FALLOC)
+		set_target_properties(handler_qcow
+		  PROPERTIES
+		  COMPILE_FLAGS "-DHAVE_LINUX_FALLOC"
+		  )
+	endif (HAVE_LINUX_FALLOC)
 	target_link_libraries(handler_qcow
 	  ${ZLIB_LIBRARIES}
 	  )
