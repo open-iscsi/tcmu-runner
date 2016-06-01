@@ -172,4 +172,5 @@ install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
 if (SUPPORT_SYSTEMD)
   install(FILES tcmu-runner.service DESTINATION /usr/lib/systemd/system/)
 endif (SUPPORT_SYSTEMD)
-
+install(FILES tcmu-runner.8
+    DESTINATION ${CMAKE_INSTALL_PREFIX}/share/man/man8)
