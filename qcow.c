@@ -64,6 +64,9 @@
 #include <assert.h>
 
 #include <zlib.h>
+#if defined(HAVE_LINUX_FALLOC)
+#include <linux/falloc.h>
+#endif
 
 #include "tcmu-runner.h"
 #include "scsi_defs.h"
