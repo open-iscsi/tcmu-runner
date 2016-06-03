@@ -191,6 +191,7 @@ static int add_device(struct tcmulib_context *ctx,
 	int fd;
 	int ret;
 	char *ptr, *oldptr;
+	char *reason = NULL;
 	int len;
 
 	dev = calloc(1, sizeof(*dev));
@@ -238,6 +239,19 @@ static int add_device(struct tcmulib_context *ctx,
 	ptr = strchr(oldptr, '/');
 	snprintf(dev->cfgstring, sizeof(dev->cfgstring), "%s", oldptr);
 
+	dev->handler = find_handler(ctx, dev->cfgstring);
+	if (!dev->handler) {
+		tcmu_errp(ctx, "could not find handler for %s\n", dev->dev_name);
+		goto err_free;
+	}
+
+	if (!dev->handler->check_config(dev->cfgstring, &reason)) {
+		/* It may be handled by other handlers */
+		tcmu_errp(ctx, "check_config failed for %s because of %s\n", dev->dev_name, reason);
+		free(reason);
+		goto err_free;
+	}
+
 	snprintf(str_buf, sizeof(str_buf), "/dev/%s", dev_name);
 
 	dev->fd = open(str_buf, O_RDWR | O_NONBLOCK | O_CLOEXEC);
@@ -280,12 +294,6 @@ static int add_device(struct tcmulib_context *ctx,
 		goto err_munmap;
 	}
 	dev->cmd_tail = mb->cmd_tail;
-
-	dev->handler = find_handler(ctx, dev->cfgstring);
-	if (!dev->handler) {
-		tcmu_errp(ctx, "could not find handler for %s\n", dev->dev_name);
-		goto err_munmap;
-	}
 
 	dev->ctx = ctx;
 
