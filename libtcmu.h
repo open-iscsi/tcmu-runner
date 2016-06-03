@@ -36,6 +36,9 @@ struct tcmulib_handler {
 	const char *subtype;	/* Name for cfgstring matching */
 	const char *cfg_desc;	/* Description of this backstore's config string */
 
+	struct tcmulib_context *ctx; /* The context this handler is added to,
+					used internally by libtcmu. */
+
 	/*
 	 * As much as possible, check that the cfgstring will result
 	 * in a working device when given to us as dev->cfgstring in
@@ -73,6 +76,10 @@ struct tcmulib_context *tcmulib_initialize(
 	struct tcmulib_handler *handlers,
 	size_t handler_count,
 	void (*err_print)(const char *fmt, ...));
+
+/* Register to TCMU DBus service, for the claimed subtypes to be configurable
+ * in targetcli. */
+void tcmulib_register(struct tcmulib_context *ctx);
 
 /* Gets the master file descriptor used by tcmulib. */
 int tcmulib_get_master_fd(struct tcmulib_context *ctx);

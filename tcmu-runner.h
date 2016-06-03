@@ -38,6 +38,8 @@ struct tcmur_handler {
 	const char *subtype;	/* Name for cfgstring matching */
 	const char *cfg_desc;	/* Description of this backstore's config string */
 
+	void *opaque;		/* Handler private data. */
+
 	/*
 	 * As much as possible, check that the cfgstring will result
 	 * in a working device when given to us as dev->cfgstring in
@@ -76,6 +78,7 @@ void tcmur_handler_init(void);
  * APIs for tcmur only
  */
 void tcmur_register_handler(struct tcmur_handler *handler);
+bool tcmur_unregister_handler(struct tcmur_handler *handler);
 void dbgp(const char *fmt, ...);
 void errp(const char *fmt, ...);
 

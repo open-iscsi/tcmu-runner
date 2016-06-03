@@ -445,8 +445,11 @@ struct tcmulib_context *tcmulib_initialize(
 	darray_init(ctx->handlers);
 	darray_init(ctx->devices);
 
-	for (i = 0; i < handler_count; i++)
-		darray_append(ctx->handlers, handlers[i]);
+	for (i = 0; i < handler_count; i++) {
+		struct tcmulib_handler handler = handlers[i];
+		handler.ctx = ctx;
+		darray_append(ctx->handlers, handler);
+	}
 
 	ret = open_devices(ctx);
 	if (ret < 0) {

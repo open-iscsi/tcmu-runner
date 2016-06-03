@@ -36,6 +36,8 @@ add_library(tcmu
   SHARED
   api.c
   libtcmu.c
+  libtcmu-register.c
+  tcmuhandler-generated.c
   )
 set_target_properties(tcmu
   PROPERTIES
@@ -43,10 +45,12 @@ set_target_properties(tcmu
   )
 target_include_directories(tcmu
   PUBLIC ${LIBNL_INCLUDE_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
   )
 target_link_libraries(tcmu
   ${LIBNL_LIB}
   ${LIBNL_GENL_LIB}
+  ${GLIB_LIBRARIES}
   )
 install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
@@ -54,9 +58,15 @@ install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 add_library(tcmu_static
   api.c
   libtcmu.c
+  libtcmu-register.c
+  tcmuhandler-generated.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
+  )
+target_link_libraries(tcmu_static
+  ${GLIB_LIBRARIES}
   )
 
 # Stuff for building the main binary
@@ -79,6 +89,19 @@ target_link_libraries(tcmu-runner
   -Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/main-syms.txt
   )
 install(TARGETS tcmu-runner RUNTIME DESTINATION bin)
+
+add_executable(tcmu-synthesizer
+  tcmu-synthesizer.c
+  )
+target_link_libraries(tcmu-synthesizer tcmu)
+target_include_directories(tcmu-synthesizer
+  PUBLIC ${PROJECT_BINARY_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
+  )
+target_link_libraries(tcmu-synthesizer
+  ${GLIB_LIBRARIES}
+  )
+install(TARGETS tcmu-synthesizer RUNTIME DESTINATION bin)
 
 add_custom_command(
   OUTPUT tcmuhandler-generated.c tcmuhandler-generated.h

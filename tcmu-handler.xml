@@ -17,4 +17,17 @@ that the configstring is valid before the device has been created.
       <arg type="s" name="message" direction="out"/>
     </method>
   </interface>
+  <interface name="org.kernel.TCMUService1.HandlerManager1">
+    <method name="RegisterHandler">
+      <arg type="s" name="subtype" direction="in"/>
+      <arg type="s" name="cfgstr_desc" direction="in"/>
+      <arg type="b" name="succeeded" direction="out"/>
+      <arg type="s" name="message" direction="out"/>
+    </method>
+    <method name="UnregisterHandler">
+      <arg type="s" name="subtype" direction="in"/>
+      <arg type="b" name="succeeded" direction="out"/>
+      <arg type="s" name="message" direction="out"/>
+    </method>
+  </interface>
 </node>
