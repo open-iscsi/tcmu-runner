@@ -44,16 +44,6 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_MINOR]	= { .type = NLA_U32 },
 };
 
-void tcmu_errp(struct tcmulib_context *ctx, char *fmt, ...)
-{
-	if (ctx->err_print) {
-		va_list va;
-		va_start(va, fmt);
-		ctx->err_print(fmt, va);
-		va_end(va);
-	}
-}
-
 static int add_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
 static void remove_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
 

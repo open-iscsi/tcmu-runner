@@ -43,7 +43,7 @@ struct tcmulib_context {
 	void (*err_print)(const char *fmt, ...);
 };
 
-void tcmu_errp(struct tcmulib_context *ctx, char *fmt, ...);
+#define tcmu_errp(ctx, fmt, ...) if ((ctx)->err_print) { (ctx)->err_print((fmt),##__VA_ARGS__);}
 
 struct tcmu_device {
 	int fd;
