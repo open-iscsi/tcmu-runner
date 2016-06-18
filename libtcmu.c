@@ -307,6 +307,18 @@ err_free:
 	return -ENOENT;
 }
 
+static void close_devices(struct tcmulib_context *ctx)
+{
+	struct tcmu_device **dev_ptr;
+	struct tcmu_device *dev;
+	char *cfgstring = "";
+
+	darray_foreach(dev_ptr, ctx->devices) {
+		dev = *dev_ptr;
+		remove_device(ctx, dev->dev_name, cfgstring);
+	}
+}
+
 static void remove_device(struct tcmulib_context *ctx,
 			  char *dev_name, char *cfgstring)
 {
@@ -472,6 +484,7 @@ struct tcmulib_context *tcmulib_initialize(
 void tcmulib_close(struct tcmulib_context *ctx)
 {
 	int ret;
+	close_devices(ctx);
 	teardown_netlink(ctx->nl_sock);
 	darray_free(ctx->handlers);
 	darray_free(ctx->devices);
