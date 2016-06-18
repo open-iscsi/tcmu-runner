@@ -312,7 +312,7 @@ static void remove_device(struct tcmulib_context *ctx,
 {
 	struct tcmu_device **dev_ptr;
 	struct tcmu_device *dev;
-	int i = 0;
+	int i = 0, ret;
 	bool found = false;
 
 	darray_foreach(dev_ptr, ctx->devices) {
@@ -334,6 +334,15 @@ static void remove_device(struct tcmulib_context *ctx,
 	dev->handler->removed(dev);
 
 	darray_remove(ctx->devices, i);
+
+	ret = close(dev->fd);
+	if (ret != 0) {
+		tcmu_errp(ctx, "could not close device fd %s: %d\n", dev_name, errno);
+	}
+	ret = munmap(dev->map, dev->map_len);
+	if (ret != 0) {
+		tcmu_errp(ctx, "could not unmap device %s: %d\n", dev_name, errno);
+	}
 }
 
 static int is_uio(const struct dirent *dirent)
@@ -462,9 +471,14 @@ struct tcmulib_context *tcmulib_initialize(
 
 void tcmulib_close(struct tcmulib_context *ctx)
 {
+	int ret;
 	teardown_netlink(ctx->nl_sock);
 	darray_free(ctx->handlers);
 	darray_free(ctx->devices);
+	ret = genl_unregister_family(&tcmu_ops);
+	if (ret != 0) {
+		tcmu_errp(ctx, "genl_unregister_family failed, %d\n", ret);
+	}
 	free(ctx);
 }
 
