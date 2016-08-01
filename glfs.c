@@ -41,7 +41,6 @@ struct glfs_state {
 	char *volname;
 	char *pathname;
 
-	unsigned long long num_lbas;
 	unsigned int block_size;
 
 	/*
@@ -205,7 +204,6 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	struct glfs_state *gfsp;
 	int ret = 0;
 	char *config;
-	long long size;
 	struct stat st;
 	int attribute;
 
@@ -221,14 +219,6 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 		goto fail;
 	}
 	gfsp->block_size = attribute;
-
-	size = tcmu_get_device_size(dev);
-	if (size == -1) {
-		errp("Could not get device size\n");
-		goto fail;
-	}
-
-	gfsp->num_lbas = size / gfsp->block_size;
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
@@ -349,11 +339,23 @@ int tcmu_glfs_handle_cmd(
 		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
 		break;
 	case SERVICE_ACTION_IN_16:
-		if (cdb[1] == READ_CAPACITY_16)
-			return tcmu_emulate_read_capacity_16(state->num_lbas, state->block_size,
+		if (cdb[1] == READ_CAPACITY_16) {
+			long long size;
+			unsigned long long num_lbas;
+
+			size = tcmu_get_device_size(dev);
+			if (size == -1) {
+				errp("Could not get device size\n");
+				return TCMU_NOT_HANDLED;
+			}
+
+			num_lbas = size / state->block_size;
+
+			return tcmu_emulate_read_capacity_16(num_lbas, state->block_size,
 							     cdb, iovec, iov_cnt, sense);
-		else
+		} else {
 			return TCMU_NOT_HANDLED;
+		}
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
