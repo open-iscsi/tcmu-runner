@@ -33,6 +33,8 @@
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
 
+#define SECTOR_SIZE 512
+
 #define min(a,b)	       \
 	({ __typeof__ (a) _a = (a);		\
 		__typeof__ (b) _b = (b);	\
@@ -422,15 +424,16 @@ int tcmu_emulate_evpd_inquiry(
 	switch (cdb[2]) {
 	case 0x0: /* Supported VPD pages */
 	{
-		/* The absolute minimum. */
-		char data[6];
+		char data[7];
 
 		memset(data, 0, sizeof(data));
 
-		/* 0x0 and 0x83 only */
-		data[5] = 0x83;
+		/* data[1] (page code) already 0 */
 
-		data[3] = 2;
+		data[5] = 0x83;
+		data[6] = 0xb0;
+
+		data[3] = 3;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 
@@ -526,6 +529,48 @@ int tcmu_emulate_evpd_inquiry(
 
 		free(wwn);
 		wwn = NULL;
+
+		return SAM_STAT_GOOD;
+	}
+	break;
+	case 0xb0: /* Block Limits */
+	{
+		char data[64];
+		int block_size;
+		int max_sectors;
+		int max_xfer_length;
+		uint16_t val16;
+		uint32_t val32;
+
+		memset(data, 0, sizeof(data));
+
+		data[1] = 0xb0;
+
+		val16 = htobe16(0x3c);
+		memcpy(&data[2], &val16, 2);
+
+		block_size = tcmu_get_attribute(dev, "hw_block_size");
+		if (block_size == -1) {
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_INVALID_FIELD_IN_CDB, NULL);
+		}
+
+		max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
+		if (max_sectors == -1) {
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_INVALID_FIELD_IN_CDB, NULL);
+		}
+
+		/* Convert from sectors to blocks */
+		max_xfer_length = max_sectors / (block_size / SECTOR_SIZE);
+
+		val32 = htobe32(max_xfer_length);
+		/* Max xfer length */
+		memcpy(&data[8], &val32, 4);
+		/* Optimal xfer length */
+		memcpy(&data[12], &val32, 4);
+
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 
 		return SAM_STAT_GOOD;
 	}
