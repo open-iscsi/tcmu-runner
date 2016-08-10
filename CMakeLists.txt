@@ -101,7 +101,8 @@ target_include_directories(tcmu-synthesizer
 target_link_libraries(tcmu-synthesizer
   ${GLIB_LIBRARIES}
   )
-install(TARGETS tcmu-synthesizer RUNTIME DESTINATION bin)
+
+install(TARGETS RUNTIME DESTINATION bin)
 
 add_custom_command(
   OUTPUT tcmuhandler-generated.c tcmuhandler-generated.h
