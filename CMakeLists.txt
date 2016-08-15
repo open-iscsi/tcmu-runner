@@ -188,7 +188,7 @@ configure_file (
   )
 
 
-install(FILES libtcmu.h libtcmu_common.h
+install(FILES libtcmu.h libtcmu_common.h tcmu-runner.h
   DESTINATION include)
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
