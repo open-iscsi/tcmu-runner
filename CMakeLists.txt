@@ -105,8 +105,8 @@ target_link_libraries(tcmu-synthesizer
 install(TARGETS RUNTIME DESTINATION bin)
 
 add_custom_command(
-  OUTPUT tcmuhandler-generated.c tcmuhandler-generated.h
-  COMMAND gdbus-codegen ${CMAKE_SOURCE_DIR}/tcmu-handler.xml --generate-c-code tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
+  OUTPUT ${CMAKE_SOURCE_DIR}/tcmuhandler-generated.c ${CMAKE_SOURCE_DIR}/tcmuhandler-generated.h
+  COMMAND gdbus-codegen ${CMAKE_SOURCE_DIR}/tcmu-handler.xml --generate-c-code ${CMAKE_SOURCE_DIR}/tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
   MAIN_DEPENDENCY tcmu-handler.xml
   )
 
@@ -184,7 +184,7 @@ endif (with-qcow)
 # to the source code
 configure_file (
   "${PROJECT_SOURCE_DIR}/version.h.in"
-  "${PROJECT_BINARY_DIR}/version.h"
+  "${PROJECT_SOURCE_DIR}/version.h"
   )
 
 
