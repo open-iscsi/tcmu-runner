@@ -5,7 +5,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
 
 include(GNUInstallDirs)
 
-set(tcmu-runner_HANDLER_PATH "${CMAKE_INSTALL_LIBDIR}/tcmu-runner")
+set(tcmu-runner_HANDLER_PATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/tcmu-runner")
 
 option(with-glfs "build Gluster glfs handler" true)
 option(with-qcow "build qcow handler" true)
