@@ -43,6 +43,7 @@ set_target_properties(tcmu
   PROPERTIES
   SOVERSION "1"
   )
+SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
 target_include_directories(tcmu
   PUBLIC ${LIBNL_INCLUDE_DIR}
   PUBLIC ${GLIB_INCLUDE_DIRS}
