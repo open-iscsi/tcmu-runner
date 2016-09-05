@@ -78,7 +78,9 @@ tcmulib_check_config(TCMUService1 *interface,
 	char *reason = NULL;
 	bool ok;
 
-	ok = handler->check_config(cfgstring, &reason);
+	ok = handler->check_config ?
+		handler->check_config(cfgstring, &reason) :
+		TRUE;
 	g_dbus_method_invocation_return_value(invocation,
 		g_variant_new("(bs)", ok, reason ? : (ok ? "OK" : "unknown")));
 	free(reason);
