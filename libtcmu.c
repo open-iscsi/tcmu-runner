@@ -235,7 +235,8 @@ static int add_device(struct tcmulib_context *ctx,
 		goto err_free;
 	}
 
-	if (!dev->handler->check_config(dev->cfgstring, &reason)) {
+	if (dev->handler->check_config &&
+	    !dev->handler->check_config(dev->cfgstring, &reason)) {
 		/* It may be handled by other handlers */
 		tcmu_errp(ctx, "check_config failed for %s because of %s\n", dev->dev_name, reason);
 		free(reason);
