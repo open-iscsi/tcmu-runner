@@ -3,6 +3,6 @@
 
 [D-BUS Service]
 Name=org.kernel.TCMUService1
-Exec=/usr/bin/tcmu-runner
+Exec=/usr/local/bin/tcmu-runner
 User=root
 SystemdService=tcmu-runner.service

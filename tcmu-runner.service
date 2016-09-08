@@ -4,4 +4,4 @@ Description=LIO Userspace-passthrough daemon
 [Service]
 Type=dbus
 BusName=org.kernel.TCMUService1
-ExecStart=/usr/bin/tcmu-runner
+ExecStart=/usr/local/bin/tcmu-runner
