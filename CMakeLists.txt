@@ -304,6 +304,16 @@ if (with-qcow)
   install(TARGETS handler_qcow DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-qcow)
 
+add_library(handler_hello
+	SHARED
+	hello.c
+	)
+set_target_properties(handler_hello
+  PROPERTIES
+  PREFIX ""
+  )
+install(TARGETS handler_hello DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+
 # stamp out a header file to pass some of the CMake settings
 # to the source code
 configure_file (
