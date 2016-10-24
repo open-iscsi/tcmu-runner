@@ -143,6 +143,18 @@ set_target_properties(handler_file_async
   )
 target_link_libraries(handler_file_async ${PTHREAD})
 
+# Stuff for building the file optical handler
+add_library(handler_file_optical
+  SHARED
+  file_optical.c
+  )
+set_target_properties(handler_file_optical
+  PROPERTIES
+  PREFIX ""
+  )
+target_link_libraries(handler_file_optical ${PTHREAD})
+
+
 # The minimal library consumer
 add_executable(consumer
   consumer.c
