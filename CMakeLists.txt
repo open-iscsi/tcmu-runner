@@ -4,6 +4,7 @@ project (tcmu-runner VERSION 1.1.3 LANGUAGES C)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
 
 include(GNUInstallDirs)
+include(CheckIncludeFile)
 
 set(tcmu-runner_HANDLER_PATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/tcmu-runner")
 
@@ -168,6 +169,8 @@ if (with-qcow)
 	  PROPERTIES
 	  PREFIX ""
 	  )
+
+	CHECK_INCLUDE_FILE("linux/falloc.h" HAVE_LINUX_FALLOC)
 	if (HAVE_LINUX_FALLOC)
 		set_target_properties(handler_qcow
 		  PROPERTIES
