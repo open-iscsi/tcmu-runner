@@ -621,6 +621,40 @@ int tcmu_emulate_test_unit_ready(
 	return SAM_STAT_GOOD;
 }
 
+int tcmu_emulate_read_capacity_10(
+	uint64_t num_lbas,
+	uint32_t block_size,
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+{
+	uint8_t buf[8];
+	uint32_t val32;
+
+	memset(buf, 0, sizeof(buf));
+
+	if (num_lbas < 0x100000000ULL) {
+		// Return the LBA of the last logical block, so subtract 1.
+		val32 = htobe32(num_lbas-1);
+	} else {
+		// This lets the initiator know that he needs to use
+		// Read Capacity(16).
+		val32 = 0xffffffff;
+	}
+
+	memcpy(&buf[0], &val32, 4);
+
+	val32 = htobe32(block_size);
+	memcpy(&buf[4], &val32, 4);
+
+	/* all else is zero */
+
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
+
+	return SAM_STAT_GOOD;
+}
+
 int tcmu_emulate_read_capacity_16(
 	uint64_t num_lbas,
 	uint32_t block_size,
