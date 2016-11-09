@@ -858,3 +858,23 @@ int tcmu_emulate_mode_select(
 
 	return SAM_STAT_GOOD;
 }
+
+int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
+			                                uint8_t *sense)
+{
+	if ((cdb[4] >> 4) & 0xf)
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB, NULL);
+
+	/* Currently, we don't allow ejecting the medium, so we're
+	 * ignoring the FBO_PREV_EJECT flag, but it may turn out that
+	 * initiators do not handle this well, so we may have to change
+	 * this behavior.
+	 */
+
+	if (!(cdb[4] & 0x01))
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB, NULL);
+
+	return SAM_STAT_GOOD;
+}
