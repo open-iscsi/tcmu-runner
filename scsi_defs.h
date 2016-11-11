@@ -10,16 +10,21 @@
 /*
  * SCSI Opcodes
  */
-#define UNMAP				0x42
-#define READ_16				0x88
-#define MODE_SELECT_10			0x55
-#define MODE_SENSE_10			0x5a
-#define	COMPARE_AND_WRITE		0x89
-#define WRITE_16			0x8a
-#define WRITE_VERIFY_16			0x8e
-#define SYNCHRONIZE_CACHE_16		0x91
-#define WRITE_SAME_16			0x93
-#define SERVICE_ACTION_IN_16		0x9e
+#define READ_FORMAT_CAPACITIES          0x23
+#define UNMAP                           0x42
+#define GET_CONFIGURATION               0x46
+#define READ_DISC_INFORMATION           0x51
+#define MODE_SELECT_10                  0x55
+#define MODE_SENSE_10                   0x5a
+#define READ_16                         0x88
+#define COMPARE_AND_WRITE               0x89
+#define WRITE_16                        0x8a
+#define WRITE_VERIFY_16                 0x8e
+#define SYNCHRONIZE_CACHE_16            0x91
+#define WRITE_SAME_16                   0x93
+#define SERVICE_ACTION_IN_16            0x9e
+#define READ_DVD_STRUCTURE              0xad
+#define MECHANISM_STATUS                0xbd
 
 /*
  * Service action opcodes
@@ -45,9 +50,13 @@
 /*
  * Sense codes
  */
-#define ASC_READ_ERROR			0x1100
-#define ASC_PARAMETER_LIST_LENGTH_ERROR	0x1a00
-#define ASC_INTERNAL_TARGET_FAILURE	0x4400
-#define ASC_MISCOMPARE_DURING_VERIFY_OPERATION 0x1d00
-#define ASC_INVALID_FIELD_IN_CDB	0x2400
-#define ASC_INVALID_FIELD_IN_PARAMETER_LIST 0x2600
+#define ASC_NOT_READY_FORMAT_IN_PROGRESS        0x0404
+#define ASC_READ_ERROR                          0x1100
+#define ASC_PARAMETER_LIST_LENGTH_ERROR         0x1a00
+#define ASC_MISCOMPARE_DURING_VERIFY_OPERATION  0x1d00
+#define ASC_LBA_OUT_OF_RANGE                    0x2100
+#define ASC_INVALID_FIELD_IN_CDB                0x2400
+#define ASC_INVALID_FIELD_IN_PARAMETER_LIST     0x2600
+#define ASC_CANT_WRITE_INCOMPATIBLE_FORMAT      0x3005
+#define ASC_SAVING_PARAMETERS_NOT_SUPPORTED     0x3900
+#define ASC_INTERNAL_TARGET_FAILURE             0x4400

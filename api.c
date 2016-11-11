@@ -287,18 +287,27 @@ size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)
 	return length;
 }
 
-int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info)
+int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq,
+			uint32_t *info)
 {
+	memset(sense_buf, 0, 18);
 	sense_buf[0] = 0x70;	/* fixed, current */
 	sense_buf[2] = key;
 	sense_buf[7] = 0xa;
 	sense_buf[12] = (asc_ascq >> 8) & 0xff;
 	sense_buf[13] = asc_ascq & 0xff;
 	if (info) {
-		uint32_t val32 = htobe32(*info);
+		if (key == MISCOMPARE) {
+			uint32_t val32 = htobe32(*info);
 
-		memcpy(&sense_buf[3], &val32, 4);
-		sense_buf[0] |= 0x80;
+			memcpy(&sense_buf[3], &val32, 4);
+			sense_buf[0] |= 0x80;
+		} else if (key == NOT_READY) {
+			uint16_t val16 = htobe16((uint16_t)*info);
+
+			memcpy(&sense_buf[16], &val16, 2);
+			sense_buf[15] |= 0x80;
+		}
 	}
 
 	/*
@@ -612,6 +621,40 @@ int tcmu_emulate_test_unit_ready(
 	return SAM_STAT_GOOD;
 }
 
+int tcmu_emulate_read_capacity_10(
+	uint64_t num_lbas,
+	uint32_t block_size,
+	uint8_t *cdb,
+	struct iovec *iovec,
+	size_t iov_cnt,
+	uint8_t *sense)
+{
+	uint8_t buf[8];
+	uint32_t val32;
+
+	memset(buf, 0, sizeof(buf));
+
+	if (num_lbas < 0x100000000ULL) {
+		// Return the LBA of the last logical block, so subtract 1.
+		val32 = htobe32(num_lbas-1);
+	} else {
+		// This lets the initiator know that he needs to use
+		// Read Capacity(16).
+		val32 = 0xffffffff;
+	}
+
+	memcpy(&buf[0], &val32, 4);
+
+	val32 = htobe32(block_size);
+	memcpy(&buf[4], &val32, 4);
+
+	/* all else is zero */
+
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
+
+	return SAM_STAT_GOOD;
+}
+
 int tcmu_emulate_read_capacity_16(
 	uint64_t num_lbas,
 	uint32_t block_size,
@@ -631,7 +674,7 @@ int tcmu_emulate_read_capacity_16(
 	memcpy(&buf[0], &val64, 8);
 
 	val32 = htobe32(block_size);
-	memcpy(&buf[8], &val32, 8);
+	memcpy(&buf[8], &val32, 4);
 
 	/* all else is zero */
 
@@ -813,6 +856,26 @@ int tcmu_emulate_mode_select(
 	if (memcmp(&buf[hdr_len], &in_buf[hdr_len], ret))
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST, NULL);
+
+	return SAM_STAT_GOOD;
+}
+
+int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
+			                                uint8_t *sense)
+{
+	if ((cdb[4] >> 4) & 0xf)
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB, NULL);
+
+	/* Currently, we don't allow ejecting the medium, so we're
+	 * ignoring the FBO_PREV_EJECT flag, but it may turn out that
+	 * initiators do not handle this well, so we may have to change
+	 * this behavior.
+	 */
+
+	if (!(cdb[4] & 0x01))
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB, NULL);
 
 	return SAM_STAT_GOOD;
 }
