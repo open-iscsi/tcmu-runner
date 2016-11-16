@@ -111,6 +111,16 @@ add_custom_command(
   MAIN_DEPENDENCY tcmu-handler.xml
   )
 
+add_custom_target(
+  cscope
+  COMMAND find -name '*.[ch]' > cscope.files
+  COMMAND cscope -bq
+  )
+set_directory_properties(
+  PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES
+  "cscope.files;cscope.in.out;cscope.out;cscope.po.out"
+  )
+
 # Stuff for building the file handler
 add_library(handler_file
   SHARED
