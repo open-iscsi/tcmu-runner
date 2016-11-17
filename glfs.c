@@ -357,9 +357,34 @@ int tcmu_glfs_handle_cmd(
 			return TCMU_NOT_HANDLED;
 		}
 		break;
+	case READ_CAPACITY:
+		if ((cdb[1] & 0x01) || (cdb[8] & 0x01)) {
+			/* Reserved bits for MM logical units */
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_INVALID_FIELD_IN_CDB,
+						   NULL);
+		} else {
+			long long size;
+			unsigned long long num_lbas;
+
+			size = tcmu_get_device_size(dev);
+			if (size == -1) {
+				errp("Could not get device size\n");
+				return TCMU_NOT_HANDLED;
+			}
+
+			num_lbas = size / state->block_size;
+			return tcmu_emulate_read_capacity_10(num_lbas,
+							     state->block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
+		}
 	case MODE_SENSE:
 	case MODE_SENSE_10:
 		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+		break;
+	case START_STOP:
+		return tcmu_emulate_start_stop(dev, cdb, sense);
 		break;
 	case MODE_SELECT:
 	case MODE_SELECT_10:
