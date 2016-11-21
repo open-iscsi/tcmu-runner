@@ -477,7 +477,7 @@ int tcmu_emulate_evpd_inquiry(
 		len = snprintf(&ptr[12], sizeof(data) - 16, "%s", wwn);
 
 		ptr[3] = 8 + len + 1;
-		used += ptr[3] + 4;
+		used += (uint8_t)ptr[3] + 4;
 		ptr += used;
 
 		/* 2/3: NAA binary */
@@ -528,7 +528,7 @@ int tcmu_emulate_evpd_inquiry(
 		len = snprintf(&ptr[4], sizeof(data) - used - 4, "%s", dev->cfgstring);
 		ptr[3] = len + 1;
 
-		used += ptr[3] + 4;
+		used += (uint8_t)ptr[3] + 4;
 
 		/* Done with descriptor list */
 
