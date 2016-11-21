@@ -534,7 +534,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		*tot_len = htobe16(used);
 
-		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, *tot_len + 4);
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, used + 4);
 
 		free(wwn);
 		wwn = NULL;
