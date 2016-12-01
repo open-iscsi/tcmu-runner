@@ -56,6 +56,9 @@ struct tcmu_device {
 	size_t map_len;
 	uint32_t cmd_tail;
 
+	uint64_t num_lbas;
+	uint32_t block_size;
+
 	char dev_name[16]; /* e.g. "uio14" */
 	char tcm_hba_name[16]; /* e.g. "user_8" */
 	char tcm_dev_name[128]; /* e.g. "backup2" */

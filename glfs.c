@@ -41,8 +41,6 @@ struct glfs_state {
 	char *volname;
 	char *pathname;
 
-	unsigned int block_size;
-
 	/*
 	 * Current tcmu helper API reports WCE=1, but doesn't
 	 * implement inquiry VPD 0xb2, so clients will not know UNMAP
@@ -205,7 +203,8 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	int ret = 0;
 	char *config;
 	struct stat st;
-	int attribute;
+	int block_size;
+	int64_t size;
 
 	gfsp = calloc(1, sizeof(*gfsp));
 	if (!gfsp)
@@ -213,12 +212,19 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	tcmu_set_dev_private(dev, gfsp);
 
-	attribute = tcmu_get_attribute(dev, "hw_block_size");
-	if (attribute == -1) {
+	block_size = tcmu_get_attribute(dev, "hw_block_size");
+	if (block_size < 0) {
 		errp("Could not get hw_block_size setting\n");
 		goto fail;
 	}
-	gfsp->block_size = attribute;
+	tcmu_set_dev_block_size(dev, block_size);
+
+	size = tcmu_get_device_size(dev);
+	if (size < 0) {
+		errp("Could not get device size\n");
+		goto fail;
+	}
+	tcmu_set_dev_num_lbas(dev, size / block_size);
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
@@ -316,6 +322,8 @@ int tcmu_glfs_handle_cmd(
 	size_t iov_cnt = tcmulib_cmd->iov_cnt;
 	uint8_t *sense = tcmulib_cmd->sense_buf;
 	struct glfs_state *state = tcmu_get_dev_private(dev);
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
 	uint8_t cmd;
 
 	glfs_fd_t *gfd = state->gfd;
@@ -323,8 +331,8 @@ int tcmu_glfs_handle_cmd(
 	uint32_t length;
 	int result = SAM_STAT_GOOD;
 	char *tmpbuf;
-	uint64_t offset = state->block_size * tcmu_get_lba(cdb);
-	uint32_t tl     = state->block_size * tcmu_get_xfer_length(cdb);
+	uint64_t offset = block_size * tcmu_get_lba(cdb);
+	uint32_t tl     = block_size * tcmu_get_xfer_length(cdb);
 	int do_verify = 0;
 	uint32_t cmp_offset;
 	ret = length = 0;
@@ -340,18 +348,7 @@ int tcmu_glfs_handle_cmd(
 		break;
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16) {
-			long long size;
-			unsigned long long num_lbas;
-
-			size = tcmu_get_device_size(dev);
-			if (size == -1) {
-				errp("Could not get device size\n");
-				return TCMU_NOT_HANDLED;
-			}
-
-			num_lbas = size / state->block_size;
-
-			return tcmu_emulate_read_capacity_16(num_lbas, state->block_size,
+			return tcmu_emulate_read_capacity_16(num_lbas, block_size,
 							     cdb, iovec, iov_cnt, sense);
 		} else {
 			return TCMU_NOT_HANDLED;
@@ -364,18 +361,8 @@ int tcmu_glfs_handle_cmd(
 						   ASC_INVALID_FIELD_IN_CDB,
 						   NULL);
 		} else {
-			long long size;
-			unsigned long long num_lbas;
-
-			size = tcmu_get_device_size(dev);
-			if (size == -1) {
-				errp("Could not get device size\n");
-				return TCMU_NOT_HANDLED;
-			}
-
-			num_lbas = size / state->block_size;
 			return tcmu_emulate_read_capacity_10(num_lbas,
-							     state->block_size,
+							     block_size,
 							     cdb, iovec,
 							     iov_cnt, sense);
 		}
@@ -499,7 +486,7 @@ write:
 			break;
 		}
 		while (tl > 0) {
-			size_t blocksize = state->block_size;
+			size_t blocksize = block_size;
 			uint32_t val32;
 			uint64_t val64;
 

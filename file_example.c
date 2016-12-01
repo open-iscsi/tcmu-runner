@@ -66,8 +66,6 @@ struct file_handler {
 
 struct file_state {
 	int fd;
-	uint64_t num_lbas;
-	uint32_t block_size;
 
 #ifdef ASYNC_FILE_HANDLER
 	pthread_mutex_t completion_mtx;
@@ -179,6 +177,7 @@ static int file_open(struct tcmu_device *dev)
 	struct file_state *state;
 	int64_t size;
 	char *config;
+	int block_size;
 #ifdef ASYNC_FILE_HANDLER
 	int i;
 #endif /* ASYNC_FILE_HANDLER */
@@ -189,19 +188,20 @@ static int file_open(struct tcmu_device *dev)
 
 	tcmu_set_dev_private(dev, state);
 
-	state->block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (state->block_size == -1) {
+	block_size = tcmu_get_attribute(dev, "hw_block_size");
+	if (block_size < 0) {
 		errp("Could not get device block size\n");
 		goto err;
 	}
+	tcmu_set_dev_block_size(dev, block_size);
 
 	size = tcmu_get_device_size(dev);
-	if (size == -1) {
+	if (size < 0) {
 		errp("Could not get device size\n");
 		goto err;
 	}
 
-	state->num_lbas = size / state->block_size;
+	tcmu_set_dev_num_lbas(dev, size / block_size);
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
@@ -288,6 +288,8 @@ static int file_handle_cmd(
 	uint8_t cmd;
 	int remaining;
 	size_t ret;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
 
 	cmd = cdb[0];
 
@@ -300,9 +302,10 @@ static int file_handle_cmd(
 		break;
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
-			return tcmu_emulate_read_capacity_16(state->num_lbas,
-							     state->block_size,
-							     cdb, iovec, iov_cnt, sense);
+			return tcmu_emulate_read_capacity_16(num_lbas,
+							     block_size, cdb,
+							     iovec, iov_cnt,
+							     sense);
 		else
 			return TCMU_NOT_HANDLED;
 		break;
@@ -313,8 +316,8 @@ static int file_handle_cmd(
 						   ASC_INVALID_FIELD_IN_CDB,
 						   NULL);
 		else
-			return tcmu_emulate_read_capacity_10(state->num_lbas,
-							     state->block_size,
+			return tcmu_emulate_read_capacity_10(num_lbas,
+							     block_size,
 							     cdb, iovec,
 							     iov_cnt, sense);
 	case MODE_SENSE:
@@ -334,8 +337,8 @@ static int file_handle_cmd(
 	case READ_16:
 	{
 		void *buf;
-		uint64_t offset = state->block_size * tcmu_get_lba(cdb);
-		int length = tcmu_get_xfer_length(cdb) * state->block_size;
+		uint64_t offset = block_size * tcmu_get_lba(cdb);
+		int length = tcmu_get_xfer_length(cdb) * block_size;
 
 		/* Using this buf DTRT even if seek is beyond EOF */
 		buf = malloc(length);
@@ -362,8 +365,8 @@ static int file_handle_cmd(
 	case WRITE_12:
 	case WRITE_16:
 	{
-		uint64_t offset = state->block_size * tcmu_get_lba(cdb);
-		int length = be16toh(*((uint16_t *)&cdb[7])) * state->block_size;
+		uint64_t offset = block_size * tcmu_get_lba(cdb);
+		int length = be16toh(*((uint16_t *)&cdb[7])) * block_size;
 
 		remaining = length;
 
