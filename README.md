@@ -72,14 +72,27 @@ difference is who is responsible for the event loop.
 
 ##### tcmu-runner plugin handler
 
-With a tcmu-runner handler, tcmu-runner is in charge of the event loop
+There are two different ways to write a tcmu-runner plugin handler:
+
+1. one can register .handle_cmd to take the full control of command handling
+2. or else one can register .{read, write, flush, ...} to only handle storage
+   IO stuff.
+
+With the option 1, tcmu-runner is in charge of the event loop
 for your plugin, and your handler's `handle_cmd` function is called
 repeatedly to respond to each incoming SCSI command. While your
 handler sees all SCSI commands, there are helper functions provided
 that save each handler from writing boilerplate code for mandatory
 SCSI commands, if desired.
 
-The `glfs`, `qcow`, and `file` handlers are examples of this type.
+The `qcow` and `file`  handlers are examples of this type.
+
+With the option 2, tcmu-runner is in charge of the event loop and SCSI command
+handling for your plugin, and your handler's registered functions are called
+repeatedly to handle storage requests as required by the upper SCSI layer, which
+will handle most of the SCSI commands for you.
+
+The `glfs` and `rbd` handlers are examples of this type.
 
 ##### tcmulib
 
