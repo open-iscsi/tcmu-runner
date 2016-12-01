@@ -516,6 +516,26 @@ void tcmu_set_dev_private(struct tcmu_device *dev, void *private)
 	dev->hm_private = private;
 }
 
+void tcmu_set_dev_num_lbas(struct tcmu_device *dev, uint64_t num_lbas)
+{
+	dev->num_lbas = num_lbas;
+}
+
+uint64_t tcmu_get_dev_num_lbas(struct tcmu_device *dev)
+{
+	return dev->num_lbas;
+}
+
+void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size)
+{
+	dev->block_size = block_size;
+}
+
+uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev)
+{
+	return dev->block_size;
+}
+
 int tcmu_get_dev_fd(struct tcmu_device *dev)
 {
 	return dev->fd;

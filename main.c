@@ -36,6 +36,7 @@
 #include <gio/gio.h>
 #include <getopt.h>
 #include <poll.h>
+#include <scsi/scsi.h>
 
 #include <libkmod.h>
 #include <linux/target_core_user.h>
@@ -92,9 +93,16 @@ static struct tcmur_handler *find_handler_by_subtype(gchar *subtype)
 	return NULL;
 }
 
-void tcmur_register_handler(struct tcmur_handler *handler)
+int tcmur_register_handler(struct tcmur_handler *handler)
 {
+	if (handler->handle_cmd &&
+	    (handler->read || handler->write || handler->flush)) {
+		errp("Skip bad handler: %s\n", handler->name);
+		return -1;
+	}
+
 	darray_append(g_runner_handlers, handler);
+	return 0;
 }
 
 bool tcmur_unregister_handler(struct tcmur_handler *handler)
@@ -132,7 +140,7 @@ static int open_handlers(void)
 	for (i = 0; i < num_handlers; i++) {
 		char *path;
 		void *handle;
-		void (*handler_init)(void);
+		int (*handler_init)(void);
 		int ret;
 
 		ret = asprintf(&path, "%s/%s", handler_path, dirent_list[i]->d_name);
@@ -155,11 +163,12 @@ static int open_handlers(void)
 			continue;
 		}
 
-		handler_init();
+		ret = handler_init();
 
 		free(path);
 
-		num_good++;
+		if (ret == 0)
+			num_good++;
 	}
 
 	for (i = 0; i < num_handlers; i++)
@@ -177,6 +186,125 @@ static void thread_cleanup(void *arg)
 
 	r_handler->close(dev);
 	free(dev);
+}
+
+static int generic_handle_cmd(struct tcmu_device *dev,
+			      struct tcmulib_cmd *tcmulib_cmd)
+{
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *store = handler->hm_private;
+	uint8_t *cdb = tcmulib_cmd->cdb;
+	struct iovec *iovec = tcmulib_cmd->iovec;
+	size_t iov_cnt = tcmulib_cmd->iov_cnt;
+	uint8_t *sense = tcmulib_cmd->sense_buf;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	uint8_t cmd;
+	ssize_t ret, l = tcmu_iovec_length(iovec, iov_cnt);
+	off_t offset = block_size * tcmu_get_lba(cdb);
+	struct iovec iov;
+	size_t half = l / 2;
+	uint32_t cmp_offset;
+
+	cmd = cdb[0];
+
+	switch (cmd) {
+	case INQUIRY:
+		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
+	case TEST_UNIT_READY:
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+	case SERVICE_ACTION_IN_16:
+		if (cdb[1] == READ_CAPACITY_16)
+			return tcmu_emulate_read_capacity_16(num_lbas,
+							     block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
+		else
+			return TCMU_NOT_HANDLED;
+	case READ_CAPACITY:
+		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
+			/* Reserved bits for MM logical units */
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_INVALID_FIELD_IN_CDB,
+						   NULL);
+		else
+			return tcmu_emulate_read_capacity_10(num_lbas,
+							     block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+	case START_STOP:
+		return tcmu_emulate_start_stop(dev, cdb, sense);
+	case MODE_SELECT:
+	case MODE_SELECT_10:
+		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+	case READ_6:
+	case READ_10:
+	case READ_12:
+	case READ_16:
+		ret = store->read(dev, iovec, iov_cnt, offset);
+		if (ret != l) {
+			errp("Error on read %x, %x\n", ret, l);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	case WRITE_6:
+	case WRITE_10:
+	case WRITE_12:
+	case WRITE_16:
+		ret = store->write(dev, iovec, iov_cnt, offset);
+		if (ret != l) {
+			errp("Error on write %x, %x\n", ret, l);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	case SYNCHRONIZE_CACHE:
+	case SYNCHRONIZE_CACHE_16:
+		ret = store->flush(dev);
+		if (ret < 0) {
+			errp("Error on flush %x\n", ret);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	case COMPARE_AND_WRITE:
+		iov.iov_base = malloc(half);
+		if (!iov.iov_base) {
+			errp("out of memory\n");
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		}
+		iov.iov_len = half;
+		ret = store->read(dev, &iov, 1, offset);
+		if (ret != l) {
+			errp("Error on read %x, %x\n", ret, l);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		}
+		cmp_offset = tcmu_compare_with_iovec(iov.iov_base, iovec, half);
+		if (cmp_offset != -1) {
+			return tcmu_set_sense_data(sense, MISCOMPARE,
+					ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
+					&cmp_offset);
+		}
+		free(iov.iov_base);
+
+		tcmu_seek_in_iovec(iovec, half);
+		ret = store->write(dev, iovec, iov_cnt, offset);
+		if (ret != half) {
+			errp("Error on write %x, %x\n", ret, half);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	default:
+		errp("unknown command %x\n", cdb[0]);
+		return TCMU_NOT_HANDLED;
+	}
 }
 
 static void *thread_start(void *arg)
@@ -204,7 +332,10 @@ static void *thread_start(void *arg)
 			}
 			dbgp("\n");
 
-			ret = r_handler->handle_cmd(dev, cmd);
+			if (r_handler->handle_cmd)
+				ret = r_handler->handle_cmd(dev, cmd);
+			else
+				ret = generic_handle_cmd(dev, cmd);
 			if (ret != TCMU_ASYNC_HANDLED) {
 				tcmulib_command_complete(dev, cmd, ret);
 				completed = 1;

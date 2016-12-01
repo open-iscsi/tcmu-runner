@@ -45,6 +45,10 @@ void *tcmu_get_dev_private(struct tcmu_device *dev);
 void tcmu_set_dev_private(struct tcmu_device *dev, void *priv);
 int tcmu_get_dev_fd(struct tcmu_device *dev);
 char *tcmu_get_dev_cfgstring(struct tcmu_device *dev);
+void tcmu_set_dev_num_lbas(struct tcmu_device *dev, uint64_t num_lbas);
+uint64_t tcmu_get_dev_num_lbas(struct tcmu_device *dev);
+void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size);
+uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
 
 /* Helper routines for processing commands */
