@@ -305,253 +305,27 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 	free(gfsp);
 }
 
-static int set_medium_error(uint8_t *sense)
+static ssize_t tcmu_glfs_read(struct tcmu_device *dev, struct iovec *iov,
+			      size_t iov_cnt, off_t offset)
 {
-	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
+        struct glfs_state *state = tcmu_get_dev_private(dev);
+
+        return glfs_preadv(state->gfd, iov, iov_cnt, offset, SEEK_SET);
 }
 
-/*
- * Return scsi status or TCMU_NOT_HANDLED
- */
-int tcmu_glfs_handle_cmd(
-	struct tcmu_device *dev,
-	struct tcmulib_cmd *tcmulib_cmd)
+static ssize_t tcmu_glfs_write(struct tcmu_device *dev, struct iovec *iov,
+			       size_t iov_cnt, off_t offset)
 {
-	uint8_t *cdb = tcmulib_cmd->cdb;
-	struct iovec *iovec = tcmulib_cmd->iovec;
-	size_t iov_cnt = tcmulib_cmd->iov_cnt;
-	uint8_t *sense = tcmulib_cmd->sense_buf;
 	struct glfs_state *state = tcmu_get_dev_private(dev);
-	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
-	uint8_t cmd;
 
-	glfs_fd_t *gfd = state->gfd;
-	int ret;
-	uint32_t length;
-	int result = SAM_STAT_GOOD;
-	char *tmpbuf;
-	uint64_t offset = block_size * tcmu_get_lba(cdb);
-	uint32_t tl     = block_size * tcmu_get_xfer_length(cdb);
-	int do_verify = 0;
-	uint32_t cmp_offset;
-	ret = length = 0;
+        return glfs_pwritev(state->gfd, iov, iov_cnt, offset, ALLOWED_BSOFLAGS);
+}
 
-	cmd = cdb[0];
+static int tcmu_glfs_flush(struct tcmu_device *dev)
+{
+	struct glfs_state *state = tcmu_get_dev_private(dev);
 
-	switch (cmd) {
-	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
-		break;
-	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
-		break;
-	case SERVICE_ACTION_IN_16:
-		if (cdb[1] == READ_CAPACITY_16) {
-			return tcmu_emulate_read_capacity_16(num_lbas, block_size,
-							     cdb, iovec, iov_cnt, sense);
-		} else {
-			return TCMU_NOT_HANDLED;
-		}
-		break;
-	case READ_CAPACITY:
-		if ((cdb[1] & 0x01) || (cdb[8] & 0x01)) {
-			/* Reserved bits for MM logical units */
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB,
-						   NULL);
-		} else {
-			return tcmu_emulate_read_capacity_10(num_lbas,
-							     block_size,
-							     cdb, iovec,
-							     iov_cnt, sense);
-		}
-	case MODE_SENSE:
-	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
-		break;
-	case START_STOP:
-		return tcmu_emulate_start_stop(dev, cdb, sense);
-		break;
-	case MODE_SELECT:
-	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
-		break;
-	case COMPARE_AND_WRITE:
-		/* Blocks are transferred twice, first the set that
-		 * we compare to the existing data, and second the set
-		 * to write if the compare was successful.
-		 */
-		length = tl / 2;
-
-		tmpbuf = malloc(length);
-		if (!tmpbuf) {
-			result = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						     ASC_INTERNAL_TARGET_FAILURE, NULL);
-			break;
-		}
-
-		ret = glfs_pread(gfd, tmpbuf, length, offset, SEEK_SET);
-
-		if (ret != length) {
-			result = set_medium_error(sense);
-			free(tmpbuf);
-			break;
-		}
-
-		cmp_offset = tcmu_compare_with_iovec(tmpbuf, iovec, length);
-		if (cmp_offset != -1) {
-			result = tcmu_set_sense_data(sense, MISCOMPARE,
-						     ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-						     &cmp_offset);
-			free(tmpbuf);
-			break;
-		}
-
-		free(tmpbuf);
-
-		tcmu_seek_in_iovec(iovec, length);
-		goto write;
-	case SYNCHRONIZE_CACHE:
-	case SYNCHRONIZE_CACHE_16:
-		if (cdb[1] & 0x2)
-			result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						     ASC_INVALID_FIELD_IN_CDB, NULL);
-		else
-			glfs_fdatasync(gfd);
-		break;
-	case WRITE_VERIFY:
-	case WRITE_VERIFY_12:
-	case WRITE_VERIFY_16:
-		do_verify = 1;
-	case WRITE_6:
-	case WRITE_10:
-	case WRITE_12:
-	case WRITE_16:
-		length = tl;
-write:
-		ret = glfs_pwritev(gfd, iovec, iov_cnt, offset, ALLOWED_BSOFLAGS);
-
-		if (ret == length) {
-			/* Sync if FUA */
-			if ((cmd != WRITE_6) && (cdb[1] & 0x8))
-				glfs_fdatasync(gfd);
-		} else {
-			errp("Error on write %x %x\n", ret, length);
-			result = set_medium_error(sense);
-			break;
-		}
-
-		if (!do_verify)
-			break;
-
-		tmpbuf = malloc(length);
-		if (!tmpbuf) {
-			result = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						     ASC_INTERNAL_TARGET_FAILURE, NULL);
-			break;
-		}
-
-		ret = glfs_pread(gfd, tmpbuf, length, offset, ALLOWED_BSOFLAGS);
-
-		if (ret != length) {
-			result = set_medium_error(sense);
-			free(tmpbuf);
-			break;
-		}
-
-		cmp_offset = tcmu_compare_with_iovec(tmpbuf, iovec, length);
-		if (cmp_offset != -1)
-			result = tcmu_set_sense_data(sense, MISCOMPARE,
-					    ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					    &cmp_offset);
-		free(tmpbuf);
-		break;
-
-	case WRITE_SAME:
-	case WRITE_SAME_16:
-		errp("WRITE_SAME called, but has vpd b2 been implemented?\n");
-		result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					     ASC_INVALID_FIELD_IN_CDB, NULL);
-		break;
-
-#if 0
-		/* WRITE_SAME used to punch hole in file */
-		if (cdb[1] & 0x08) {
-			ret = glfs_discard(gfd, offset, tl);
-			if (ret != 0) {
-				result = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						    ASC_INTERNAL_TARGET_FAILURE, NULL);
-			}
-			break;
-		}
-		while (tl > 0) {
-			size_t blocksize = block_size;
-			uint32_t val32;
-			uint64_t val64;
-
-			assert(iovec->iov_len >= 8);
-
-			switch (cdb[1] & 0x06) {
-			case 0x02: /* PBDATA==0 LBDATA==1 */
-				val32 = htobe32(offset);
-				memcpy(iovec->iov_base, &val32, 4);
-				break;
-			case 0x04: /* PBDATA==1 LBDATA==0 */
-				/* physical sector format */
-				/* hey this is wrong val! But how to fix? */
-				val64 = htobe64(offset);
-				memcpy(iovec->iov_base, &val64, 8);
-				break;
-			default:
-				/* FIXME */
-				errp("PBDATA and LBDATA set!!!\n");
-			}
-
-			ret = glfs_pwritev(gfd, iovec, blocksize,
-					offset, ALLOWED_BSOFLAGS);
-
-			if (ret != blocksize)
-				result = set_medium_error(sense);
-
-			offset += blocksize;
-			tl     -= blocksize;
-		}
-		break;
-#endif
-	case READ_6:
-	case READ_10:
-	case READ_12:
-	case READ_16:
-		length = tcmu_iovec_length(iovec, iov_cnt);
-		ret = glfs_preadv(gfd, iovec, iov_cnt, offset, SEEK_SET);
-
-		if (ret != length) {
-			errp("Error on read %x %x\n", ret, length);
-			result = set_medium_error(sense);
-		}
-		break;
-	case UNMAP:
-		/* TODO: implement UNMAP */
-		result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					     ASC_INVALID_FIELD_IN_CDB, NULL);
-		break;
-	default:
-		result = TCMU_NOT_HANDLED;
-		break;
-	}
-
-	dbgp("io done %p %x %d %u\n", cdb, cmd, result, length);
-
-	if (result == TCMU_NOT_HANDLED)
-		dbgp("io not handled %p %x %x %d %d %llu\n",
-		     cdb, result, cmd, ret, length, (unsigned long long)offset);
-	else if (result != SAM_STAT_GOOD) {
-		errp("io error %p %x %x %d %d %llu\n",
-		     cdb, result, cmd, ret, length, (unsigned long long)offset);
-	}
-
-	return result;
+	return glfs_fdatasync(state->gfd);
 }
 
 static const char glfs_cfg_desc[] =
@@ -563,15 +337,17 @@ static const char glfs_cfg_desc[] =
 	"  filename:  The backing file";
 
 struct tcmur_handler glfs_handler = {
-	.name = "Gluster glfs handler",
-	.subtype = "glfs",
-	.cfg_desc = glfs_cfg_desc,
+	.name 		= "Gluster glfs handler",
+	.subtype 	= "glfs",
+	.cfg_desc	= glfs_cfg_desc,
 
-	.check_config = glfs_check_config,
+	.check_config 	= glfs_check_config,
 
-	.open = tcmu_glfs_open,
-	.close = tcmu_glfs_close,
-	.handle_cmd = tcmu_glfs_handle_cmd,
+	.open 		= tcmu_glfs_open,
+	.close 		= tcmu_glfs_close,
+	.read 		= tcmu_glfs_read,
+	.write		= tcmu_glfs_write,
+	.flush		= tcmu_glfs_flush,
 };
 
 /* Entry point must be named "handler_init". */
