@@ -10,6 +10,7 @@ set(tcmu-runner_HANDLER_PATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/tc
 
 option(with-glfs "build Gluster glfs handler" true)
 option(with-qcow "build qcow handler" true)
+option(with-rbd "build Ceph rbd handler" true)
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
@@ -148,6 +149,24 @@ add_executable(consumer
   consumer.c
   )
 target_link_libraries(consumer tcmu)
+
+if (with-rbd)
+	find_library(LIBRBD rbd)
+
+	# Stuff for building the rbd handler
+	add_library(handler_rbd
+	  SHARED
+	  rbd.c
+	  )
+	set_target_properties(handler_rbd
+	  PROPERTIES
+	  PREFIX ""
+	  )
+	target_link_libraries(handler_rbd
+	  ${LIBRBD}
+	  )
+	install(TARGETS handler_rbd DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-rbd)
 
 if (with-glfs)
 	find_library(GFAPI gfapi)
