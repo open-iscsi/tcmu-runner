@@ -417,7 +417,7 @@ static struct tcmur_handler file_handler = {
 };
 
 /* Entry point must be named "handler_init". */
-void handler_init(void)
+int handler_init(void)
 {
-	tcmur_register_handler(&file_handler);
+	return tcmur_register_handler(&file_handler);
 }

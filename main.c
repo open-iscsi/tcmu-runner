@@ -93,15 +93,16 @@ static struct tcmur_handler *find_handler_by_subtype(gchar *subtype)
 	return NULL;
 }
 
-void tcmur_register_handler(struct tcmur_handler *handler)
+int tcmur_register_handler(struct tcmur_handler *handler)
 {
 	if (handler->handle_cmd &&
 	    (handler->read || handler->write || handler->flush)) {
 		errp("Skip bad handler: %s\n", handler->name);
-		return;
+		return -1;
 	}
 
 	darray_append(g_runner_handlers, handler);
+	return 0;
 }
 
 bool tcmur_unregister_handler(struct tcmur_handler *handler)
@@ -139,7 +140,7 @@ static int open_handlers(void)
 	for (i = 0; i < num_handlers; i++) {
 		char *path;
 		void *handle;
-		void (*handler_init)(void);
+		int (*handler_init)(void);
 		int ret;
 
 		ret = asprintf(&path, "%s/%s", handler_path, dirent_list[i]->d_name);
@@ -162,11 +163,12 @@ static int open_handlers(void)
 			continue;
 		}
 
-		handler_init();
+		ret = handler_init();
 
 		free(path);
 
-		num_good++;
+		if (ret == 0)
+			num_good++;
 	}
 
 	for (i = 0; i < num_handlers; i++)

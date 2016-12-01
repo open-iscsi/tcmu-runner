@@ -232,7 +232,7 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.flush		= tcmu_rbd_flush,
 };
 
-void handler_init(void)
+int handler_init(void)
 {
-	tcmur_register_handler(&tcmu_rbd_handler);
+	return tcmur_register_handler(&tcmu_rbd_handler);
 }
