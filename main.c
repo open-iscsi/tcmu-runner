@@ -95,6 +95,12 @@ static struct tcmur_handler *find_handler_by_subtype(gchar *subtype)
 
 void tcmur_register_handler(struct tcmur_handler *handler)
 {
+	if (handler->handle_cmd &&
+	    (handler->read || handler->write || handler->flush)) {
+		errp("Skip bad handler: %s\n", handler->name);
+		return;
+	}
+
 	darray_append(g_runner_handlers, handler);
 }
 
