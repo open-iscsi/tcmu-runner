@@ -31,15 +31,42 @@
 
 #define ALLOWED_BSOFLAGS (O_SYNC | O_DIRECT | O_RDWR | O_LARGEFILE)
 
-#define GLUSTER_PORT 24007
+#define GLUSTER_PORT "24007"
+
+typedef enum gluster_transport {
+	GLUSTER_TRANSPORT_TCP,
+	GLUSTER_TRANSPORT_UNIX,
+	GLUSTER_TRANSPORT_RDMA,
+	GLUSTER_TRANSPORT__MAX,
+} gluster_transport;
+
+typedef struct unix_sockaddr {
+	char *socket;
+} unix_sockaddr;
+
+typedef struct inet_sockaddr {
+	char *addr;
+	char *port;
+} inet_sockaddr;
+
+typedef struct gluster_hostdef {
+	gluster_transport type;
+	union { /* union tag is @type */
+		unix_sockaddr uds;
+		inet_sockaddr inet;
+	} u;
+} gluster_hostdef;
+
+typedef struct gluster_server {
+	char *volname;     /* volume name*/
+	char *path;        /* path of file in the volume */
+	gluster_hostdef *server; /* gluster server definition */
+} gluster_server;
 
 struct glfs_state {
-	char *name;
 	glfs_t *fs;
 	glfs_fd_t *gfd;
-	char *servername;
-	char *volname;
-	char *pathname;
+	gluster_server *hosts;
 
 	unsigned int block_size;
 
@@ -50,20 +77,50 @@ struct glfs_state {
 	 */
 };
 
+
+const char *const gluster_transport_lookup[] = {
+	[GLUSTER_TRANSPORT_TCP] = "tcp",
+	[GLUSTER_TRANSPORT_UNIX] = "unix",
+	[GLUSTER_TRANSPORT_RDMA] = "rdma",
+	[GLUSTER_TRANSPORT__MAX] = NULL,
+};
+
+
+static void gluster_free_server(gluster_server *hosts)
+{
+	if (!hosts)
+		return;
+	free(hosts->volname);
+	free(hosts->path);
+
+	if(!hosts->server)
+		return;
+	switch (hosts->server->type) {
+	case GLUSTER_TRANSPORT_UNIX:
+		free(hosts->server->u.uds.socket);
+		break;
+	case GLUSTER_TRANSPORT_TCP:
+	case GLUSTER_TRANSPORT_RDMA:
+		free(hosts->server->u.inet.addr);
+		free(hosts->server->u.inet.port);
+		break;
+	case GLUSTER_TRANSPORT__MAX:
+		break;
+	}
+	free(hosts->server);
+	hosts->server = NULL;
+	free(hosts);
+	hosts = NULL;
+}
+
 /*
  * Break image string into server, volume, and path components.
  * Returns -1 on failure.
  */
-static int parse_imagepath(
-	char *cfgstring,
-	char **servername,
-	char **volname,
-	char **pathname)
+static int parse_imagepath(char *cfgstring, gluster_server **hosts)
 {
+	gluster_server *entry = NULL;
 	char *origp = strdup(cfgstring);
-	char *t_servername = NULL;
-	char *t_volname = NULL;
-	char *t_pathname = NULL;
 	char *p, *sep;
 
 	if (!origp)
@@ -75,9 +132,18 @@ static int parse_imagepath(
 	if (!sep)
 		goto fail;
 
+	*hosts = calloc(1, sizeof(gluster_server));
+	if (!hosts)
+		return -ENOMEM;
+	entry = *hosts;
+
+	entry->server = calloc(1, sizeof(gluster_hostdef));
+	if (!entry->server)
+		return -ENOMEM;
+
 	*sep = '\0';
-	t_volname = strdup(p);
-	if (!t_volname)
+	entry->volname = strdup(p);
+	if (!entry->volname)
 		goto fail;
 
 	/* part between '@' and 1st '/' is the server name */
@@ -87,53 +153,61 @@ static int parse_imagepath(
 		goto fail;
 
 	*sep = '\0';
-	t_servername = strdup(p);
-	if (!t_servername)
+	entry->server->type = GLUSTER_TRANSPORT_TCP; /* FIXME: Get type dynamically */
+	entry->server->u.inet.addr = strdup(p);
+	if (!entry->server->u.inet.addr)
 		goto fail;
+	entry->server->u.inet.port = strdup(GLUSTER_PORT); /* FIXME: Get port dynamically */
 
 	/* The rest is the path name */
 	p = sep + 1;
-	t_pathname = strdup(p);
-	if (!t_pathname)
+	entry->path = strdup(p);
+	if (!entry->path)
 		goto fail;
 
-	if (!strlen(t_servername) || !strlen(t_volname) || !strlen(t_pathname))
-		goto fail;
+	if (entry->server->type == GLUSTER_TRANSPORT_UNIX) {
+		if (!strlen(entry->server->u.uds.socket) ||
+		    !strlen(entry->volname) || !strlen(entry->path))
+			goto fail;
+	} else {
+		if (!strlen(entry->server->u.inet.addr) ||
+		    !strlen(entry->volname) || !strlen(entry->path))
+			goto fail;
+	}
 
 	free(origp);
-	*servername = t_servername;
-	*volname = t_volname;
-	*pathname = t_pathname;
 
 	return 0;
 
 fail:
-	free(t_volname);
-	free(t_servername);
-	free(t_pathname);
+	gluster_free_server(entry);
 	free(origp);
 
 	return -1;
 }
 
-static glfs_t * tcmu_create_glfs_object(char *config, char *hostaddr,
-                                        char *volname, char *path)
+static glfs_t * tcmu_create_glfs_object(char *config, gluster_server **hosts)
 {
+	gluster_server *entry = NULL;
     glfs_t *fs =  NULL;
     int ret = -1;
 
-	if (parse_imagepath(config, &hostaddr, &volname, &path) == -1) {
+	if (parse_imagepath(config, hosts) == -1) {
 		errp("hostaddr, volname, or path missing\n");
 		goto fail;
 	}
+	entry = *hosts;
 
-	fs = glfs_new(volname);
+	fs = glfs_new(entry->volname);
 	if (!fs) {
 		errp("glfs_new failed\n");
 		goto fail;
 	}
 
-	ret = glfs_set_volfile_server(fs, "tcp", hostaddr, GLUSTER_PORT);
+	ret = glfs_set_volfile_server(fs,
+				gluster_transport_lookup[entry->server->type],
+				entry->server->u.inet.addr,
+				atoi(entry->server->u.inet.port));
 	if (ret) {
 		errp("glfs_set_volfile_server failed: %m\n");
 		goto fail;
@@ -151,6 +225,7 @@ static glfs_t * tcmu_create_glfs_object(char *config, char *hostaddr,
  fail:
 	if (fs)
 		glfs_fini(fs);
+	gluster_free_server(entry);
 
     return NULL;
 }
@@ -158,11 +233,9 @@ static glfs_t * tcmu_create_glfs_object(char *config, char *hostaddr,
 static bool glfs_check_config(const char *cfgstring, char **reason)
 {
 	char *path;
-	char *servername = NULL;
-	char *volname = NULL;
-	char *pathname = NULL;
 	glfs_t *fs = NULL;
 	glfs_fd_t *gfd = NULL;
+	gluster_server *hosts; /* gluster server defination */
 	bool result = true;
 
 	path = strchr(cfgstring, '/');
@@ -174,13 +247,13 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 	}
 	path += 1; /* get past '/' */
 
-	fs = tcmu_create_glfs_object(path, servername, volname, pathname);
+	fs = tcmu_create_glfs_object(path, &hosts);
 	if (!fs) {
 		errp("tcmu_create_glfs_object failed\n");
 		goto done;
 	}
 
-	gfd = glfs_open(fs, pathname, ALLOWED_BSOFLAGS);
+	gfd = glfs_open(fs, hosts->path, ALLOWED_BSOFLAGS);
 	if (!gfd) {
 		if (asprintf(reason, "glfs_open failed: %m") == -1)
 			*reason = NULL;
@@ -188,7 +261,7 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 		goto done;
 	}
 
-	if (glfs_access(fs, path, R_OK|W_OK) == -1) {
+	if (glfs_access(fs, hosts->path, R_OK|W_OK) == -1) {
 		if (asprintf(reason, "glfs_access file not present, or not writable") == -1)
 			*reason = NULL;
 		result = false;
@@ -200,9 +273,7 @@ done:
 		glfs_close(gfd);
 	if (fs)
 		glfs_fini(fs);
-	free(servername);
-	free(volname);
-	free(pathname);
+	gluster_free_server(hosts);
 
 	return result;
 }
@@ -235,19 +306,19 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	}
 	config += 1; /* get past '/' */
 
-	gfsp->fs = tcmu_create_glfs_object(config, gfsp->servername, gfsp->volname, gfsp->pathname);
+	gfsp->fs = tcmu_create_glfs_object(config, &gfsp->hosts);
 	if (!gfsp->fs) {
 		errp("tcmu_create_glfs_object failed\n");
 		goto fail;
 	}
 
-	gfsp->gfd = glfs_open(gfsp->fs, gfsp->pathname, ALLOWED_BSOFLAGS);
+	gfsp->gfd = glfs_open(gfsp->fs, gfsp->hosts->path, ALLOWED_BSOFLAGS);
 	if (!gfsp->gfd) {
 		errp("glfs_open failed: %m\n");
 		goto fail;
 	}
 
-	ret = glfs_lstat(gfsp->fs, gfsp->pathname, &st);
+	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
 	if (ret) {
 		errp("glfs_lstat failed: %m\n");
 		goto fail;
@@ -268,9 +339,7 @@ fail:
 		glfs_close(gfsp->gfd);
 	if (gfsp->fs)
 		glfs_fini(gfsp->fs);
-	free(gfsp->volname);
-	free(gfsp->pathname);
-	free(gfsp->servername);
+	gluster_free_server(gfsp->hosts);
 	free(gfsp);
 
 	return -EIO;
@@ -282,9 +351,7 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 
 	glfs_close(gfsp->gfd);
 	glfs_fini(gfsp->fs);
-	free(gfsp->volname);
-	free(gfsp->pathname);
-	free(gfsp->servername);
+	gluster_free_server(gfsp->hosts);
 	free(gfsp);
 }
 
