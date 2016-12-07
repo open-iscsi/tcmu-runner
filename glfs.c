@@ -116,6 +116,45 @@ fail:
 	return -1;
 }
 
+static glfs_t * tcmu_create_glfs_object(char *config, char *hostaddr,
+                                        char *volname, char *path)
+{
+    glfs_t *fs =  NULL;
+    int ret = -1;
+
+	if (parse_imagepath(config, &hostaddr, &volname, &path) == -1) {
+		errp("hostaddr, volname, or path missing\n");
+		goto fail;
+	}
+
+	fs = glfs_new(volname);
+	if (!fs) {
+		errp("glfs_new failed\n");
+		goto fail;
+	}
+
+	ret = glfs_set_volfile_server(fs, "tcp", hostaddr, GLUSTER_PORT);
+	if (ret) {
+		errp("glfs_set_volfile_server failed: %m\n");
+		goto fail;
+	}
+
+
+	ret = glfs_init(fs);
+	if (ret) {
+		errp("glfs_init failed: %m\n");
+		goto fail;
+	}
+
+    return fs;
+
+ fail:
+	if (fs)
+		glfs_fini(fs);
+
+    return NULL;
+}
+
 static bool glfs_check_config(const char *cfgstring, char **reason)
 {
 	char *path;
@@ -124,8 +163,6 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 	char *pathname = NULL;
 	glfs_t *fs = NULL;
 	glfs_fd_t *gfd = NULL;
-	struct stat st;
-	int ret;
 	bool result = true;
 
 	path = strchr(cfgstring, '/');
@@ -137,37 +174,9 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 	}
 	path += 1; /* get past '/' */
 
-	if (parse_imagepath(path, &servername, &volname, &pathname) == -1) {
-		if (asprintf(reason, "Invalid imagepath") == -1)
-			*reason = NULL;
-		result = false;
-		goto done;
-	}
-
-	/* Actually attempt to open the volume to verify things are working */
-	/* TODO: consolidate this with v. similar tcmu_glfs_open code? */
-	fs = glfs_new(volname);
+	fs = tcmu_create_glfs_object(path, servername, volname, pathname);
 	if (!fs) {
-		if (asprintf(reason, "glfs_new failed") == -1)
-			*reason = NULL;
-		result = false;
-		goto done;
-	}
-
-	ret = glfs_set_volfile_server(fs, "tcp", servername,
-				      GLUSTER_PORT);
-	if (ret) {
-		if (asprintf(reason, "glfs_set_volfile_server failed: %m") == -1)
-			*reason = NULL;
-		result = false;
-		goto done;
-	}
-
-	ret = glfs_init(fs);
-	if (ret) {
-		if (asprintf(reason, "glfs_init failed: %m") == -1)
-			*reason = NULL;
-		result = false;
+		errp("tcmu_create_glfs_object failed\n");
 		goto done;
 	}
 
@@ -226,28 +235,9 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	}
 	config += 1; /* get past '/' */
 
-	if (parse_imagepath(config, &gfsp->servername, &gfsp->volname, &gfsp->pathname) == -1) {
-		errp("servername, volname, or pathname not set\n");
-		goto fail;
-	}
-
-	gfsp->fs = glfs_new(gfsp->volname);
+	gfsp->fs = tcmu_create_glfs_object(config, gfsp->servername, gfsp->volname, gfsp->pathname);
 	if (!gfsp->fs) {
-		errp("glfs_new failed\n");
-		goto fail;
-	}
-
-	ret = glfs_set_volfile_server(gfsp->fs, "tcp", gfsp->servername,
-				      GLUSTER_PORT);
-	if (ret) {
-		errp("glfs_set_volfile_server failed: %m\n");
-		goto fail;
-	}
-
-
-	ret = glfs_init(gfsp->fs);
-	if (ret) {
-		errp("glfs_init failed: %m\n");
+		errp("tcmu_create_glfs_object failed\n");
 		goto fail;
 	}
 
