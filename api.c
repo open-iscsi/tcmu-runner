@@ -578,13 +578,13 @@ int tcmu_emulate_evpd_inquiry(
 		memcpy(&data[2], &val16, 2);
 
 		block_size = tcmu_get_attribute(dev, "hw_block_size");
-		if (block_size == -1) {
+		if (block_size < 0) {
 			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						   ASC_INVALID_FIELD_IN_CDB, NULL);
 		}
 
 		max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
-		if (max_sectors == -1) {
+		if (max_sectors < 0) {
 			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						   ASC_INVALID_FIELD_IN_CDB, NULL);
 		}
