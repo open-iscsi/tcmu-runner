@@ -32,6 +32,8 @@
 #define ALLOWED_BSOFLAGS (O_SYNC | O_DIRECT | O_RDWR | O_LARGEFILE)
 
 #define GLUSTER_PORT 24007
+#define GFAPI_DEBUG_LEVEL 4
+#define GFAPI_LOG_FILE "/var/log/tcmu-runner-gfapi.log"
 
 struct glfs_state {
 	char *name;
@@ -161,6 +163,14 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 		goto done;
 	}
 
+    ret = glfs_set_logging(fs, GFAPI_LOG_FILE, GFAPI_DEBUG_LEVEL);
+    if (ret < 0) {
+		if (asprintf(reason, "glfs_set_logging failed: %m") == -1)
+			*reason = NULL;
+		result = false;
+		goto done;
+    }
+
 	ret = glfs_init(fs);
 	if (ret) {
 		if (asprintf(reason, "glfs_init failed: %m") == -1)
@@ -251,6 +261,11 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 		goto fail;
 	}
 
+    ret = glfs_set_logging(gfsp->fs, GFAPI_LOG_FILE, GFAPI_DEBUG_LEVEL);
+    if (ret < 0) {
+		errp("glfs_set_logging failed: %m\n");
+		goto fail;
+    }
 
 	ret = glfs_init(gfsp->fs);
 	if (ret) {
