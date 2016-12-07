@@ -179,9 +179,8 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 		goto done;
 	}
 
-	ret = glfs_lstat(fs, pathname, &st);
-	if (ret) {
-		if (asprintf(reason, "glfs_lstat failed: %m") == -1)
+	if (glfs_access(fs, path, R_OK|W_OK) == -1) {
+		if (asprintf(reason, "glfs_access file not present, or not writable") == -1)
 			*reason = NULL;
 		result = false;
 		goto done;
