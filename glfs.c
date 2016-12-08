@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <scsi/scsi.h>
 #include <glusterfs/api/glfs.h>
+#include "darray.h"
 
 #include "tcmu-runner.h"
 
@@ -75,6 +76,15 @@ struct glfs_state {
 	 */
 };
 
+struct gluster_cacheconn {
+    char *volname;
+	gluster_hostdef *server;
+	glfs_t *fs;
+	darray(char *) cfgstring;
+} gluster_cacheconn;
+
+static darray(struct gluster_cacheconn) cache = darray_new();
+
 
 const char *const gluster_transport_lookup[] = {
 	[GLUSTER_TRANSPORT_TCP] = "tcp",
@@ -84,6 +94,159 @@ const char *const gluster_transport_lookup[] = {
 };
 
 
+static void gluster_free_host(gluster_hostdef *host)
+{
+	if(!host)
+		return;
+
+	switch (host->type) {
+	case GLUSTER_TRANSPORT_UNIX:
+		free(host->u.uds.socket);
+		break;
+	case GLUSTER_TRANSPORT_TCP:
+	case GLUSTER_TRANSPORT_RDMA:
+		free(host->u.inet.addr);
+		free(host->u.inet.port);
+		break;
+	case GLUSTER_TRANSPORT__MAX:
+		break;
+	}
+}
+
+static bool
+gluster_compare_hosts(gluster_hostdef *src_server, gluster_hostdef *dst_server)
+{
+	if (src_server->type != dst_server->type)
+		return false;
+
+	switch (src_server->type) {
+		case GLUSTER_TRANSPORT_UNIX:
+			if (!strcmp(src_server->u.uds.socket, dst_server->u.uds.socket))
+				return true;
+			break;
+		case GLUSTER_TRANSPORT_TCP:
+		case GLUSTER_TRANSPORT_RDMA:
+			if (!strcmp(src_server->u.inet.addr, dst_server->u.inet.addr)
+					&&
+				!strcmp(src_server->u.inet.port, dst_server->u.inet.port))
+				return true;
+			break;
+		case GLUSTER_TRANSPORT__MAX:
+			break;
+	}
+
+    return false;
+}
+
+static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
+{
+	struct gluster_cacheconn *entry = NULL;
+	char* cfg_copy = NULL;
+
+	entry = calloc(1, sizeof(gluster_cacheconn));
+	if (!entry)
+		goto error;
+
+	entry->volname = strdup(dst->volname);
+
+	entry->server = calloc(1, sizeof(gluster_hostdef));
+	if (!entry)
+		goto error;
+
+	entry->server->type = dst->server->type;
+
+	if (entry->server->type == GLUSTER_TRANSPORT_UNIX) {
+		entry->server->u.uds.socket = strdup(dst->server->u.uds.socket);
+	} else {
+		entry->server->u.inet.addr = strdup(dst->server->u.inet.addr);
+		entry->server->u.inet.port = strdup(dst->server->u.inet.port);
+	}
+
+	entry->fs = fs;
+
+	cfg_copy = strdup(cfgstring);
+	darray_init(entry->cfgstring);
+	darray_append(entry->cfgstring, cfg_copy);
+
+	darray_append(cache, *entry);
+
+	return 0;
+
+ error:
+	return -1;
+}
+
+static glfs_t* gluster_cache_query(gluster_server *dst, char *cfgstring)
+{
+	struct gluster_cacheconn *entry = NULL;
+	char** config;
+	char* cfg_copy = NULL;
+	bool cfgmatch = false;
+
+	darray_foreach(entry, cache) {
+		if (strcmp(entry->volname, dst->volname))
+			continue;
+		if (gluster_compare_hosts(entry->server, dst->server)) {
+
+			darray_foreach(config, entry->cfgstring) {
+				if (!strcmp(*config, cfgstring)) {
+					cfgmatch = true;
+					break;
+				}
+			}
+			if (!cfgmatch) {
+				cfg_copy = strdup(cfgstring);
+				darray_append(entry->cfgstring, cfg_copy);
+			}
+			return entry->fs;
+		}
+	}
+
+	return NULL;
+}
+
+static void gluster_cache_refresh(glfs_t *fs, const char *cfgstring)
+{
+	struct gluster_cacheconn *entry = NULL;
+	char** config;
+	size_t i = 0;
+	size_t j = 0;
+
+	if (!fs)
+		return;
+
+	darray_foreach(entry, cache) {
+		if (entry->fs == fs) {
+			if (cfgstring) {
+				darray_foreach(config, entry->cfgstring) {
+					if (!strcmp(*config, cfgstring)) {
+						free(*config);
+						darray_remove(entry->cfgstring, j);
+						break;
+					}
+					j++;
+				}
+			}
+
+			if (darray_size(entry->cfgstring))
+				return;
+
+			free(entry->volname);
+			glfs_fini(entry->fs);
+			entry->fs = NULL;
+			gluster_free_host(entry->server);
+			free(entry->server);
+			entry->server = NULL;
+			free(entry);
+
+			darray_remove(cache, i);
+			return;
+		} else {
+			i++;
+		}
+	}
+}
+
 static void gluster_free_server(gluster_server *hosts)
 {
 	if (!hosts)
@@ -91,20 +254,7 @@ static void gluster_free_server(gluster_server *hosts)
 	free(hosts->volname);
 	free(hosts->path);
 
-	if(!hosts->server)
-		return;
-	switch (hosts->server->type) {
-	case GLUSTER_TRANSPORT_UNIX:
-		free(hosts->server->u.uds.socket);
-		break;
-	case GLUSTER_TRANSPORT_TCP:
-	case GLUSTER_TRANSPORT_RDMA:
-		free(hosts->server->u.inet.addr);
-		free(hosts->server->u.inet.port);
-		break;
-	case GLUSTER_TRANSPORT__MAX:
-		break;
-	}
+	gluster_free_host(hosts->server);
 	free(hosts->server);
 	hosts->server = NULL;
 	free(hosts);
@@ -184,7 +334,7 @@ fail:
 	return -1;
 }
 
-static glfs_t * tcmu_create_glfs_object(char *config, gluster_server **hosts)
+static glfs_t* tcmu_create_glfs_object(char *config, gluster_server **hosts)
 {
 	gluster_server *entry = NULL;
     glfs_t *fs =  NULL;
@@ -196,9 +346,19 @@ static glfs_t * tcmu_create_glfs_object(char *config, gluster_server **hosts)
 	}
 	entry = *hosts;
 
+	fs = gluster_cache_query(entry, config);
+	if (fs)
+		return fs;
+
 	fs = glfs_new(entry->volname);
 	if (!fs) {
 		errp("glfs_new failed\n");
+		goto fail;
+	}
+
+	ret = gluster_cache_add(entry, fs, config);
+	if (ret) {
+		errp("gluster_cache_add failed: %m\n");
 		goto fail;
 	}
 
@@ -208,25 +368,41 @@ static glfs_t * tcmu_create_glfs_object(char *config, gluster_server **hosts)
 				atoi(entry->server->u.inet.port));
 	if (ret) {
 		errp("glfs_set_volfile_server failed: %m\n");
-		goto fail;
+		goto unref;
 	}
 
 
 	ret = glfs_init(fs);
 	if (ret) {
 		errp("glfs_init failed: %m\n");
-		goto fail;
+		goto unref;
 	}
 
     return fs;
 
+ unref:
+	gluster_cache_refresh(fs, config);
+
  fail:
-	if (fs)
-		glfs_fini(fs);
 	gluster_free_server(entry);
 
     return NULL;
 }
+
+static char* tcmu_get_path( struct tcmu_device *dev)
+{
+	char *config;
+
+	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
+	if (!config) {
+		errp("no configuration found in cfgstring\n");
+		return NULL;
+	}
+	config += 1; /* get past '/' */
+
+	return config;
+}
+
 
 static bool glfs_check_config(const char *cfgstring, char **reason)
 {
@@ -256,21 +432,24 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 		if (asprintf(reason, "glfs_open failed: %m") == -1)
 			*reason = NULL;
 		result = false;
-		goto done;
+		goto unref;
 	}
 
 	if (glfs_access(fs, hosts->path, R_OK|W_OK) == -1) {
 		if (asprintf(reason, "glfs_access file not present, or not writable") == -1)
 			*reason = NULL;
 		result = false;
-		goto done;
+		goto unref;
 	}
+
+	goto done;
+
+unref:
+	gluster_cache_refresh(fs, path);
 
 done:
 	if (gfd)
 		glfs_close(gfd);
-	if (fs)
-		glfs_fini(fs);
 	gluster_free_server(hosts);
 
 	return result;
@@ -305,12 +484,10 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	}
 	tcmu_set_dev_num_lbas(dev, size / block_size);
 
-	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
+	config = tcmu_get_path(dev);
 	if (!config) {
-		errp("no configuration found in cfgstring\n");
 		goto fail;
 	}
-	config += 1; /* get past '/' */
 
 	gfsp->fs = tcmu_create_glfs_object(config, &gfsp->hosts);
 	if (!gfsp->fs) {
@@ -321,13 +498,13 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	gfsp->gfd = glfs_open(gfsp->fs, gfsp->hosts->path, ALLOWED_BSOFLAGS);
 	if (!gfsp->gfd) {
 		errp("glfs_open failed: %m\n");
-		goto fail;
+		goto unref;
 	}
 
 	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
 	if (ret) {
 		errp("glfs_lstat failed: %m\n");
-		goto fail;
+		goto unref;
 	}
 
 	if (st.st_size != tcmu_get_device_size(dev)) {
@@ -335,16 +512,17 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 		       "device %lld backing %lld\n",
 		       tcmu_get_device_size(dev),
 		       (long long) st.st_size);
-		goto fail;
+		goto unref;
 	}
 
 	return 0;
 
+unref:
+	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
+
 fail:
 	if (gfsp->gfd)
 		glfs_close(gfsp->gfd);
-	if (gfsp->fs)
-		glfs_fini(gfsp->fs);
 	gluster_free_server(gfsp->hosts);
 	free(gfsp);
 
@@ -356,7 +534,7 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 	struct glfs_state *gfsp = tcmu_get_dev_private(dev);
 
 	glfs_close(gfsp->gfd);
-	glfs_fini(gfsp->fs);
+	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
 	gluster_free_server(gfsp->hosts);
 	free(gfsp);
 }
