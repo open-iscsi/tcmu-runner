@@ -34,7 +34,7 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 
 1. Install cmake.
 1. Clone this repo.
-1. Install development packages for dependencies, usually named "*-devel" or "*-dev": libnl3, libglib2 (or glib2-devel on Fedora), libpthread, libdl, libkmod, libgfapi (Gluster), librbd1 (Ceph), zlib.
+1. Install development packages for dependencies, usually ending with "-devel" or "-dev": libnl3, libglib2 (or glib2-devel on Fedora), libpthread, libdl, libkmod, libgfapi (Gluster), librbd1 (Ceph), zlib.
 1. Type `cmake .`.
    * *Note:* tcmu-runner can be compiled without the Gluster or qcow handlers using the `-Dwith-glfs=false` and `-Dwith-qcow=false` cmake parameters respectively.
 1. Type `make`.
