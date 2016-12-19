@@ -45,18 +45,12 @@
 #include "libtcmu.h"
 #include "tcmuhandler-generated.h"
 #include "version.h"
+#include "libtcmu_config.h"
 #include "libtcmu_log.h"
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
-
-static void tcmu_debug_none(const char *fmt, ...)
-{
-	/* Nothing to do */
-}
-
-static void (*tcmu_debug)(const char *fmt, ...);
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
@@ -313,9 +307,9 @@ static void *thread_start(void *arg)
 			bool short_cdb = cmd->cdb[0] <= 0x1f;
 
 			for (i = 0; i < (short_cdb ? 6 : 10); i++) {
-				tcmu_debug("%x ", cmd->cdb[i]);
+				tcmu_dbg("%x ", cmd->cdb[i]);
 			}
-			tcmu_debug("\n");
+			tcmu_dbg("\n");
 
 			if (r_handler->handle_cmd)
 				ret = r_handler->handle_cmd(dev, cmd);
@@ -649,7 +643,7 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 {
 	struct tcmur_handler **handler;
 
-	tcmu_debug("bus %s acquired\n", name);
+	tcmu_dbg("bus %s acquired\n", name);
 
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
@@ -665,14 +659,14 @@ static void dbus_name_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
-	tcmu_debug("name %s acquired\n", name);
+	tcmu_dbg("name %s acquired\n", name);
 }
 
 static void dbus_name_lost(GDBusConnection *connection,
 			   const gchar *name,
 			   gpointer user_data)
 {
-	tcmu_debug("name lost\n");
+	tcmu_dbg("name lost\n");
 }
 
 int load_our_module(void) {
@@ -702,7 +696,7 @@ int load_our_module(void) {
 			return -1;
 		}
 
-		tcmu_debug("Module %s inserted (or already loaded)\n", kmod_module_get_name(mod));
+		tcmu_dbg("Module %s inserted (or already loaded)\n", kmod_module_get_name(mod));
 
 		kmod_module_unref(mod);
 	}
@@ -789,9 +783,11 @@ int main(int argc, char **argv)
 	struct tcmulib_context *tcmulib_context;
 	darray(struct tcmulib_handler) handlers = darray_new();
 	struct tcmur_handler **tmp_r_handler;
+	struct tcmu_config *cfg;
 
-	tcmu_log_open_syslog(TCMU_SYNC, 0, 0);
-	tcmu_debug = tcmu_debug_none;
+	cfg = tcmu_config_new();
+	tcmu_load_config(cfg, NULL);
+	tcmu_set_log_level(cfg->log_level);
 
 	tcmu_log_open_syslog(TCMU_RUNNER, 0, 0);
 
@@ -809,7 +805,7 @@ int main(int argc, char **argv)
 				handler_path = strdup(optarg);
 			break;
 		case 'd':
-			tcmu_debug = tcmu_dbg;
+			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG);
 			break;
 		case 'V':
 			printf("tcmu-runner %d.%d.%d\n",
@@ -824,7 +820,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	tcmu_debug("handler path: %s\n", handler_path);
+	tcmu_dbg("handler path: %s\n", handler_path);
 
 	ret = load_our_module();
 	if (ret < 0) {
@@ -837,7 +833,7 @@ int main(int argc, char **argv)
 		tcmu_err("couldn't open handlers\n");
 		exit(1);
 	}
-	tcmu_debug("%d runner handlers found\n", ret);
+	tcmu_dbg("%d runner handlers found\n", ret);
 
 	/*
 	 * Convert from tcmu-runner's handler struct to libtcmu's
@@ -893,10 +889,11 @@ int main(int argc, char **argv)
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 
-	tcmu_debug("Exiting...\n");
+	tcmu_dbg("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
 	tcmu_log_close_syslog();
+	tcmu_config_destroy(cfg);
 
 	return 0;
 }

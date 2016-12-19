@@ -28,22 +28,16 @@
 
 #include "libtcmu.h"
 #include "version.h"
+#include "libtcmu_config.h"
 
 typedef struct {
 	GIOChannel *gio;
 	int watcher_id;
 } syn_dev_t;
 
-static void tcmu_debug_none(const char *fmt, ...)
-{
-	/* Nothing to do */
-}
-
-static void (*tcmu_debug)(const char *fmt, ...);
-
 static bool syn_check_config(const char *cfgstring, char **reason)
 {
-	tcmu_debug("syn check config\n");
+	tcmu_dbg("syn check config\n");
 	if (strcmp(cfgstring, "syn/null")) {
 		asprintf(reason, "invalid option");
 		return false;
@@ -58,7 +52,7 @@ static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
 	uint8_t cmd;
 
 	cmd = cdb[0];
-	tcmu_debug("syn handle cmd %d\n", cmd);
+	tcmu_dbg("syn handle cmd %d\n", cmd);
 
 	switch (cmd) {
 	case INQUIRY:
@@ -97,7 +91,7 @@ static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
 		return SAM_STAT_GOOD;
 
 	default:
-		tcmu_debug("unknown command %x\n", cdb[0]);
+		tcmu_dbg("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
 }
@@ -110,7 +104,7 @@ static gboolean syn_dev_callback(GIOChannel *source,
 	struct tcmu_device *dev = data;
 	struct tcmulib_cmd *cmd;
 
-	tcmu_debug("dev fd cb\n");
+	tcmu_dbg("dev fd cb\n");
 	tcmulib_processing_start(dev);
 
 	while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
@@ -130,7 +124,7 @@ static int syn_added(struct tcmu_device *dev)
 {
 	syn_dev_t *s = g_new0(syn_dev_t, 1);
 
-	tcmu_debug("added %s\n", tcmu_get_dev_cfgstring(dev));
+	tcmu_dbg("added %s\n", tcmu_get_dev_cfgstring(dev));
 	tcmu_set_dev_private(dev, s);
 	s->gio = g_io_channel_unix_new(tcmu_get_dev_fd(dev));
 	s->watcher_id = g_io_add_watch(s->gio, G_IO_IN,
@@ -141,7 +135,7 @@ static int syn_added(struct tcmu_device *dev)
 static void syn_removed(struct tcmu_device *dev)
 {
 	syn_dev_t *s = tcmu_get_dev_private(dev);
-	tcmu_debug("removed %s\n", tcmu_get_dev_cfgstring(dev));
+	tcmu_dbg("removed %s\n", tcmu_get_dev_cfgstring(dev));
 	g_source_remove(s->watcher_id);
 	g_io_channel_unref(s->gio);
 	g_free(s);
@@ -164,7 +158,7 @@ gboolean tcmulib_callback(GIOChannel *source,
 {
 	struct tcmulib_context *ctx = data;
 
-	tcmu_debug("master fd ready\n");
+	tcmu_dbg("master fd ready\n");
 	tcmulib_master_fd_ready(ctx);
 
 	return TRUE;
@@ -194,7 +188,6 @@ int main(int argc, char **argv)
 	struct tcmulib_context *ctx;
 
 	tcmu_log_open_syslog(TCMU_SYNC, 0, 0);
-	tcmu_debug = tcmu_debug_none;
 
 	while (1) {
 		int c;
@@ -207,7 +200,7 @@ int main(int argc, char **argv)
 
 		switch (c) {
 		case 'd':
-			tcmu_debug = tcmu_dbg;
+			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG);
 			break;
 		case 'V':
 			printf("tcmu-synthesizer %d.%d.%d\n",
