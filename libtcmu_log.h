@@ -29,10 +29,15 @@
 
 void tcmu_log_open_syslog(const char *ident, int option, int facility);
 void tcmu_log_close_syslog(void);
-
 void tcmu_set_log_level(int level);
-void tcmu_err(const char *fmt, ...);
-void tcmu_warn(const char *fmt, ...);
-void tcmu_info(const char *fmt, ...);
-void tcmu_dbg(const char *fmt, ...);
+
+void tcmu_err_message(const char *funcname, int linenr, const char *fmt, ...);
+void tcmu_warn_message(const char *funcname, int linenr, const char *fmt, ...);
+void tcmu_info_message(const char *funcname, int linenr, const char *fmt, ...);
+void tcmu_dbg_message(const char *funcname, int linenr, const char *fmt, ...);
+
+#define tcmu_err(...)  {tcmu_err_message(__func__, __LINE__, __VA_ARGS__);}
+#define tcmu_warn(...) {tcmu_warn_message(__func__, __LINE__, __VA_ARGS__);}
+#define tcmu_info(...) {tcmu_info_message(__func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dbg(...)  {tcmu_dbg_message(__func__, __LINE__, __VA_ARGS__);}
 #endif /* __TCMU_LOG_H */

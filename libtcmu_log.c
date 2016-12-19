@@ -37,7 +37,7 @@ static inline int tcmu_log_level_conf_to_syslog(int level)
 		case TCMU_CONF_LOG_DEBUG:
 			return TCMU_LOG_DEBUG;
 		default:
-			return -1;
+			return TCMU_LOG_WARN;
 	}
 }
 
@@ -62,61 +62,64 @@ void tcmu_log_close_syslog(void)
 	closelog();
 }
 
-static inline void tcmu_log_output_to_syslog(int pri, const char *fmt, va_list args)
+static inline void tcmu_log_to_syslog(int pri, const char *logbuf)
+{
+	syslog(pri, "%s", logbuf);
+}
+
+static void
+tcmu_log_internal(int pri,
+		  const char *funcname,
+		  int linenr,
+		  const char *fmt,
+		  va_list args)
 {
 	char logbuf[TCMU_LOG_BUF_SIZE];
+	int n;
 
 	if (pri > tcmu_log_level)
 		return;
 
-	vsnprintf(logbuf, TCMU_LOG_BUF_SIZE - 1, fmt, args);
-	syslog(pri, "%s", logbuf);
-}
-
-void tcmu_err(const char *fmt, ...)
-{
-	va_list args;
-
 	if (!fmt)
 		return;
 
+	n = sprintf(logbuf, "%s:%d : ", funcname, linenr);
+	vsnprintf(logbuf + n, TCMU_LOG_BUF_SIZE - n - 1, fmt, args);
+
+	tcmu_log_to_syslog(pri, logbuf);
+}
+
+void tcmu_err_message(const char *funcname, int linenr, const char *fmt, ...)
+{
+	va_list args;
+
 	va_start(args, fmt);
-	tcmu_log_output_to_syslog(TCMU_LOG_ERROR, fmt, args);
+	tcmu_log_internal(TCMU_LOG_ERROR, funcname, linenr, fmt, args);
 	va_end(args);
 }
 
-void tcmu_warn(const char *fmt, ...)
+void tcmu_warn_message(const char *funcname, int linenr, const char *fmt, ...)
 {
 	va_list args;
 
-	if (!fmt)
-		return;
-
 	va_start(args, fmt);
-	tcmu_log_output_to_syslog(TCMU_LOG_WARN, fmt, args);
+	tcmu_log_internal(TCMU_LOG_WARN, funcname, linenr, fmt, args);
 	va_end(args);
 }
 
-void tcmu_info(const char *fmt, ...)
+void tcmu_info_message(const char *funcname, int linenr, const char *fmt, ...)
 {
 	va_list args;
 
-	if (!fmt)
-		return;
-
 	va_start(args, fmt);
-	tcmu_log_output_to_syslog(TCMU_LOG_INFO, fmt, args);
+	tcmu_log_internal(TCMU_LOG_INFO, funcname, linenr, fmt, args);
 	va_end(args);
 }
-
-void tcmu_dbg(const char *fmt, ...)
+void tcmu_dbg_message(const char *funcname, int linenr, const char *fmt, ...)
 {
 	va_list args;
 
-	if (!fmt)
-		return;
-
 	va_start(args, fmt);
-	tcmu_log_output_to_syslog(TCMU_LOG_DEBUG, fmt, args);
+	tcmu_log_internal(TCMU_LOG_DEBUG, funcname, linenr, fmt, args);
 	va_end(args);
 }
