@@ -30,6 +30,7 @@ extern "C" {
 #include <sys/uio.h>
 
 #include "libtcmu_common.h"
+#include "libtcmu_log.h"
 
 struct tcmulib_handler {
 	const char *name;	/* Human-friendly name */
@@ -74,8 +75,7 @@ struct tcmulib_context;
 /* Claim subtypes you wish to handle. Returns libtcmu's master fd or -error.*/
 struct tcmulib_context *tcmulib_initialize(
 	struct tcmulib_handler *handlers,
-	size_t handler_count,
-	void (*err_print)(const char *fmt, ...));
+	size_t handler_count);
 
 /* Register to TCMU DBus service, for the claimed subtypes to be configurable
  * in targetcli. */

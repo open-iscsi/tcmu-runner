@@ -190,14 +190,14 @@ static int file_open(struct tcmu_device *dev)
 
 	block_size = tcmu_get_attribute(dev, "hw_block_size");
 	if (block_size < 0) {
-		errp("Could not get device block size\n");
+		tcmu_err("Could not get device block size\n");
 		goto err;
 	}
 	tcmu_set_dev_block_size(dev, block_size);
 
 	size = tcmu_get_device_size(dev);
 	if (size < 0) {
-		errp("Could not get device size\n");
+		tcmu_err("Could not get device size\n");
 		goto err;
 	}
 
@@ -205,14 +205,14 @@ static int file_open(struct tcmu_device *dev)
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
-		errp("no configuration found in cfgstring\n");
+		tcmu_err("no configuration found in cfgstring\n");
 		goto err;
 	}
 	config += 1; /* get past '/' */
 
 	state->fd = open(config, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
 	if (state->fd == -1) {
-		errp("could not open %s: %m\n", config);
+		tcmu_err("could not open %s: %m\n", config);
 		goto err;
 	}
 
@@ -348,7 +348,7 @@ static int file_handle_cmd(
 
 		ret = pread(state->fd, buf, length, offset);
 		if (ret == -1) {
-			errp("read failed: %m\n");
+			tcmu_err("read failed: %m\n");
 			free(buf);
 			return set_medium_error(sense);
 		}
@@ -377,7 +377,7 @@ static int file_handle_cmd(
 
 			ret = pwrite(state->fd, iovec->iov_base, to_copy, offset);
 			if (ret == -1) {
-				errp("Could not write: %m\n");
+				tcmu_err("Could not write: %m\n");
 				return set_medium_error(sense);
 			}
 
@@ -390,7 +390,7 @@ static int file_handle_cmd(
 	}
 	break;
 	default:
-		errp("unknown command %x\n", cdb[0]);
+		tcmu_err("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
 }

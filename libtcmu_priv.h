@@ -41,14 +41,10 @@ struct tcmulib_context {
 
 	struct nl_sock *nl_sock;
 
-	void (*err_print)(const char *fmt, ...);
-
 	unsigned reg_count_down;
 
 	GDBusConnection *connection;
 };
-
-#define tcmu_errp(ctx, fmt, ...) if ((ctx)->err_print) { (ctx)->err_print((fmt),##__VA_ARGS__);}
 
 struct tcmu_device {
 	int fd;
