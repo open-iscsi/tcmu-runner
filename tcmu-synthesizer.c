@@ -222,10 +222,7 @@ int main(int argc, char **argv)
 			debug = true;
 			break;
 		case 'V':
-			printf("tcmu-synthesizer %d.%d.%d\n",
-			       TCMUR_VERSION_MAJOR,
-			       TCMUR_VERSION_MINOR,
-			       TCMUR_VERSION_PATCHLEVEL);
+			printf("tcmu-synthesizer %s\n", TCMUR_VERSION);
 			exit(1);
 		default:
 		case 'h':
