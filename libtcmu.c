@@ -567,6 +567,12 @@ device_cmd_tail(struct tcmu_device *dev)
 	return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + dev->cmd_tail);
 }
 
+/* update the tcmu_device's tail */
+#define TCMU_UPDATE_DEV_TAIL(dev, mb, ent) \
+do { \
+	dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
+} while (0);
+
 struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 {
 	struct tcmu_mailbox *mb = dev->map;
@@ -603,7 +609,7 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			cmd->cdb = (uint8_t *) (cmd->iovec + cmd->iov_cnt);
 			memcpy(cmd->cdb, (void *) mb + ent->req.cdb_off, cdb_len);
 
-			dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
+			TCMU_UPDATE_DEV_TAIL(dev, mb, ent);
 			return cmd;
 		}
 		default:
@@ -611,11 +617,17 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			ent->hdr.uflags |= TCMU_UFLAG_UNKNOWN_OP;
 		}
 
-		dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
+		TCMU_UPDATE_DEV_TAIL(dev, mb, ent);
 	}
 
 	return NULL;
 }
+
+/* update the ring buffer's tail */
+#define TCMU_UPDATE_RB_TAIL(mb, ent) \
+do { \
+	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
+} while (0);
 
 void tcmulib_command_complete(
 	struct tcmu_device *dev,
@@ -629,7 +641,7 @@ void tcmulib_command_complete(
 	while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
 		if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
 			break;
-		mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
+		TCMU_UPDATE_RB_TAIL(mb, ent);
 		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 	}
 
@@ -657,7 +669,7 @@ void tcmulib_command_complete(
 		ent->rsp.scsi_status = result;
 	}
 
-	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len(ent->hdr.len_op)) % mb->cmdr_size;
+	TCMU_UPDATE_RB_TAIL(mb, ent);
 	free(cmd);
 }
 
