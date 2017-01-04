@@ -341,7 +341,7 @@ static glfs_t* tcmu_create_glfs_object(char *config, gluster_server **hosts)
     int ret = -1;
 
 	if (parse_imagepath(config, hosts) == -1) {
-		errp("hostaddr, volname, or path missing\n");
+		tcmu_err("hostaddr, volname, or path missing\n");
 		goto fail;
 	}
 	entry = *hosts;
@@ -352,13 +352,13 @@ static glfs_t* tcmu_create_glfs_object(char *config, gluster_server **hosts)
 
 	fs = glfs_new(entry->volname);
 	if (!fs) {
-		errp("glfs_new failed\n");
+		tcmu_err("glfs_new failed\n");
 		goto fail;
 	}
 
 	ret = gluster_cache_add(entry, fs, config);
 	if (ret) {
-		errp("gluster_cache_add failed: %m\n");
+		tcmu_err("gluster_cache_add failed: %m\n");
 		goto fail;
 	}
 
@@ -367,14 +367,14 @@ static glfs_t* tcmu_create_glfs_object(char *config, gluster_server **hosts)
 				entry->server->u.inet.addr,
 				atoi(entry->server->u.inet.port));
 	if (ret) {
-		errp("glfs_set_volfile_server failed: %m\n");
+		tcmu_err("glfs_set_volfile_server failed: %m\n");
 		goto unref;
 	}
 
 
 	ret = glfs_init(fs);
 	if (ret) {
-		errp("glfs_init failed: %m\n");
+		tcmu_err("glfs_init failed: %m\n");
 		goto unref;
 	}
 
@@ -395,7 +395,7 @@ static char* tcmu_get_path( struct tcmu_device *dev)
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
-		errp("no configuration found in cfgstring\n");
+		tcmu_err("no configuration found in cfgstring\n");
 		return NULL;
 	}
 	config += 1; /* get past '/' */
@@ -423,7 +423,7 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 
 	fs = tcmu_create_glfs_object(path, &hosts);
 	if (!fs) {
-		errp("tcmu_create_glfs_object failed\n");
+		tcmu_err("tcmu_create_glfs_object failed\n");
 		goto done;
 	}
 
@@ -472,14 +472,14 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	block_size = tcmu_get_attribute(dev, "hw_block_size");
 	if (block_size < 0) {
-		errp("Could not get hw_block_size setting\n");
+		tcmu_err("Could not get hw_block_size setting\n");
 		goto fail;
 	}
 	tcmu_set_dev_block_size(dev, block_size);
 
 	size = tcmu_get_device_size(dev);
 	if (size < 0) {
-		errp("Could not get device size\n");
+		tcmu_err("Could not get device size\n");
 		goto fail;
 	}
 	tcmu_set_dev_num_lbas(dev, size / block_size);
@@ -491,24 +491,24 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	gfsp->fs = tcmu_create_glfs_object(config, &gfsp->hosts);
 	if (!gfsp->fs) {
-		errp("tcmu_create_glfs_object failed\n");
+		tcmu_err("tcmu_create_glfs_object failed\n");
 		goto fail;
 	}
 
 	gfsp->gfd = glfs_open(gfsp->fs, gfsp->hosts->path, ALLOWED_BSOFLAGS);
 	if (!gfsp->gfd) {
-		errp("glfs_open failed: %m\n");
+		tcmu_err("glfs_open failed: %m\n");
 		goto unref;
 	}
 
 	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
 	if (ret) {
-		errp("glfs_lstat failed: %m\n");
+		tcmu_err("glfs_lstat failed: %m\n");
 		goto unref;
 	}
 
 	if (st.st_size != tcmu_get_device_size(dev)) {
-		errp("device size and backing size disagree: "
+		tcmu_err("device size and backing size disagree: "
 		       "device %lld backing %lld\n",
 		       tcmu_get_device_size(dev),
 		       (long long) st.st_size);

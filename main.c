@@ -45,11 +45,12 @@
 #include "libtcmu.h"
 #include "tcmuhandler-generated.h"
 #include "version.h"
+#include "libtcmu_config.h"
+#include "libtcmu_log.h"
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
-static bool debug = false;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
@@ -59,28 +60,6 @@ struct tcmu_thread {
 };
 
 static darray(struct tcmu_thread) g_threads = darray_new();
-
-/*
- * Debug API implementation
- */
-void dbgp(const char *fmt, ...)
-{
-	if (debug) {
-		va_list va;
-		va_start(va, fmt);
-		vprintf(fmt, va);
-		va_end(va);
-	}
-}
-
-void errp(const char *fmt, ...)
-{
-	va_list va;
-
-	va_start(va, fmt);
-	vfprintf(stderr, fmt, va);
-	va_end(va);
-}
 
 static struct tcmur_handler *find_handler_by_subtype(gchar *subtype)
 {
@@ -97,7 +76,7 @@ int tcmur_register_handler(struct tcmur_handler *handler)
 {
 	if (handler->handle_cmd &&
 	    (handler->read || handler->write || handler->flush)) {
-		errp("Skip bad handler: %s\n", handler->name);
+		tcmu_err("Skip bad handler: %s\n", handler->name);
 		return -1;
 	}
 
@@ -145,20 +124,20 @@ static int open_handlers(void)
 
 		ret = asprintf(&path, "%s/%s", handler_path, dirent_list[i]->d_name);
 		if (ret == -1) {
-			errp("ENOMEM\n");
+			tcmu_err("ENOMEM\n");
 			continue;
 		}
 
 		handle = dlopen(path, RTLD_NOW|RTLD_LOCAL);
 		if (!handle) {
-			errp("Could not open handler at %s: %s\n", path, dlerror());
+			tcmu_err("Could not open handler at %s: %s\n", path, dlerror());
 			free(path);
 			continue;
 		}
 
 		handler_init = dlsym(handle, "handler_init");
 		if (!handler_init) {
-			errp("dlsym failure on %s\n", path);
+			tcmu_err("dlsym failure on %s\n", path);
 			free(path);
 			continue;
 		}
@@ -246,7 +225,7 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 	case READ_16:
 		ret = store->read(dev, iovec, iov_cnt, offset);
 		if (ret != l) {
-			errp("Error on read %x, %x\n", ret, l);
+			tcmu_err("Error on read %x, %x\n", ret, l);
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						   ASC_READ_ERROR, NULL);
 		} else
@@ -257,7 +236,7 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 	case WRITE_16:
 		ret = store->write(dev, iovec, iov_cnt, offset);
 		if (ret != l) {
-			errp("Error on write %x, %x\n", ret, l);
+			tcmu_err("Error on write %x, %x\n", ret, l);
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						   ASC_READ_ERROR, NULL);
 		} else
@@ -266,7 +245,7 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 	case SYNCHRONIZE_CACHE_16:
 		ret = store->flush(dev);
 		if (ret < 0) {
-			errp("Error on flush %x\n", ret);
+			tcmu_err("Error on flush %x\n", ret);
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						   ASC_READ_ERROR, NULL);
 		} else
@@ -274,14 +253,14 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 	case COMPARE_AND_WRITE:
 		iov.iov_base = malloc(half);
 		if (!iov.iov_base) {
-			errp("out of memory\n");
+			tcmu_err("out of memory\n");
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						   ASC_READ_ERROR, NULL);
 		}
 		iov.iov_len = half;
 		ret = store->read(dev, &iov, 1, offset);
 		if (ret != l) {
-			errp("Error on read %x, %x\n", ret, l);
+			tcmu_err("Error on read %x, %x\n", ret, l);
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						   ASC_READ_ERROR, NULL);
 		}
@@ -296,13 +275,13 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 		tcmu_seek_in_iovec(iovec, half);
 		ret = store->write(dev, iovec, iov_cnt, offset);
 		if (ret != half) {
-			errp("Error on write %x, %x\n", ret, half);
+			tcmu_err("Error on write %x, %x\n", ret, half);
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						   ASC_READ_ERROR, NULL);
 		} else
 			return SAM_STAT_GOOD;
 	default:
-		errp("unknown command %x\n", cdb[0]);
+		tcmu_err("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
 }
@@ -328,9 +307,9 @@ static void *thread_start(void *arg)
 			bool short_cdb = cmd->cdb[0] <= 0x1f;
 
 			for (i = 0; i < (short_cdb ? 6 : 10); i++) {
-				dbgp("%x ", cmd->cdb[i]);
+				tcmu_dbg("%x ", cmd->cdb[i]);
 			}
-			dbgp("\n");
+			tcmu_dbg("\n");
 
 			if (r_handler->handle_cmd)
 				ret = r_handler->handle_cmd(dev, cmd);
@@ -352,12 +331,12 @@ static void *thread_start(void *arg)
 		poll(&pfd, 1, -1);
 
 		if (pfd.revents != POLLIN) {
-			errp("poll received unexpected revent: 0x%x\n", pfd.revents);
+			tcmu_err("poll received unexpected revent: 0x%x\n", pfd.revents);
 			break;
 		}
 	}
 
-	errp("thread terminating, should never happen\n");
+	tcmu_err("thread terminating, should never happen\n");
 
 	pthread_cleanup_pop(1);
 
@@ -371,25 +350,25 @@ static void cancel_thread(pthread_t thread)
 
 	ret = pthread_cancel(thread);
 	if (ret) {
-		errp("pthread_cancel failed with value %d\n", ret);
+		tcmu_err("pthread_cancel failed with value %d\n", ret);
 		return;
 	}
 
 	ret = pthread_join(thread, &join_retval);
 	if (ret) {
-		errp("pthread_join failed with value %d\n", ret);
+		tcmu_err("pthread_join failed with value %d\n", ret);
 		return;
 	}
 
 	if (join_retval != PTHREAD_CANCELED)
-		errp("unexpected join retval: %p\n", join_retval);
+		tcmu_err("unexpected join retval: %p\n", join_retval);
 }
 
 static void sighandler(int signal)
 {
 	struct tcmu_thread *thread;
 
-	errp("signal %d received!\n", signal);
+	tcmu_err("signal %d received!\n", signal);
 
 	darray_foreach(thread, g_threads) {
 		cancel_thread(thread->thread_id);
@@ -652,7 +631,7 @@ void dbus_handler_manager1_init(GDBusConnection *connection)
 			 G_CALLBACK (on_unregister_handler),
 			 NULL);
 	if (!ret)
-		errp("Handler manager export failed: %s\n",
+		tcmu_err("Handler manager export failed: %s\n",
 		     error ? error->message : "unknown error");
 	if (error)
 		g_error_free(error);
@@ -664,7 +643,7 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 {
 	struct tcmur_handler **handler;
 
-	dbgp("bus %s acquired\n", name);
+	tcmu_dbg("bus %s acquired\n", name);
 
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
@@ -680,14 +659,14 @@ static void dbus_name_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
-	dbgp("name %s acquired\n", name);
+	tcmu_dbg("name %s acquired\n", name);
 }
 
 static void dbus_name_lost(GDBusConnection *connection,
 			   const gchar *name,
 			   gpointer user_data)
 {
-	dbgp("name lost\n");
+	tcmu_dbg("name lost\n");
 }
 
 int load_our_module(void) {
@@ -697,7 +676,7 @@ int load_our_module(void) {
 
 	ctx = kmod_new(NULL, NULL);
 	if (!ctx) {
-		errp("kmod_new() failed\n");
+		tcmu_err("kmod_new() failed\n");
 		return -1;
 	}
 
@@ -712,12 +691,12 @@ int load_our_module(void) {
 			mod, KMOD_PROBE_APPLY_BLACKLIST, 0, 0, 0, 0);
 
 		if (err != 0) {
-			errp("kmod_module_probe_insert_module() for %s failed\n",
+			tcmu_err("kmod_module_probe_insert_module() for %s failed\n",
 			    kmod_module_get_name(mod));
 			return -1;
 		}
 
-		dbgp("Module %s inserted (or already loaded)\n", kmod_module_get_name(mod));
+		tcmu_dbg("Module %s inserted (or already loaded)\n", kmod_module_get_name(mod));
 
 		kmod_module_unref(mod);
 	}
@@ -765,7 +744,7 @@ static void dev_removed(struct tcmu_device *dev)
 	}
 
 	if (!found) {
-		errp("could not remove a device: not found\n");
+		tcmu_err("could not remove a device: not found\n");
 		return;
 	}
 
@@ -804,6 +783,13 @@ int main(int argc, char **argv)
 	struct tcmulib_context *tcmulib_context;
 	darray(struct tcmulib_handler) handlers = darray_new();
 	struct tcmur_handler **tmp_r_handler;
+	struct tcmu_config *cfg;
+
+	cfg = tcmu_config_new();
+	tcmu_load_config(cfg, NULL);
+	tcmu_set_log_level(cfg->log_level);
+
+	tcmu_log_open_syslog(TCMU_RUNNER, 0, 0);
 
 	while (1) {
 		int option_index = 0;
@@ -819,7 +805,7 @@ int main(int argc, char **argv)
 				handler_path = strdup(optarg);
 			break;
 		case 'd':
-			debug = true;
+			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG);
 			break;
 		case 'V':
 			printf("tcmu-runner %s\n", TCMUR_VERSION);
@@ -831,20 +817,20 @@ int main(int argc, char **argv)
 		}
 	}
 
-	dbgp("handler path: %s\n", handler_path);
+	tcmu_dbg("handler path: %s\n", handler_path);
 
 	ret = load_our_module();
 	if (ret < 0) {
-		errp("couldn't load module\n");
+		tcmu_err("couldn't load module\n");
 		exit(1);
 	}
 
 	ret = open_handlers();
 	if (ret < 0) {
-		errp("couldn't open handlers\n");
+		tcmu_err("couldn't open handlers\n");
 		exit(1);
 	}
-	dbgp("%d runner handlers found\n", ret);
+	tcmu_dbg("%d runner handlers found\n", ret);
 
 	/*
 	 * Convert from tcmu-runner's handler struct to libtcmu's
@@ -870,16 +856,15 @@ int main(int argc, char **argv)
 		darray_append(handlers, tmp_handler);
 	}
 
-
-	tcmulib_context = tcmulib_initialize(handlers.item, handlers.size, errp);
+	tcmulib_context = tcmulib_initialize(handlers.item, handlers.size);
 	if (!tcmulib_context) {
-		errp("tcmulib_initialize failed\n");
+		tcmu_err("tcmulib_initialize failed\n");
 		exit(1);
 	}
 
 	ret = sigaction(SIGINT, &tcmu_sigaction, NULL);
 	if (ret) {
-		errp("couldn't set sigaction\n");
+		tcmu_err("couldn't set sigaction\n");
 		exit(1);
 	}
 
@@ -901,9 +886,11 @@ int main(int argc, char **argv)
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 
-	dbgp("Exiting...\n");
+	tcmu_dbg("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
+	tcmu_log_close_syslog();
+	tcmu_config_destroy(cfg);
 
 	return 0;
 }

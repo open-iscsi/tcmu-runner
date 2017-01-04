@@ -44,6 +44,8 @@
 #ifndef BLOCK_QCOW2_H
 #define BLOCK_QCOW2_H
 
+#include "libtcmu_log.h"
+
 #define BDRV_SECTOR_BITS 9
 
 // until we remove

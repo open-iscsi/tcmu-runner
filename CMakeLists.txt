@@ -40,6 +40,8 @@ add_library(tcmu
   libtcmu.c
   libtcmu-register.c
   tcmuhandler-generated.c
+  libtcmu_log.c
+  libtcmu_config.c
   )
 set_target_properties(tcmu
   PROPERTIES
@@ -62,6 +64,8 @@ add_library(tcmu_static
   libtcmu.c
   libtcmu-register.c
   tcmuhandler-generated.c
+  libtcmu_log.c
+  libtcmu_config.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
@@ -234,6 +238,8 @@ configure_file (
 
 install(FILES libtcmu.h libtcmu_common.h tcmu-runner.h
   DESTINATION include)
+install(FILES tcmu.conf
+  DESTINATION /etc/tcmu)
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)

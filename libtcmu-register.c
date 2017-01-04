@@ -20,6 +20,7 @@
 #include <assert.h>
 
 #include "libtcmu.h"
+#include "libtcmu_log.h"
 #include "libtcmu_priv.h"
 #include "tcmuhandler-generated.h"
 
@@ -43,7 +44,7 @@ tcmulib_register_handler(struct tcmulib_context *ctx,
 		g_variant_type_new("(bs)"),
 		G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
 	if (!result) {
-		tcmu_errp(ctx, "Failed to call register method for '%s(%s)': %s",
+		tcmu_err("Failed to call register method for '%s(%s)': %s",
 			  handler->name,
 			  handler->subtype,
 			  error->message);
@@ -51,7 +52,7 @@ tcmulib_register_handler(struct tcmulib_context *ctx,
 	}
 	g_variant_get(result, "(b&s)", &succeeded, &reason);
 	if (!succeeded) {
-		tcmu_errp(ctx, "Failed to register method for '%s(%s)': %s",
+		tcmu_err("Failed to register method for '%s(%s)': %s",
 			  handler->name,
 			  handler->subtype,
 			  reason);
@@ -189,9 +190,7 @@ tcmulib_reg_name_vanished(GDBusConnection *connection,
 			  const gchar     *name,
 			  gpointer         user_data)
 {
-	struct tcmulib_context *ctx = user_data;
-
-	tcmu_errp(ctx, "Failed to get bus %s\n", name);
+	tcmu_err("Failed to get bus %s\n", name);
 }
 
 void tcmulib_register(struct tcmulib_context *ctx)

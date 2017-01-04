@@ -40,26 +40,6 @@
 #include "libtcmu.h"
 #include "scsi_defs.h"
 
-/*
- * Debug API implementation
- */
-void dbgp(const char *fmt, ...)
-{
-	va_list va;
-	va_start(va, fmt);
-	vprintf(fmt, va);
-	va_end(va);
-}
-
-void errp(const char *fmt, ...)
-{
-	va_list va;
-
-	va_start(va, fmt);
-	vfprintf(stderr, fmt, va);
-	va_end(va);
-}
-
 struct tcmu_device *tcmu_dev_array[128];
 size_t dev_array_len = 0;
 
@@ -147,7 +127,7 @@ static int foo_handle_cmd(
 		return SAM_STAT_GOOD;
 
 	default:
-		errp("unknown command %x\n", cdb[0]);
+		tcmu_err("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
 }
@@ -170,12 +150,14 @@ int main(int argc, char **argv)
 	int i;
 	int ret;
 
+	tcmu_log_open_syslog(TCMU_CONSUMER, 0, 0);
+
 	/* If any TCMU devices that exist that match subtype,
 	   handler->added() will now be called from within
 	   tcmulib_initialize(). */
-	tcmulib_ctx = tcmulib_initialize(&foo_handler, 1, errp);
+	tcmulib_ctx = tcmulib_initialize(&foo_handler, 1);
 	if (tcmulib_ctx <= 0) {
-		errp("tcmulib_initialize failed with %p\n", tcmulib_ctx);
+		tcmu_err("tcmulib_initialize failed with %p\n", tcmulib_ctx);
 		exit(1);
 	}
 
@@ -193,7 +175,7 @@ int main(int argc, char **argv)
 		ret = poll(pollfds, dev_array_len+1, -1);
 
 		if (ret <= 0) {
-			errp("poll() returned %d, exiting\n", ret);
+			tcmu_err("poll() returned %d, exiting\n", ret);
 			exit(1);
 		}
 
@@ -228,6 +210,8 @@ int main(int argc, char **argv)
 			}
 		}
 	}
+
+	tcmu_log_close_syslog();
 
 	return 0;
 }

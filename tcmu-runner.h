@@ -30,6 +30,7 @@ extern "C" {
 #include <stdint.h>
 #include <sys/uio.h>
 #include "scsi_defs.h"
+#include "libtcmu_log.h"
 
 #include "libtcmu_common.h"
 

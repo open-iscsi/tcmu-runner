@@ -57,10 +57,10 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	tcmu_set_dev_private(dev, state);
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
-	dbgp("tcmu_rbd_open config %s\n", config);
+	tcmu_dbg("tcmu_rbd_open config %s\n", config);
 
 	if (!config) {
-		errp("no configuration found in cfgstring\n");
+		tcmu_err("no configuration found in cfgstring\n");
 		ret = -EINVAL;
 		goto free_state;
 	}
@@ -68,7 +68,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	block_size = tcmu_get_attribute(dev, "hw_block_size");
 	if (block_size < 0) {
-		errp("Could not get hw_block_size\n");
+		tcmu_err("Could not get hw_block_size\n");
 		ret = -EINVAL;
 		goto free_state;
 	}
@@ -76,7 +76,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	size = tcmu_get_device_size(dev);
 	if (size < 0) {
-		errp("Could not get device size\n");
+		tcmu_err("Could not get device size\n");
 		goto free_state;
 	}
 	tcmu_set_dev_num_lbas(dev, size / block_size);
@@ -94,7 +94,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	ret = rados_create(&state->cluster, NULL);
 	if (ret < 0) {
-		errp("error initializing\n");
+		tcmu_err("error initializing\n");
 		goto free_state;
 	}
 
@@ -104,31 +104,31 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	ret = rados_connect(state->cluster);
 	if (ret < 0) {
-		errp("error connecting\n");
+		tcmu_err("error connecting\n");
 		goto rados_shutdown;
 	}
 
 	ret = rados_ioctx_create(state->cluster, pool, &state->io_ctx);
 	if (ret < 0) {
-		errp("error opening pool %s\n", pool);
+		tcmu_err("error opening pool %s\n", pool);
 		goto rados_destroy;
 	}
 
 	ret = rbd_open(state->io_ctx, name, &state->image, NULL);
 	if (ret < 0) {
-		errp("error reading header from %s\n", name);
+		tcmu_err("error reading header from %s\n", name);
 		goto rados_destroy;
 	}
 
 	ret = rbd_get_size(state->image, &rbd_size);
 	if(ret < 0) {
-		errp("error get rbd_size %s\n", name);
+		tcmu_err("error get rbd_size %s\n", name);
 		goto rados_destroy;
 	}
-	dbgp("rbd size %lld\n", rbd_size);
+	tcmu_dbg("rbd size %lld\n", rbd_size);
 
 	if(size != rbd_size) {
-		errp("device size and backing size disagree: "
+		tcmu_err("device size and backing size disagree: "
 		     "device %lld backing %lld\n",
 		     size,
 		     rbd_size);

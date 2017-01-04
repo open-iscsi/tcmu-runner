@@ -35,6 +35,7 @@
 #include <libnl3/netlink/genl/ctrl.h>
 
 #include "libtcmu.h"
+#include "libtcmu_log.h"
 #include "libtcmu_priv.h"
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
@@ -54,7 +55,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 	char buf[32];
 
 	if (!info->attrs[TCMU_ATTR_MINOR] || !info->attrs[TCMU_ATTR_DEVICE]) {
-		tcmu_errp(ctx, "TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
+		tcmu_err("TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
 		return 0;
 	}
 
@@ -68,7 +69,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 		remove_device(ctx, buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
 		break;
 	default:
-		tcmu_errp(ctx, "Unknown notification %d\n", cmd->c_id);
+		tcmu_err("Unknown notification %d\n", cmd->c_id);
 	}
 
 	return 0;
@@ -104,7 +105,7 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 
 	sock = nl_socket_alloc();
 	if (!sock) {
-		tcmu_errp(ctx, "couldn't alloc socket\n");
+		tcmu_err("couldn't alloc socket\n");
 		return NULL;
 	}
 
@@ -114,19 +115,19 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 
 	ret = genl_connect(sock);
 	if (ret < 0) {
-		tcmu_errp(ctx, "couldn't connect\n");
+		tcmu_err("couldn't connect\n");
 		goto err_free;
 	}
 
 	ret = genl_register_family(&tcmu_ops);
 	if (ret < 0) {
-		tcmu_errp(ctx, "couldn't register family\n");
+		tcmu_err("couldn't register family\n");
 		goto err_close;
 	}
 
 	ret = genl_ops_resolve(sock, &tcmu_ops);
 	if (ret < 0) {
-		tcmu_errp(ctx, "couldn't resolve ops, is target_core_user.ko loaded?\n");
+		tcmu_err("couldn't resolve ops, is target_core_user.ko loaded?\n");
 		goto err_close;
 	}
 
@@ -134,7 +135,7 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 
 	ret = nl_socket_add_membership(sock, ret);
 	if (ret < 0) {
-		tcmu_errp(ctx, "couldn't add membership\n");
+		tcmu_err("couldn't add membership\n");
 		goto err_close;
 	}
 
@@ -186,7 +187,7 @@ static int add_device(struct tcmulib_context *ctx,
 
 	dev = calloc(1, sizeof(*dev));
 	if (!dev) {
-		tcmu_errp(ctx, "calloc failed in add_device\n");
+		tcmu_err("calloc failed in add_device\n");
 		return -ENOMEM;
 	}
 
@@ -195,12 +196,12 @@ static int add_device(struct tcmulib_context *ctx,
 	oldptr = cfgstring;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		tcmu_errp(ctx, "invalid cfgstring\n");
+		tcmu_err("invalid cfgstring\n");
 		goto err_free;
 	}
 
 	if (strncmp(cfgstring, "tcm-user", ptr-oldptr)) {
-		tcmu_errp(ctx, "invalid cfgstring\n");
+		tcmu_err("invalid cfgstring\n");
 		goto err_free;
 	}
 
@@ -208,7 +209,7 @@ static int add_device(struct tcmulib_context *ctx,
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		tcmu_errp(ctx, "invalid cfgstring\n");
+		tcmu_err("invalid cfgstring\n");
 		goto err_free;
 	}
 	len = ptr-oldptr;
@@ -218,7 +219,7 @@ static int add_device(struct tcmulib_context *ctx,
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
-		tcmu_errp(ctx, "invalid cfgstring\n");
+		tcmu_err("invalid cfgstring\n");
 		goto err_free;
 	}
 	len = ptr-oldptr;
@@ -231,14 +232,14 @@ static int add_device(struct tcmulib_context *ctx,
 
 	dev->handler = find_handler(ctx, dev->cfgstring);
 	if (!dev->handler) {
-		tcmu_errp(ctx, "could not find handler for %s\n", dev->dev_name);
+		tcmu_err("could not find handler for %s\n", dev->dev_name);
 		goto err_free;
 	}
 
 	if (dev->handler->check_config &&
 	    !dev->handler->check_config(dev->cfgstring, &reason)) {
 		/* It may be handled by other handlers */
-		tcmu_errp(ctx, "check_config failed for %s because of %s\n", dev->dev_name, reason);
+		tcmu_err("check_config failed for %s because of %s\n", dev->dev_name, reason);
 		free(reason);
 		goto err_free;
 	}
@@ -247,40 +248,40 @@ static int add_device(struct tcmulib_context *ctx,
 
 	dev->fd = open(str_buf, O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (dev->fd == -1) {
-		tcmu_errp(ctx, "could not open %s\n", str_buf);
+		tcmu_err("could not open %s\n", str_buf);
 		goto err_free;
 	}
 
 	snprintf(str_buf, sizeof(str_buf), "/sys/class/uio/%s/maps/map0/size", dev->dev_name);
 	fd = open(str_buf, O_RDONLY);
 	if (fd == -1) {
-		tcmu_errp(ctx, "could not open %s\n", str_buf);
+		tcmu_err("could not open %s\n", str_buf);
 		goto err_fd_close;
 	}
 
 	ret = read(fd, str_buf, sizeof(str_buf));
 	close(fd);
 	if (ret <= 0) {
-		tcmu_errp(ctx, "could not read size of map0\n");
+		tcmu_err("could not read size of map0\n");
 		goto err_fd_close;
 	}
 	str_buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
 
 	dev->map_len = strtoull(str_buf, NULL, 0);
 	if (dev->map_len == ULLONG_MAX) {
-		tcmu_errp(ctx, "could not get map length\n");
+		tcmu_err("could not get map length\n");
 		goto err_fd_close;
 	}
 
 	dev->map = mmap(NULL, dev->map_len, PROT_READ|PROT_WRITE, MAP_SHARED, dev->fd, 0);
 	if (dev->map == MAP_FAILED) {
-		tcmu_errp(ctx, "could not mmap: %m\n");
+		tcmu_err("could not mmap: %m\n");
 		goto err_fd_close;
 	}
 
 	mb = dev->map;
 	if (mb->version != KERN_IFACE_VER) {
-		tcmu_errp(ctx, "Kernel interface version mismatch: wanted %d got %d\n",
+		tcmu_err("Kernel interface version mismatch: wanted %d got %d\n",
 			KERN_IFACE_VER, mb->version);
 		goto err_munmap;
 	}
@@ -292,7 +293,7 @@ static int add_device(struct tcmulib_context *ctx,
 
 	ret = dev->handler->added(dev);
 	if (ret < 0) {
-		tcmu_errp(ctx, "handler open failed for %s\n", dev->dev_name);
+		tcmu_err("handler open failed for %s\n", dev->dev_name);
 		goto err_munmap;
 	}
 
@@ -340,7 +341,7 @@ static void remove_device(struct tcmulib_context *ctx,
 	}
 
 	if (!found) {
-		tcmu_errp(ctx, "could not remove device %s: not found\n", dev_name);
+		tcmu_err("could not remove device %s: not found\n", dev_name);
 		return;
 	}
 
@@ -348,11 +349,11 @@ static void remove_device(struct tcmulib_context *ctx,
 
 	ret = close(dev->fd);
 	if (ret != 0) {
-		tcmu_errp(ctx, "could not close device fd %s: %d\n", dev_name, errno);
+		tcmu_err("could not close device fd %s: %d\n", dev_name, errno);
 	}
 	ret = munmap(dev->map, dev->map_len);
 	if (ret != 0) {
-		tcmu_errp(ctx, "could not unmap device %s: %d\n", dev_name, errno);
+		tcmu_err("could not unmap device %s: %d\n", dev_name, errno);
 	}
 
 	dev->handler->removed(dev);
@@ -414,14 +415,14 @@ static int open_devices(struct tcmulib_context *ctx)
 
 		fd = open(tmp_path, O_RDONLY);
 		if (fd == -1) {
-			tcmu_errp(ctx, "could not open %s!\n", tmp_path);
+			tcmu_err("could not open %s!\n", tmp_path);
 			continue;
 		}
 
 		ret = read(fd, buf, sizeof(buf));
 		close(fd);
 		if (ret <= 0 || ret >= sizeof(buf)) {
-			tcmu_errp(ctx, "read of %s had issues\n", tmp_path);
+			tcmu_err("read of %s had issues\n", tmp_path);
 			continue;
 		}
 		buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
@@ -442,8 +443,7 @@ static int open_devices(struct tcmulib_context *ctx)
 
 struct tcmulib_context *tcmulib_initialize(
 	struct tcmulib_handler *handlers,
-	size_t handler_count,
-	void (*err_print)(const char *fmt, ...))
+	size_t handler_count)
 {
 	struct tcmulib_context *ctx;
 	int ret;
@@ -452,9 +452,6 @@ struct tcmulib_context *tcmulib_initialize(
 	ctx = calloc(1, sizeof(*ctx));
 	if (!ctx)
 		return NULL;
-
-	// Stash this away early, so that debug output works from here forth
-	ctx->err_print = err_print;
 
 	ctx->nl_sock = setup_netlink(ctx);
 	if (!ctx->nl_sock) {
@@ -491,7 +488,7 @@ void tcmulib_close(struct tcmulib_context *ctx)
 	darray_free(ctx->devices);
 	ret = genl_unregister_family(&tcmu_ops);
 	if (ret != 0) {
-		tcmu_errp(ctx, "genl_unregister_family failed, %d\n", ret);
+		tcmu_err("genl_unregister_family failed, %d\n", ret);
 	}
 	free(ctx);
 }

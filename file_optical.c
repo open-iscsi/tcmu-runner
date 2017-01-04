@@ -131,8 +131,8 @@ static void *fbo_handler_run(void *arg)
 		/* process command */
 		result = fbo_handle_cmd(h->dev, cmd);
                 if (result == SAM_STAT_CHECK_CONDITION) {
-                    dbgp("FBO: Check condition\n");
-                    dbgp("  Sense: 0x%08llx\n", *(uint64_t *)cmd->sense_buf);
+                    tcmu_dbg("FBO: Check condition\n");
+                    tcmu_dbg("  Sense: 0x%08llx\n", *(uint64_t *)cmd->sense_buf);
                 }
 		pthread_mutex_lock(&state->completion_mtx);
 		tcmulib_command_complete(h->dev, cmd, result);
@@ -182,7 +182,7 @@ static bool fbo_check_config(const char *cfgstring, char **reason)
 	char *path;
 	int fd;
 
-	dbgp("check: cfgstring %s\n", cfgstring);
+	tcmu_dbg("check: cfgstring %s\n", cfgstring);
 	options = strchr(cfgstring, '/');
 	if (!options) {
 		if (asprintf(reason, "Invalid cfgstring") == -1)
@@ -252,7 +252,7 @@ static int fbo_open(struct tcmu_device *dev)
 	 */
 	state->block_size = tcmu_get_attribute(dev, "hw_block_size");
 	if (state->block_size == -1) {
-		errp("Could not get device block size\n");
+		tcmu_err("Could not get device block size\n");
 		goto err;
 	}
 #else
@@ -262,16 +262,16 @@ static int fbo_open(struct tcmu_device *dev)
 
 	size = tcmu_get_device_size(dev);
 	if (size == -1) {
-		errp("Could not get device size\n");
+		tcmu_err("Could not get device size\n");
 		goto err;
 	}
 
 	state->num_lbas = size / state->block_size;
 
-	dbgp("open: cfgstring %s\n", tcmu_get_dev_cfgstring(dev));
+	tcmu_dbg("open: cfgstring %s\n", tcmu_get_dev_cfgstring(dev));
 	options = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!options) {
-		errp("invalid cfgstring\n");
+		tcmu_err("invalid cfgstring\n");
 		goto err;
 	}
 	options += 1; /* get past '/' */
@@ -279,11 +279,11 @@ static int fbo_open(struct tcmu_device *dev)
 		if (!strncasecmp(options, "ro/", 3))
 			state->flags |= FBO_READ_ONLY;
 		else
-			errp("Ignoring unknown option %s\n", options);
+			tcmu_err("Ignoring unknown option %s\n", options);
 
 		options = strchr(options, '/');
 		if (!options) {
-			errp("no path found in cfgstring");
+			tcmu_err("no path found in cfgstring");
 			goto err;
 		}
 		options += 1;
@@ -291,7 +291,7 @@ static int fbo_open(struct tcmu_device *dev)
 
 	path = options;
 	if (!path) {
-		errp("no path found in cfgstring\n");
+		tcmu_err("no path found in cfgstring\n");
 		goto err;
 	}
 
@@ -303,10 +303,10 @@ static int fbo_open(struct tcmu_device *dev)
 	else
 		state->fd = open(path, O_RDWR, 0);
 	if (state->fd == -1) {
-		errp("could not open %s: %m\n", path);
+		tcmu_err("could not open %s: %m\n", path);
 		goto err;
 	}
-	dbgp("FBO Open: fd %d\n", state->fd);
+	tcmu_dbg("FBO Open: fd %d\n", state->fd);
 
 	pthread_mutex_init(&state->state_mtx, NULL);
 	pthread_mutex_init(&state->completion_mtx, NULL);
@@ -1191,7 +1191,7 @@ static int fbo_do_sync(struct fbo_state *state, uint8_t *sense)
 
 	rc = fsync(state->fd);
 	if (rc) {
-		errp("sync failed: %m\n");
+		tcmu_err("sync failed: %m\n");
 		return set_medium_error(sense);
 	}
 
@@ -1289,7 +1289,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	if (fua) {
 		rc = fsync(state->fd);
 		if (rc) {
-			errp("sync failed: %m\n");
+			tcmu_err("sync failed: %m\n");
 			return set_medium_error(sense);
 		}
 	}
@@ -1311,7 +1311,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	pthread_mutex_unlock(&state->state_mtx);
 
 	if (ret == -1) {
-		errp("read failed: %m\n");
+		tcmu_err("read failed: %m\n");
 		free(buf);
 		return set_medium_error(sense);
 	}
@@ -1350,7 +1350,7 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 	pthread_mutex_unlock(&state->state_mtx);
 
 	if (ret == -1) {
-		errp("read failed: %m\n");
+		tcmu_err("read failed: %m\n");
 		free(buf);
 		return set_medium_error(sense);
 	}
@@ -1409,7 +1409,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 
 		ret = pwrite(state->fd, iovec[i].iov_base, to_copy, cur_off);
 		if (ret == -1) {
-			errp("Could not write: %m\n");
+			tcmu_err("Could not write: %m\n");
 			rc = set_medium_error(sense);
 			break;
 		}
@@ -1422,7 +1422,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	if (rc == SAM_STAT_GOOD && (do_verify || fua)) {
 		rc1 = fsync(state->fd);
 		if (rc1) {
-			errp("sync failed: %m\n");
+			tcmu_err("sync failed: %m\n");
 			rc = set_medium_error(sense);
 		}
 	}
@@ -1479,7 +1479,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	buf = malloc(length);
 	if (!buf)
 	{
-		dbgp("  malloc failed\n");
+		tcmu_dbg("  malloc failed\n");
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 	}
@@ -1492,7 +1492,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 				state->block_size;
 		ret = pwrite(state->fd, buf, length, offset);
 		if (ret == -1) {
-			errp("Could not write: %m\n");
+			tcmu_err("Could not write: %m\n");
 			rc = set_medium_error(sense);
 			break;
 		}
@@ -1753,7 +1753,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 						    sense);
 		break;
 	default:
-		errp("unknown command 0x%x\n", cdb[0]);
+		tcmu_err("unknown command 0x%x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
 }

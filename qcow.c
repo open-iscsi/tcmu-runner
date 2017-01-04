@@ -128,14 +128,14 @@ static int bdev_open(struct bdev *bdev, int dirfd, const char *pathname, int fla
 	for (ops = &bdev_ops[0]; *ops != NULL; ops++) {
 		if ((*ops)->probe(bdev, dirfd, pathname) == 0) {
 			if ((*ops)->open(bdev, dirfd, pathname, flags) == -1) {
-				errp("image open failed: %s\n", pathname);
+				tcmu_err("image open failed: %s\n", pathname);
 				goto err;
 			}
 			bdev->ops = *ops;
 			return 0;
 		}
 	}
-	errp("image format not recognized: %s\n", pathname);
+	tcmu_err("image format not recognized: %s\n", pathname);
 err:
 	return -1;
 }
@@ -276,7 +276,7 @@ static int qcow_probe(struct bdev *bdev, int dirfd, const char *pathname)
 	    uint32_t version;
 	} head;
 
-	dbgp("%s\n", __func__);
+	tcmu_dbg("%s\n", __func__);
 
 	if (faccessat(dirfd, pathname, R_OK|W_OK, AT_EACCESS) == -1)
 		return -1;
@@ -303,7 +303,7 @@ static int qcow2_probe(struct bdev *bdev, int dirfd, const char *pathname)
 	    uint32_t version;
 	} head;
 
-	dbgp("%s\n", __func__);
+	tcmu_dbg("%s\n", __func__);
 
 	if (faccessat(dirfd, pathname, R_OK|W_OK, AT_EACCESS) == -1) {
 		perror("no file access");
@@ -322,7 +322,7 @@ static int qcow2_probe(struct bdev *bdev, int dirfd, const char *pathname)
 		goto err;
 	}
 	if (be32toh(head.version) < 2) {
-		errp("version = %d\n", head.version);
+		tcmu_err("version = %d\n", head.version);
 		goto err;
 	}
 	close(fd);
@@ -335,30 +335,30 @@ err:
 static int qcow_validate_header(struct qcow_header *header)
 {
 	if (header->magic != QCOW_MAGIC) {
-		errp("header is not QCOW\n");
+		tcmu_err("header is not QCOW\n");
 		 return -1;
 	}
 	if (header->version != 1) {
-		errp("version is %d, expected 1\n", header->version);
+		tcmu_err("version is %d, expected 1\n", header->version);
 		 return -1;
 	}
 	if (header->cluster_bits < 9 || header->cluster_bits > 16) {
-		errp("bad cluster_bits = %d\n", header->cluster_bits);
+		tcmu_err("bad cluster_bits = %d\n", header->cluster_bits);
 		 return -1;
 	}
 	if (header->l2_bits < (9 - 3) || header->l2_bits > (16 - 3)) {
-		errp("bad l2_bits = %d\n", header->l2_bits);
+		tcmu_err("bad l2_bits = %d\n", header->l2_bits);
 		 return -1;
 	}
 	switch (header->crypt_method) {
 		case QCOW_CRYPT_NONE:
 			break;
 		case QCOW_CRYPT_AES:
-			errp("QCOW AES-CBC encryption has been deprecated\n");
-			errp("Convert to unencrypted image using qemu-img\n");
+			tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
+			tcmu_err("Convert to unencrypted image using qemu-img\n");
 			 return -1;
 		default:
-			errp("Invalid encryption value %d\n", header->crypt_method);
+			tcmu_err("Invalid encryption value %d\n", header->crypt_method);
 			 return -1;
 	}
 	return 0;
@@ -368,26 +368,26 @@ static int qcow2_validate_header(struct qcow2_header *header)
 {
 	/* TODO check other stuff ... L1, refcount, snapshots */
 	if (header->magic != QCOW_MAGIC) {
-		errp("header is not QCOW\n");
+		tcmu_err("header is not QCOW\n");
 		 return -1;
 	}
 	if (header->version < 2) {
-		errp("version is %d, expected 2 or 3\n", header->version);
+		tcmu_err("version is %d, expected 2 or 3\n", header->version);
 		 return -1;
 	}
 	if (header->cluster_bits < 9 || header->cluster_bits > 16) {
-		errp("bad cluster_bits = %d\n", header->cluster_bits);
+		tcmu_err("bad cluster_bits = %d\n", header->cluster_bits);
 		 return -1;
 	}
 	switch (header->crypt_method) {
 		case QCOW2_CRYPT_NONE:
 			break;
 		case QCOW2_CRYPT_AES:
-			errp("QCOW AES-CBC encryption has been deprecated\n");
-			errp("Convert to unencrypted image using qemu-img\n");
+			tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
+			tcmu_err("Convert to unencrypted image using qemu-img\n");
 			 return -1;
 		default:
-			errp("Invalid encryption value %d\n", header->crypt_method);
+			tcmu_err("Invalid encryption value %d\n", header->crypt_method);
 			 return -1;
 	}
 	return 0;
@@ -409,14 +409,14 @@ static int qcow_setup_backing_file(struct bdev *bdev, struct qcow_header *header
 		return 0;
 
 	if (len >= PATH_MAX) {
-		errp("Backing file name too long\n");
+		tcmu_err("Backing file name too long\n");
 		return -1;
 	}
 
 	backing_file = alloca(len + 1);
 
 	if (pread(bdev->fd, backing_file, len, header->backing_file_offset) != len) {
-		errp("Error reading backing file name\n");
+		tcmu_err("Error reading backing file name\n");
 		return -1;
 	}
 	backing_file[len] = '\0';
@@ -469,12 +469,12 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 	bdev->fd = openat(dirfd, pathname, flags);
 	s->fd = bdev->fd;
 	if (bdev->fd == -1) {
-		errp("Failed to open file: %s\n", pathname);
+		tcmu_err("Failed to open file: %s\n", pathname);
 		goto fail_nofd;
 	}
 
 	if (pread(bdev->fd, &buf, sizeof(buf), 0) != sizeof(buf)) {
-		errp("Failed to read file: &s\n", pathname);
+		tcmu_err("Failed to read file: &s\n", pathname);
 		goto fail;
 	}
 
@@ -483,14 +483,14 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 		goto fail;
 
 	if (bdev->size != header.size) {
-		errp("size misconfigured, TCMU says %" PRId64
+		tcmu_err("size misconfigured, TCMU says %" PRId64
 				" but image says %" PRId64 "\n",
 				bdev->size, header.size);
 		goto fail;
 	}
 	s->size = bdev->size;
 	if (bdev->block_size != 512) {
-		errp("block_size misconfigured, TCMU says %" PRId32
+		tcmu_err("block_size misconfigured, TCMU says %" PRId32
 				" but qcow only supports 512\n",
 				bdev->block_size);
 		goto fail;
@@ -505,12 +505,12 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 
 	shift = s->cluster_bits + s->l2_bits;
 	if (header.size > UINT64_MAX - (1LL << shift)) {
-		errp("Image size too big\n");
+		tcmu_err("Image size too big\n");
 		goto fail;
 	}
 	l1_size = (header.size + (1LL << shift) - 1) >> shift;
 	if (l1_size > INT_MAX / sizeof(uint64_t)) {
-		errp("Image size too big\n");
+		tcmu_err("Image size too big\n");
 		goto fail;
 	}
 	s->l1_size = l1_size;
@@ -518,18 +518,18 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 
 	s->l1_table = calloc(s->l1_size, sizeof(uint64_t));
 	if (!s->l1_table) {
-		errp("Failed to allocate L1 table\n");
+		tcmu_err("Failed to allocate L1 table\n");
 		goto fail;
 	}
 	read = pread(bdev->fd, s->l1_table, s->l1_size * sizeof(uint64_t), s->l1_table_offset);
 	if (read != s->l1_size * sizeof(uint64_t)) {
-		errp("Failed to read L1 table\n");
+		tcmu_err("Failed to read L1 table\n");
 		goto fail;
 	}
 
 	s->l2_cache = calloc(L2_CACHE_SIZE, s->l2_size * sizeof(uint64_t));
 	if (s->l2_cache == NULL) {
-		errp("Failed to allocate L2 cache\n");
+		tcmu_err("Failed to allocate L2 cache\n");
 		goto fail;
 	}
 
@@ -538,7 +538,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 	s->cluster_data = calloc(1, s->cluster_size);
 	s->cluster_cache_offset = -1;
 	if (!s->cluster_cache || !s->cluster_data) {
-		errp("Failed to allocate cluster decompression space\n");
+		tcmu_err("Failed to allocate cluster decompression space\n");
 		goto fail;
 	}
 
@@ -550,7 +550,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 
 	s->block_alloc = qcow_block_alloc;
 	s->set_refcount = qcow_no_refcount;
-	dbgp("%d: %s\n", bdev->fd, pathname);
+	tcmu_dbg("%d: %s\n", bdev->fd, pathname);
 	return 0;
 fail:
 	close(bdev->fd);
@@ -580,12 +580,12 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 	bdev->fd = openat(dirfd, pathname, flags);
 	s->fd = bdev->fd;
 	if (bdev->fd == -1) {
-		errp("Failed to open file: %s\n", pathname);
+		tcmu_err("Failed to open file: %s\n", pathname);
 		goto fail_nofd;
 	}
 
 	if (pread(bdev->fd, &buf, sizeof(buf), 0) != sizeof(buf)) {
-		errp("Failed to read file: %s\n", pathname);
+		tcmu_err("Failed to read file: %s\n", pathname);
 		goto fail;
 	}
 
@@ -594,14 +594,14 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 		goto fail;
 
 	if (bdev->size != header.size) {
-		errp("size misconfigured, TCMU says %" PRId64
+		tcmu_err("size misconfigured, TCMU says %" PRId64
 				" but image says %" PRId64 "\n",
 				bdev->size, header.size);
 		goto fail;
 	}
 	s->size = bdev->size;
 	if (bdev->block_size != 512) {
-		errp("block_size misconfigured, TCMU says %" PRId32
+		tcmu_err("block_size misconfigured, TCMU says %" PRId32
 				" but qcow only supports 512\n",
 				bdev->block_size);
 		goto fail;
@@ -616,49 +616,49 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 
 	shift = s->cluster_bits + s->l2_bits;
 	if (header.size > UINT64_MAX - (1LL << shift)) {
-		errp("Image size too big\n");
+		tcmu_err("Image size too big\n");
 		goto fail;
 	}
 	l1_size = (header.size + (1LL << shift) - 1) >> shift;
 	if (l1_size > INT_MAX / sizeof(uint64_t)) {
-		errp("Image size too big\n");
+		tcmu_err("Image size too big\n");
 		goto fail;
 	}
 	s->l1_size = l1_size;
 	// why did they add this to qcow2 ?
 	if (header.l1_size != s->l1_size) {
-		errp("L1 size is incorrect\n");
+		tcmu_err("L1 size is incorrect\n");
 		goto fail;
 	}
 	s->l1_table_offset = header.l1_table_offset;
 
 	s->l1_table = calloc(s->l1_size, sizeof(uint64_t));
 	if (!s->l1_table) {
-		errp("Failed to allocate L1 table\n");
+		tcmu_err("Failed to allocate L1 table\n");
 		goto fail;
 	}
 	read = pread(bdev->fd, s->l1_table, s->l1_size * sizeof(uint64_t), s->l1_table_offset);
 	if (read != s->l1_size * sizeof(uint64_t)) {
-		errp("Failed to read L1 table\n");
+		tcmu_err("Failed to read L1 table\n");
 		goto fail;
 	}
 
 	s->l2_cache = calloc(L2_CACHE_SIZE, s->l2_size * sizeof(uint64_t));
 	if (s->l2_cache == NULL) {
-		errp("Failed to allocate L2 cache\n");
+		tcmu_err("Failed to allocate L2 cache\n");
 		goto fail;
 	}
-	dbgp("s->l2_cache = %p\n", s->l2_cache);
+	tcmu_dbg("s->l2_cache = %p\n", s->l2_cache);
 
 	/* cluster decompression cache */
 	s->cluster_cache = calloc(1, s->cluster_size);
 	s->cluster_data = calloc(1, s->cluster_size);
 	s->cluster_cache_offset = -1;
 	if (!s->cluster_cache || !s->cluster_data) {
-		errp("Failed to allocate cluster decompression space\n");
+		tcmu_err("Failed to allocate cluster decompression space\n");
 		goto fail;
 	}
-	dbgp("s->cluster_cache = %p\n", s->cluster_cache);
+	tcmu_dbg("s->cluster_cache = %p\n", s->cluster_cache);
 
 	/* refcount table */
 	s->refcount_table_offset = header.refcount_table_offset;
@@ -666,22 +666,22 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 
 	s->refcount_table = calloc(s->refcount_table_size, sizeof(uint64_t));
 	if (!s->refcount_table) {
-		errp("Failed to allocate refcount table\n");
+		tcmu_err("Failed to allocate refcount table\n");
 		goto fail;
 	}
 	read = pread(bdev->fd, s->refcount_table, s->refcount_table_size * sizeof(uint64_t), s->refcount_table_offset);
 	if (read != s->refcount_table_size * sizeof(uint64_t)) {
-		errp("Failed to read refcount table\n");
+		tcmu_err("Failed to read refcount table\n");
 		goto fail;
 	}
 
 	s->refcount_order = header.refcount_order;
 	s->rc_cache = calloc(RC_CACHE_SIZE, s->cluster_size);
 	if (s->rc_cache == NULL) {
-		errp("Failed to allocate refcount cache\n");
+		tcmu_err("Failed to allocate refcount cache\n");
 		goto fail;
 	}
-	dbgp("s->rc_cache = %p\n", s->rc_cache);
+	tcmu_dbg("s->rc_cache = %p\n", s->rc_cache);
 
 	if (qcow2_setup_backing_file(bdev, &header) == -1)
 		goto fail;
@@ -692,7 +692,7 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 
 	s->block_alloc = qcow2_block_alloc;
 	s->set_refcount = qcow2_set_refcount;
-	dbgp("%d: %s\n", bdev->fd, pathname);
+	tcmu_dbg("%d: %s\n", bdev->fd, pathname);
 	return 0;
 fail:
 	close(bdev->fd);
@@ -742,7 +742,7 @@ static uint64_t *l2_cache_lookup(struct qcow_state *s, uint64_t l2_offset)
 				}
 			}
 			l2_table = s->l2_cache + (i << s->l2_bits);
-			dbgp("%s: l2 hit %llx at index %d\n", __func__, l2_table, i);
+			tcmu_dbg("%s: l2 hit %llx at index %d\n", __func__, l2_table, i);
 			return l2_table;
 		}
 	}
@@ -765,7 +765,7 @@ static uint64_t *l2_cache_lookup(struct qcow_state *s, uint64_t l2_offset)
 
 static uint64_t qcow_cluster_alloc(struct qcow_state *s)
 {
-	dbgp("%s\n", __func__);
+	tcmu_dbg("%s\n", __func__);
 	return s->block_alloc(s, s->cluster_size);
 }
 
@@ -786,7 +786,7 @@ static uint64_t qcow_block_alloc(struct qcow_state *s, size_t size)
 
 static uint64_t l2_table_alloc(struct qcow_state *s)
 {
-	dbgp("%s\n", __func__);
+	tcmu_dbg("%s\n", __func__);
 	return s->block_alloc(s, s->l2_size * sizeof(uint64_t));
 }
 
@@ -794,7 +794,7 @@ static int l1_table_update(struct qcow_state *s, unsigned int l1_index, uint64_t
 {
 	ssize_t ret;
 
-	dbgp("%s: setting L1[%d] to %llx\n", __func__, l1_index, l2_offset);
+	tcmu_dbg("%s: setting L1[%d] to %llx\n", __func__, l1_index, l2_offset);
 	s->l1_table[l1_index] = htobe64(l2_offset);
 
 	ret = pwrite(s->fd,
@@ -803,7 +803,7 @@ static int l1_table_update(struct qcow_state *s, unsigned int l1_index, uint64_t
 		s->l1_table_offset + (l1_index * sizeof(uint64_t)));
 
 	if (ret != sizeof(uint64_t))
-		errp("%s: error, L1 writeback failed (%zd)\n", __func__, ret);
+		tcmu_err("%s: error, L1 writeback failed (%zd)\n", __func__, ret);
 
 	fdatasync(s->fd);
 	return ret;
@@ -934,7 +934,7 @@ static int rc_table_update(struct qcow_state *s, unsigned int rc_index, uint64_t
 {
 	ssize_t ret;
 
-	dbgp("%s: setting RC[%d] to %llx\n", __func__, rc_index, refblock_offset);
+	tcmu_dbg("%s: setting RC[%d] to %llx\n", __func__, rc_index, refblock_offset);
 	s->refcount_table[rc_index] = htobe64(refblock_offset);
 
 	ret = pwrite(s->fd,
@@ -943,7 +943,7 @@ static int rc_table_update(struct qcow_state *s, unsigned int rc_index, uint64_t
 		s->refcount_table_offset + (rc_index * sizeof(uint64_t)));
 
 	if (ret != sizeof(uint64_t))
-		errp("%s: error, RC writeback failed (%zd)\n", __func__, ret);
+		tcmu_err("%s: error, RC writeback failed (%zd)\n", __func__, ret);
 
 	fdatasync(s->fd);
 	return ret;
@@ -963,11 +963,11 @@ static int qcow2_set_refcount(struct qcow_state *s, uint64_t cluster_offset, uin
 	refblock_offset = be64toh(s->refcount_table[rc_index]);
 	refblock_index = (cluster_offset >> s->cluster_bits) & ((1 << refcount_bits) - 1);
 
-	dbgp("%s: rc[%d][%d] = %llx[%d] = %d\n", __func__, rc_index, refblock_index, refblock_offset, refblock_index, value);
+	tcmu_dbg("%s: rc[%d][%d] = %llx[%d] = %d\n", __func__, rc_index, refblock_index, refblock_offset, refblock_index, value);
 
 	if (!refblock_offset) {
 		if (!(refblock_offset = qcow_cluster_alloc(s))) {
-			errp("refblock allocation failure\n");
+			tcmu_err("refblock allocation failure\n");
 			return -1;
 		}
 		rc_table_update(s, rc_index, refblock_offset | s->cluster_copied);
@@ -976,7 +976,7 @@ static int qcow2_set_refcount(struct qcow_state *s, uint64_t cluster_offset, uin
 
 	refblock = rc_cache_lookup(s, refblock_offset);
 	if (!refblock) {
-		errp("refblock cache failure\n");
+		tcmu_err("refblock cache failure\n");
 		return -1;
 	}
 
@@ -985,7 +985,7 @@ static int qcow2_set_refcount(struct qcow_state *s, uint64_t cluster_offset, uin
 	/* for now this writes back the entire block */
 	ret = pwrite(s->fd, refblock, s->cluster_size, refblock_offset);
 	if (ret != s->cluster_size)
-		errp("%s: error, refblock writeback failed (%zd)\n", __func__, ret);
+		tcmu_err("%s: error, refblock writeback failed (%zd)\n", __func__, ret);
 	fdatasync(s->fd);
 	return ret;
 }
@@ -997,7 +997,7 @@ static uint64_t qcow2_block_alloc(struct qcow_state *s, size_t size)
 	uint64_t count;
 	int ret;
 
-	dbgp("  %s %zx\n", __func__, size);
+	tcmu_dbg("  %s %zx\n", __func__, size);
 
 	/* all allocations for qcow2 should be of the same size */
 	assert(size == s->cluster_size);
@@ -1007,17 +1007,17 @@ static uint64_t qcow2_block_alloc(struct qcow_state *s, size_t size)
 		if (count == 0) {
 			ret = fallocate(s->fd, FALLOC_FL_ZERO_RANGE, cluster, s->cluster_size);
 			if (ret) {
-				errp("fallocate failed: %m\n");
+				tcmu_err("fallocate failed: %m\n");
 				return 0;
 			}
 			s->first_free_cluster = cluster + s->cluster_size;
 			// this causes a nasty loop
 			// qcow2_set_refcount(s, cluster, 1);
-			dbgp("  allocating cluster %d\n", cluster / s->cluster_size);
+			tcmu_dbg("  allocating cluster %d\n", cluster / s->cluster_size);
 			return cluster;
 		}
 	}
-	errp("no more free clusters in image file\n");
+	tcmu_err("no more free clusters in image file\n");
 	return 0;
 }
 
@@ -1027,7 +1027,7 @@ static int l2_table_update(struct qcow_state *s,
 {
 	ssize_t ret;
 
-	dbgp("%s: setting %llx[%d] to %llx\n", __func__, l2_table_offset, l2_index, cluster_offset);
+	tcmu_dbg("%s: setting %llx[%d] to %llx\n", __func__, l2_table_offset, l2_index, cluster_offset);
 	l2_table[l2_index] = htobe64(cluster_offset);
 
 	ret = pwrite(s->fd,
@@ -1036,7 +1036,7 @@ static int l2_table_update(struct qcow_state *s,
 		l2_table_offset + (l2_index * sizeof(uint64_t)));
 
 	if (ret != sizeof(uint64_t))
-		errp("%s: error, L2 writeback failed (%zd)\n", __func__, ret);
+		tcmu_err("%s: error, L2 writeback failed (%zd)\n", __func__, ret);
 
 	fdatasync(s->fd);
 	return ret;
@@ -1105,15 +1105,15 @@ static uint64_t get_cluster_offset(struct qcow_state *s, const uint64_t offset, 
 	uint64_t *l2_table;
 	uint64_t cluster_offset;
 
-	dbgp("%s: %"PRIx64" %s\n", __func__, offset, allocate ? "write" : "read");
+	tcmu_dbg("%s: %"PRIx64" %s\n", __func__, offset, allocate ? "write" : "read");
 
 	l1_index = offset >> (s->l2_bits + s->cluster_bits);
 	l2_offset = be64toh(s->l1_table[l1_index]) & s->cluster_mask;
 	l2_index = (offset >> s->cluster_bits) & (s->l2_size - 1);
 	// TODO, check refcount on L2 table and handle CoW for metadata updates
-	dbgp("  l1_index = %d\n", l1_index);
-	dbgp("  l2_offset = %"PRIx64"\n", l2_offset);
-	dbgp("  l2_index = %d\n", l2_index);
+	tcmu_dbg("  l1_index = %d\n", l1_index);
+	tcmu_dbg("  l2_offset = %"PRIx64"\n", l2_offset);
+	tcmu_dbg("  l2_index = %d\n", l2_index);
 
 	if (!l2_offset) {
 		if (!allocate || !(l2_offset = l2_table_alloc(s)))
@@ -1127,8 +1127,8 @@ static uint64_t get_cluster_offset(struct qcow_state *s, const uint64_t offset, 
 		return 0;
 
 	cluster_offset = be64toh(l2_table[l2_index]); // & s->cluster_mask;
-	dbgp("  l2_table @ %p\n", l2_table);
-	dbgp("  cluster offset = %" PRIx64 "\n", cluster_offset);
+	tcmu_dbg("  l2_table @ %p\n", l2_table);
+	tcmu_dbg("  cluster offset = %" PRIx64 "\n", cluster_offset);
 
 	if (!cluster_offset) {
 		/* sector not allocated in image file */
@@ -1137,7 +1137,7 @@ static uint64_t get_cluster_offset(struct qcow_state *s, const uint64_t offset, 
 		l2_table_update(s, l2_table, l2_offset, l2_index, cluster_offset | s->cluster_copied);
 		s->set_refcount(s, cluster_offset, 1);
 	} else if ((cluster_offset & s->cluster_compressed) && allocate) {
-		errp("re-allocating compressed cluster for writing\n");
+		tcmu_err("re-allocating compressed cluster for writing\n");
 		/* reallocate a compressed cluster for writing */
 		if (decompress_cluster(s, cluster_offset) < 0)
 			return 0;
@@ -1148,7 +1148,7 @@ static uint64_t get_cluster_offset(struct qcow_state *s, const uint64_t offset, 
 		l2_table_update(s, l2_table, l2_offset, l2_index, cluster_offset | s->cluster_copied);
 		s->set_refcount(s, cluster_offset, 1);
 	} else if (!(cluster_offset & s->cluster_copied) && allocate) {
-		errp("re-allocating shared cluster for writing\n");
+		tcmu_err("re-allocating shared cluster for writing\n");
 		/* refcount > 1 (the copied bit means refcount == 1)
 		 * need to make a new copy if this is for a write */
 		uint64_t old_offset = cluster_offset & s->cluster_mask;
@@ -1168,7 +1168,7 @@ static uint64_t get_cluster_offset(struct qcow_state *s, const uint64_t offset, 
 		// TODO drop refcount on old cluster
 		goto out;
 	fail:
-		errp("CoW failed\n");
+		tcmu_err("CoW failed\n");
 		free(cow_buffer);
 		return 0;
 	}
@@ -1260,7 +1260,7 @@ static ssize_t qcow_preadv(struct bdev *bdev, struct iovec *iov, int iovcnt, off
 			iovec_memset(_iov, _cnt, 0, 512 * n);
 		} else if (cluster_offset & s->cluster_compressed) {
 			if (decompress_cluster(s, cluster_offset) < 0) {
-				errp("decompression failure\n");
+				tcmu_err("decompression failure\n");
 				return -1;
 			}
 			tcmu_memcpy_into_iovec(_iov, _cnt, s->cluster_cache + sector_index * 512, 512 * n);
@@ -1304,12 +1304,12 @@ static ssize_t qcow_pwritev(struct bdev *bdev, struct iovec *iov, int iovcnt, of
 
 		cluster_offset = get_cluster_offset(s, sector_num << 9, true);
 		if (!cluster_offset) {
-			errp("cluster not allocated for writes\n");
+			tcmu_err("cluster not allocated for writes\n");
 			return -1;
 		} else if (cluster_offset & QCOW_OFLAG_COMPRESSED) {
 			/* compressed clusters should be copied and inflated in
 			 * get_cluster_offset() with alloc=true */
-			errp("cluster decompression CoW failure\n");
+			tcmu_err("cluster decompression CoW failure\n");
 			return -1;
 		} else {
 			written = pwritev(bdev->fd, _iov, _cnt, cluster_offset + (sector_index * 512));
@@ -1345,7 +1345,7 @@ static int raw_probe(struct bdev *bdev, int dirfd, const char *pathname)
 {
 	struct stat st;
 
-	dbgp("%s\n", __func__);
+	tcmu_dbg("%s\n", __func__);
 
 	if (faccessat(dirfd, pathname, R_OK, AT_EACCESS) == -1)
 		return -1;
@@ -1360,7 +1360,7 @@ static int raw_probe(struct bdev *bdev, int dirfd, const char *pathname)
 static int raw_image_open(struct bdev *bdev, int dirfd, const char *pathname, int flags)
 {
 	bdev->fd = openat(dirfd, pathname, flags);
-	dbgp("%d: %s\n", bdev->fd, pathname);
+	tcmu_dbg("%d: %s\n", bdev->fd, pathname);
 	return bdev->fd;
 }
 
@@ -1423,13 +1423,13 @@ static int qcow_open(struct tcmu_device *dev)
 
 	bdev->block_size = tcmu_get_attribute(dev, "hw_block_size");
 	if (bdev->block_size < 0) {
-		errp("Could not get device block size\n");
+		tcmu_err("Could not get device block size\n");
 		goto err;
 	}
 
 	bdev->size = tcmu_get_device_size(dev);
 	if (bdev->size < 0) {
-		errp("Could not get device size\n");
+		tcmu_err("Could not get device size\n");
 		goto err;
 	}
 
@@ -1437,13 +1437,13 @@ static int qcow_open(struct tcmu_device *dev)
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
-		errp("no configuration found in cfgstring\n");
+		tcmu_err("no configuration found in cfgstring\n");
 		goto err;
 	}
 	config += 1; /* get past '/' */
 
-	dbgp("%s\n", tcmu_get_dev_cfgstring(dev));
-	dbgp("%s\n", config);
+	tcmu_dbg("%s\n", tcmu_get_dev_cfgstring(dev));
+	tcmu_dbg("%s\n", config);
 
 	if (bdev_open(bdev, AT_FDCWD, config, O_RDWR) == -1)
 		goto err;
@@ -1531,7 +1531,7 @@ static int qcow_handle_cmd(
 		while (remaining) {
 			ret = bdev->ops->preadv(bdev, iovec, iov_cnt, offset);
 			if (ret < 0) {
-				errp("read failed: %m\n");
+				tcmu_err("read failed: %m\n");
 				return set_medium_error(sense);
 			}
 			tcmu_seek_in_iovec(iovec, ret);
@@ -1552,7 +1552,7 @@ static int qcow_handle_cmd(
 		while (remaining) {
 			ret = bdev->ops->pwritev(bdev, iovec, iov_cnt, offset);
 			if (ret < 0) {
-				errp("writefailed: %m\n");
+				tcmu_err("writefailed: %m\n");
 				return set_medium_error(sense);
 			}
 			tcmu_seek_in_iovec(iovec, ret);
@@ -1562,7 +1562,7 @@ static int qcow_handle_cmd(
 	}
 	break;
 	default:
-		errp("unknown command %x\n", cdb[0]);
+		tcmu_err("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
 }
