@@ -120,7 +120,7 @@ void tcmu_config_destroy(struct tcmu_config *cfg)
 {
 	/* TCMU_FREE_CFG_STR(cfg, "__STR__"); */
 
-	cfree(cfg);
+	free(cfg);
 }
 
 #define TCMU_MAX_CFG_FILE_SIZE (2 * 1024 * 1024)
