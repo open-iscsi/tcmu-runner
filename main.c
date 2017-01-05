@@ -286,6 +286,21 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 	}
 }
 
+#define TCMU_CDB_MAX_LEN 10 /* TODO: is 10 bytes for now */
+static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
+{
+	int i, n;
+	char buf[3 * TCMU_CDB_MAX_LEN + 1];
+	bool short_cdb = cmd->cdb[0] <= 0x1f;
+
+	for (i = 0, n = 0; i < (short_cdb ? 6 : 10); i++) {
+		n += sprintf(buf + n, "%x ", cmd->cdb[i]);
+	}
+	sprintf(buf + n, "\n");
+
+	tcmu_dbg(buf);
+}
+
 static void *thread_start(void *arg)
 {
 	struct tcmu_device *dev = arg;
@@ -303,13 +318,8 @@ static void *thread_start(void *arg)
 		tcmulib_processing_start(dev);
 
 		while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
-			int i;
-			bool short_cdb = cmd->cdb[0] <= 0x1f;
-
-			for (i = 0; i < (short_cdb ? 6 : 10); i++) {
-				tcmu_dbg("%x ", cmd->cdb[i]);
-			}
-			tcmu_dbg("\n");
+			if (tcmu_get_log_level() == TCMU_LOG_DEBUG)
+				tcmu_cdb_debug_info(cmd);
 
 			if (r_handler->handle_cmd)
 				ret = r_handler->handle_cmd(dev, cmd);

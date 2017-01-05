@@ -18,11 +18,6 @@
 #include "libtcmu_log.h"
 #include "libtcmu_config.h"
 
-#define TCMU_LOG_ERROR	LOG_ERR		/* error conditions */
-#define TCMU_LOG_WARN	LOG_WARNING	/* warning conditions */
-#define TCMU_LOG_INFO	LOG_INFO	/* informational */
-#define TCMU_LOG_DEBUG	LOG_DEBUG	/* debug-level messages */
-
 static int tcmu_log_level = TCMU_LOG_WARN;
 
 static inline int tcmu_log_level_conf_to_syslog(int level)
@@ -39,6 +34,12 @@ static inline int tcmu_log_level_conf_to_syslog(int level)
 		default:
 			return TCMU_LOG_WARN;
 	}
+}
+
+/* get the log level of tcmu-runner */
+unsigned int tcmu_get_log_level(void)
+{
+	return tcmu_log_level;
 }
 
 /* covert log level from tcmu config to syslog */
