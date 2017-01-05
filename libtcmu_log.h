@@ -27,9 +27,15 @@
 #define TCMU_SYNC "tcmu-synthesizer"
 #define TCMU_LOG_BUF_SIZE 1024
 
+#define TCMU_LOG_ERROR	LOG_ERR		/* error conditions */
+#define TCMU_LOG_WARN	LOG_WARNING	/* warning conditions */
+#define TCMU_LOG_INFO	LOG_INFO	/* informational */
+#define TCMU_LOG_DEBUG	LOG_DEBUG	/* debug-level messages */
+
 void tcmu_log_open_syslog(const char *ident, int option, int facility);
 void tcmu_log_close_syslog(void);
 void tcmu_set_log_level(int level);
+unsigned int tcmu_get_log_level(void);
 
 void tcmu_err_message(const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_warn_message(const char *funcname, int linenr, const char *fmt, ...);
