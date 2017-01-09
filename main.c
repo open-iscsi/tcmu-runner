@@ -286,14 +286,41 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 	}
 }
 
-#define TCMU_CDB_MAX_LEN 10 /* TODO: is 10 bytes for now */
+#define TCMU_CDB_MAX_LEN 16 /* 16 bytes for now */
 static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 {
-	int i, n;
+	int i, n, bytes;
 	char buf[3 * TCMU_CDB_MAX_LEN + 1];
-	bool short_cdb = cmd->cdb[0] <= 0x1f;
+	uint8_t group_code = cmd->cdb[0] >> 5;
 
-	for (i = 0, n = 0; i < (short_cdb ? 6 : 10); i++) {
+	switch (group_code) {
+	case 0: /*000b for 6 bytes commands */
+		bytes = 6;
+		break;
+	case 1: /*001b for 10 bytes commands */
+	case 2: /*010b for 10 bytes commands */
+		bytes = 10;
+		break;
+	case 3: /*011b Reserved ? */
+		if (cmd->cdb[0] == 0x7f)
+			bytes = 7 + cmd->cdb[7];
+		else
+			bytes = 6;
+		break;
+	case 4: /*100b for 16 bytes commands */
+		bytes = 16;
+		break;
+	case 5: /*101b for 12 bytes commands */
+		bytes = 12;
+		break;
+	case 6: /*110b Vendor Specific */
+	case 7: /*111b Vendor Specific */
+	default:
+		/* TODO: */
+		bytes = 6;
+	}
+
+	for (i = 0, n = 0; i < bytes; i++) {
 		n += sprintf(buf + n, "%x ", cmd->cdb[i]);
 	}
 	sprintf(buf + n, "\n");
