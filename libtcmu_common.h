@@ -74,6 +74,12 @@ int tcmu_emulate_read_capacity_16(uint64_t num_lbas, uint32_t block_size, uint8_
 				  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_mode_select(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+int tcmu_emulate_write_verify(struct tcmu_device *, struct tcmulib_cmd *,
+			      ssize_t (*read)(struct tcmu_device *,
+					      struct iovec *, size_t, off_t),
+			      ssize_t (*write)(struct tcmu_device *,
+					       struct iovec *, size_t, off_t),
+			      struct iovec *, size_t, off_t);
 
 #ifdef __cplusplus
 }

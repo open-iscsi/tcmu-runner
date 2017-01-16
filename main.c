@@ -230,6 +230,11 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 						   ASC_READ_ERROR, NULL);
 		} else
 			return SAM_STAT_GOOD;
+	case WRITE_VERIFY:
+		return tcmu_emulate_write_verify(dev, tcmulib_cmd,
+						 store->read,
+						 store->write,
+						 iovec, iov_cnt, offset);
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
