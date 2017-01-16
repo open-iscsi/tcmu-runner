@@ -273,6 +273,41 @@ static int file_handle_cmd_async(
 }
 #endif /* ASYNC_FILE_HANDLER */
 
+static int do_verify_op(struct file_state *state, struct iovec *iovec, uint64_t offset,
+                        int length, uint8_t *sense)
+{
+	uint32_t cmp_offset;
+	size_t ret;
+	void *buf;
+	int rc = SAM_STAT_GOOD;
+
+	buf = malloc(length);
+	if (!buf)
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	memset(buf, 0, length);
+
+	ret = pread(state->fd, buf, length, offset);
+	if (ret < 0) {
+		tcmu_err("read failed: %m\n");
+		free(buf);
+		return set_medium_error(sense);
+	}
+
+	cmp_offset = tcmu_compare_with_iovec(buf, iovec, length);
+	if (cmp_offset != -1)
+		rc = tcmu_set_sense_data(sense, MISCOMPARE,
+					 ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
+					 &cmp_offset);
+
+	tcmu_err("cmp_offset %lu: %m\n", cmp_offset);
+
+	free(buf);
+
+	return rc;
+}
+
 /*
  * Return scsi status or TCMU_NOT_HANDLED
  */
@@ -290,6 +325,8 @@ static int file_handle_cmd(
 	size_t ret;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	bool do_verify = false;
+	uint64_t offset = block_size * tcmu_get_lba(cdb);
 
 	cmd = cdb[0];
 
@@ -337,10 +374,9 @@ static int file_handle_cmd(
 	case READ_16:
 	{
 		void *buf;
-		uint64_t offset = block_size * tcmu_get_lba(cdb);
 		int length = tcmu_get_xfer_length(cdb) * block_size;
 
-		/* Using this buf DTRT even if seek is beyond EOF */
+		/* Using this buf DTRT even if seek is beyond EOF*/
 		buf = malloc(length);
 		if (!buf)
 			return set_medium_error(sense);
@@ -360,33 +396,37 @@ static int file_handle_cmd(
 		return SAM_STAT_GOOD;
 	}
 	break;
+	case WRITE_VERIFY:
+		do_verify = true;
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
 	case WRITE_16:
 	{
-		uint64_t offset = block_size * tcmu_get_lba(cdb);
-		int length = be16toh(*((uint16_t *)&cdb[7])) * block_size;
+		uint64_t cur_off = offset;
+		int length = tcmu_get_xfer_length(cdb) * block_size;
+		unsigned int to_copy;
+		int i = 0;
 
 		remaining = length;
 
-		while (remaining) {
-			unsigned int to_copy;
+		while (remaining && i < iov_cnt) {
+			to_copy = (remaining > iovec[i].iov_len) ?
+				  iovec[i].iov_len : remaining;
 
-			to_copy = (remaining > iovec->iov_len) ? iovec->iov_len : remaining;
-
-			ret = pwrite(state->fd, iovec->iov_base, to_copy, offset);
+			ret = pwrite(state->fd, iovec[i].iov_base, to_copy, cur_off);
 			if (ret == -1) {
 				tcmu_err("Could not write: %m\n");
 				return set_medium_error(sense);
 			}
 
 			remaining -= to_copy;
-			offset += to_copy;
-			iovec++;
+			cur_off += to_copy;
+			i++;
 		}
-
-		return SAM_STAT_GOOD;
+		if (!do_verify)
+			return SAM_STAT_GOOD;
+		return do_verify_op(state, iovec, offset, length, sense);
 	}
 	break;
 	default:
