@@ -39,13 +39,14 @@
 #include <endian.h>
 #include <scsi/scsi.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include "tcmu-runner.h"
 
 #ifdef ASYNC_FILE_HANDLER
-#include <pthread.h>
 #include <signal.h>
 #include "libtcmu.h"
+#endif
 
 #define NHANDLERS 2
 #define NCOMMANDS 16
@@ -62,16 +63,13 @@ struct file_handler {
 	int cmd_tail;
 	struct tcmulib_cmd *commands[NCOMMANDS];
 };
-#endif /* ASYNC_FILE_HANDLER */
 
 struct file_state {
 	int fd;
 
-#ifdef ASYNC_FILE_HANDLER
 	pthread_mutex_t completion_mtx;
 	int curr_handler;
 	struct file_handler h[NHANDLERS];
-#endif /* ASYNC_FILE_HANDLER */
 };
 
 #ifdef ASYNC_FILE_HANDLER
@@ -271,7 +269,53 @@ static int file_handle_cmd_async(
 
 	return TCMU_ASYNC_HANDLED;
 }
-#endif /* ASYNC_FILE_HANDLER */
+#endif
+
+static int do_sync(struct file_state *state, uint8_t *sense)
+{
+	int rc;
+
+	rc = fsync(state->fd);
+	if (rc) {
+		tcmu_err("sync failed: %m\n");
+		return set_medium_error(sense);
+	}
+
+	return SAM_STAT_GOOD;
+}
+
+static void *async_sync_cache(void *arg)
+{
+	struct tcmu_device *dev = (struct tcmu_device *)arg;
+	struct file_state *state = tcmu_get_dev_private(dev);
+	uint8_t sense[SENSE_BUFFERSIZE];
+
+	(void)do_sync(state, sense);
+
+	return NULL;
+}
+
+static int synchronize_cache(struct tcmu_device *dev, uint8_t *cdb,
+			     uint8_t *sense)
+{
+	struct file_state *state = tcmu_get_dev_private(dev);
+	pthread_t thr;
+	pthread_attr_t attr;
+
+	if (cdb[1] & 0x01)
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB, NULL);
+
+	if (cdb[1] & 0x02) {
+		pthread_attr_init(&attr);
+		pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
+		pthread_create(&thr, &attr, async_sync_cache, dev);
+		pthread_attr_destroy(&attr);
+		return SAM_STAT_GOOD;
+	}
+
+	return do_sync(state, sense);
+}
 
 static int do_verify_op(struct file_state *state, struct iovec *iovec, uint64_t offset,
                         int length, uint8_t *sense)
@@ -460,6 +504,8 @@ static int file_handle_cmd(
 		return do_verify_op(state, iovec, offset, length, sense);
 	}
 	break;
+        case SYNCHRONIZE_CACHE:
+                return synchronize_cache(dev, cdb, sense);
 	default:
 		tcmu_err("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
