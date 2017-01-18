@@ -308,6 +308,24 @@ static int do_verify_op(struct file_state *state, struct iovec *iovec, uint64_t 
 	return rc;
 }
 
+static int check_lba_and_length(struct tcmu_device *dev, uint8_t *cdb,
+				uint8_t *sense, uint64_t *plba, int *plen)
+{
+	uint64_t lba;
+	uint32_t num_blocks;
+
+        lba = tcmu_get_lba(cdb);
+        num_blocks = tcmu_get_xfer_length(cdb);
+
+        if (lba >= tcmu_get_dev_num_lbas(dev) || lba + num_blocks > tcmu_get_dev_num_lbas(dev))
+                return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+                                           ASC_LBA_OUT_OF_RANGE, NULL);
+        *plba = lba;
+        *plen = num_blocks * tcmu_get_dev_block_size(dev);
+
+        return SAM_STAT_GOOD;
+}
+
 /*
  * Return scsi status or TCMU_NOT_HANDLED
  */
@@ -326,7 +344,10 @@ static int file_handle_cmd(
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
 	bool do_verify = false;
-	uint64_t offset = block_size * tcmu_get_lba(cdb);
+	uint64_t offset;
+	int length = 0;
+	uint64_t cur_lba = 0;
+	int rc;
 
 	cmd = cdb[0];
 
@@ -374,7 +395,12 @@ static int file_handle_cmd(
 	case READ_16:
 	{
 		void *buf;
-		int length = tcmu_get_xfer_length(cdb) * block_size;
+
+		rc = check_lba_and_length(dev, cdb, sense, &cur_lba, &length);
+		if (rc)
+			return rc;
+
+		offset = block_size * cur_lba;
 
 		/* Using this buf DTRT even if seek is beyond EOF*/
 		buf = malloc(length);
@@ -403,11 +429,16 @@ static int file_handle_cmd(
 	case WRITE_12:
 	case WRITE_16:
 	{
-		uint64_t cur_off = offset;
-		int length = tcmu_get_xfer_length(cdb) * block_size;
+		uint64_t cur_off = 0;
 		unsigned int to_copy;
 		int i = 0;
 
+		rc = check_lba_and_length(dev, cdb, sense, &cur_lba, &length);
+		if (rc)
+			return rc;
+		offset = block_size * cur_lba;
+
+		cur_off = offset;
 		remaining = length;
 
 		while (remaining && i < iov_cnt) {
