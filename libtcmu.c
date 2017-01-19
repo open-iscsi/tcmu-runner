@@ -285,6 +285,13 @@ static int add_device(struct tcmulib_context *ctx,
 			KERN_IFACE_VER, mb->version);
 		goto err_munmap;
 	}
+
+	ret = pthread_spin_init(&dev->lock, 0);
+	if (ret < 0) {
+		tcmu_err("failed to initialize mailbox lock\n");
+		goto err_munmap;
+	}
+
 	dev->cmd_tail = mb->cmd_tail;
 
 	dev->ctx = ctx;
@@ -294,11 +301,13 @@ static int add_device(struct tcmulib_context *ctx,
 	ret = dev->handler->added(dev);
 	if (ret < 0) {
 		tcmu_err("handler open failed for %s\n", dev->dev_name);
-		goto err_munmap;
+		goto cleanup_lock;
 	}
 
 	return 0;
 
+cleanup_lock:
+	pthread_spin_destroy(&dev->lock);
 err_munmap:
 	munmap(dev->map, dev->map_len);
 err_fd_close:
@@ -356,6 +365,11 @@ static void remove_device(struct tcmulib_context *ctx,
 	ret = munmap(dev->map, dev->map_len);
 	if (ret != 0) {
 		tcmu_err("could not unmap device %s: %d\n", dev_name, errno);
+	}
+
+	ret = pthread_spin_destroy(&dev->lock);
+	if (ret < 0) {
+		tcmu_err("could not cleanup mailbox lock %s: %d\n", dev_name, errno);
 	}
 }
 
@@ -626,12 +640,20 @@ do { \
 	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
 } while (0);
 
+static void _cleanup_spin_lock(void *arg)
+{
+	pthread_spin_unlock(arg);
+}
+
 void tcmulib_command_complete(
 	struct tcmu_device *dev,
 	struct tcmulib_cmd *cmd,
 	int result)
 {
 	struct tcmu_mailbox *mb = dev->map;
+
+	pthread_cleanup_push(_cleanup_spin_lock, (void *)&dev->lock);
+	pthread_spin_lock(&dev->lock);
 	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 
 	/* current command could be PAD in async case */
@@ -653,11 +675,11 @@ void tcmulib_command_complete(
 
 		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
 
-		buf[0] = 0x70;  /* fixed, current */
-		buf[2] = 0x5;   /* illegal request */
+		buf[0] = 0x70;	/* fixed, current */
+		buf[2] = 0x5;	/* illegal request */
 		buf[7] = 0xa;
 		buf[12] = 0x20; /* ASC: invalid command operation code */
-		buf[13] = 0x0;  /* ASCQ: (none) */
+		buf[13] = 0x0;	/* ASCQ: (none) */
 	} else {
 		if (result != SAM_STAT_GOOD) {
 			memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
@@ -667,6 +689,9 @@ void tcmulib_command_complete(
 	}
 
 	TCMU_UPDATE_RB_TAIL(mb, ent);
+	pthread_spin_unlock(&dev->lock);
+	pthread_cleanup_pop(0);
+
 	free(cmd);
 }
 

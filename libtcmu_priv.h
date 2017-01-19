@@ -26,6 +26,7 @@
 #include <stdint.h>
 #include <sys/uio.h>
 #include <gio/gio.h>
+#include <pthread.h>
 
 #include "scsi_defs.h"
 #include "darray.h"
@@ -48,8 +49,11 @@ struct tcmulib_context {
 
 struct tcmu_device {
 	int fd;
+
 	struct tcmu_mailbox *map;
 	size_t map_len;
+	pthread_spinlock_t lock; /* protects concurrent updation of mailbox */
+
 	uint32_t cmd_tail;
 
 	uint64_t num_lbas;
