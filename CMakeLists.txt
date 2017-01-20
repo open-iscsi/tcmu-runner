@@ -47,6 +47,7 @@ set_target_properties(tcmu
   PROPERTIES
   SOVERSION "1"
   )
+SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
 target_include_directories(tcmu
   PUBLIC ${LIBNL_INCLUDE_DIR}
   PUBLIC ${GLIB_INCLUDE_DIRS}
@@ -243,8 +244,8 @@ install(FILES tcmu.conf
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
-if (SUPPORT_SYSTEMD)
+if (IS_DIRECTORY /usr/lib/systemd/system)
   install(FILES tcmu-runner.service DESTINATION /usr/lib/systemd/system/)
-endif (SUPPORT_SYSTEMD)
+endif ()
 install(FILES tcmu-runner.8
     DESTINATION ${CMAKE_INSTALL_PREFIX}/share/man/man8)
