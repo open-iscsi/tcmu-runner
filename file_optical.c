@@ -1244,7 +1244,7 @@ static int fbo_synchronize_cache(struct tcmu_device *dev, uint8_t *cdb,
 }
 
 static int fbo_check_lba_and_length(struct fbo_state *state, uint8_t *cdb,
-				    uint8_t *sense, uint32_t *plba, int *plen)
+				    uint8_t *sense, uint64_t *plba, int *plen)
 {
 	uint64_t lba;
 	uint32_t num_blocks;
@@ -1267,7 +1267,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 {
 	struct fbo_state *state = tcmu_get_dev_private(dev);
 	uint8_t fua = cdb[1] & 0x08;
-	uint32_t cur_lba = 0;
+	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
 	void *buf;
@@ -1371,7 +1371,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 {
 	struct fbo_state *state = tcmu_get_dev_private(dev);
 	uint8_t fua = cdb[1] & 0x08;
-	uint32_t cur_lba = 0;
+	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
 	int remaining;
@@ -1441,7 +1441,7 @@ static int fbo_verify(struct tcmu_device *dev, uint8_t *cdb,
 		      struct iovec *iovec, size_t iov_cnt, uint8_t *sense)
 {
 	struct fbo_state *state = tcmu_get_dev_private(dev);
-	uint32_t cur_lba = 0;
+	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
 	int rc;
