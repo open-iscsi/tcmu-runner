@@ -26,6 +26,8 @@
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
 
+#define CFGFS_CORE "/sys/kernel/config/target/core"
+
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 {
 	int fd;
@@ -34,7 +36,7 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 	ssize_t ret;
 	unsigned int val;
 
-	snprintf(path, sizeof(path), "/sys/kernel/config/target/core/%s/%s/attrib/%s",
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/attrib/%s",
 		 dev->tcm_hba_name, dev->tcm_dev_name, name);
 
 	fd = open(path, O_RDONLY);
@@ -74,7 +76,7 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 	int ret;
 
 	snprintf(path, sizeof(path),
-		 "/sys/kernel/config/target/core/%s/%s/wwn/vpd_unit_serial",
+		 CFGFS_CORE"/%s/%s/wwn/vpd_unit_serial",
 		 dev->tcm_hba_name, dev->tcm_dev_name);
 
 	fd = open(path, O_RDONLY);
@@ -112,7 +114,7 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 	char *rover;
 	unsigned long long size;
 
-	snprintf(path, sizeof(path), "/sys/kernel/config/target/core/%s/%s/info",
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/info",
 		 dev->tcm_hba_name, dev->tcm_dev_name);
 
 	fd = open(path, O_RDONLY);
