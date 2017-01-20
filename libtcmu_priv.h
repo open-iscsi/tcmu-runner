@@ -30,6 +30,7 @@
 
 #include "scsi_defs.h"
 #include "darray.h"
+#include "ccan/list/list.h"
 
 #define KERN_IFACE_VER 2
 
@@ -47,12 +48,38 @@ struct tcmulib_context {
 	GDBusConnection *connection;
 };
 
+struct tcmu_io_entry {
+	struct tcmulib_cmd *cmd;  /* SCSI command */
+	struct list_node entry;
+};
+
+struct tcmu_track_aio {
+	unsigned int tracked_aio_ops;
+	pthread_spinlock_t track_lock;
+};
+
+struct tcmu_io_queue {
+	pthread_mutex_t io_lock;
+	pthread_cond_t io_cond;
+
+	pthread_t io_wq_thread;
+	struct list_head io_queue;
+};
+
 struct tcmu_device {
 	int fd;
 
 	struct tcmu_mailbox *map;
 	size_t map_len;
 	pthread_spinlock_t lock; /* protects concurrent updation of mailbox */
+
+	/*
+	 * lock order:
+	 *  work_queue->aio_lock
+	 *    track_queue->track_lock
+	 */
+	struct tcmu_io_queue work_queue;
+	struct tcmu_track_aio track_queue;
 
 	uint32_t cmd_tail;
 
