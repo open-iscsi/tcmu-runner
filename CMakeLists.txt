@@ -36,6 +36,7 @@ find_library(DL dl)
 # Stuff for building the shared library
 add_library(tcmu
   SHARED
+  cfgfs.c
   api.c
   libtcmu.c
   libtcmu-register.c
@@ -60,6 +61,7 @@ install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Stuff for building the static library
 add_library(tcmu_static
+  cfgfs.c
   api.c
   libtcmu.c
   libtcmu-register.c
