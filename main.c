@@ -286,12 +286,16 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 	}
 }
 
-#define TCMU_CDB_MAX_LEN 16 /* 16 bytes for now */
+#define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)
+#define CDB_FIX_BYTES 64 /* 64 bytes for default */
+#define CDB_FIX_SIZE CDB_TO_BUF_SIZE(CDB_FIX_BYTES)
 static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 {
 	int i, n, bytes;
-	char buf[3 * TCMU_CDB_MAX_LEN + 1];
+	char fix[CDB_FIX_SIZE], *buf;
 	uint8_t group_code = cmd->cdb[0] >> 5;
+
+	buf = fix;
 
 	switch (group_code) {
 	case 0: /*000b for 6 bytes commands */
@@ -302,10 +306,18 @@ static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 		bytes = 10;
 		break;
 	case 3: /*011b Reserved ? */
-		if (cmd->cdb[0] == 0x7f)
+		if (cmd->cdb[0] == 0x7f) {
 			bytes = 7 + cmd->cdb[7];
-		else
+			if (bytes > CDB_FIX_SIZE) {
+				buf = malloc(CDB_TO_BUF_SIZE(bytes));
+				if (!buf) {
+					tcmu_err("out of memory\n");
+					return;
+				}
+			}
+		} else {
 			bytes = 6;
+		}
 		break;
 	case 4: /*100b for 16 bytes commands */
 		bytes = 16;
@@ -326,6 +338,9 @@ static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 	sprintf(buf + n, "\n");
 
 	tcmu_dbg(buf);
+
+	if (bytes > CDB_FIX_SIZE)
+		free(buf);
 }
 
 static void *thread_start(void *arg)
