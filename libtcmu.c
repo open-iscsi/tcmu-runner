@@ -197,6 +197,24 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 	return NULL;
 }
 
+/*
+ * convert errno to closest possible SAM status code.
+ * (add more conversions as required)
+ */
+static int errno_to_sam_status(int rc, uint8_t *sense)
+{
+	if (rc == -ENOMEM) {
+		return SAM_STAT_TASK_SET_FULL;
+	} else if (rc == -EIO) {
+		return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+					   ASC_READ_ERROR, NULL);
+	} else if (rc < 0) {
+		return TCMU_NOT_HANDLED;
+	} else {
+		return SAM_STAT_GOOD;
+	}
+}
+
 static void cmdproc_thread_cleanup(void *arg)
 {
 	struct tcmu_device *dev = arg;
@@ -388,18 +406,257 @@ static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 		free(buf);
 }
 
+static void _cleanup_mutex_lock(void *arg)
+{
+	pthread_mutex_unlock(arg);
+}
+
+static void _cleanup_spin_lock(void *arg)
+{
+	pthread_spin_unlock(arg);
+}
+
+static void tcmulib_track_aio_request_start(struct tcmu_device *dev)
+{
+	struct tcmu_track_aio *aio_track = &dev->track_queue;
+
+	pthread_cleanup_push(_cleanup_spin_lock, (void *)&aio_track->track_lock);
+	pthread_spin_lock(&aio_track->track_lock);
+
+	++aio_track->tracked_aio_ops;
+
+	pthread_spin_unlock(&aio_track->track_lock);
+	pthread_cleanup_pop(0);
+}
+
+static void tcmulib_track_aio_request_finish(struct tcmu_device *dev, int *is_idle)
+{
+	struct tcmu_track_aio *aio_track = &dev->track_queue;
+
+	pthread_cleanup_push(_cleanup_spin_lock, (void *)&aio_track->track_lock);
+	pthread_spin_lock(&aio_track->track_lock);
+
+	assert(aio_track->tracked_aio_ops > 0);
+
+	--aio_track->tracked_aio_ops;
+	if (is_idle) {
+		*is_idle = (aio_track->tracked_aio_ops == 0) ? 1 : 0;
+	}
+
+	pthread_spin_unlock(&aio_track->track_lock);
+	pthread_cleanup_pop(0);
+
+}
+
+static void _untrack_in_flight_io(void *arg)
+{
+	int wakeup;
+	tcmulib_track_aio_request_finish(arg, &wakeup);
+	if (wakeup) {
+		tcmulib_processing_complete(arg);
+	}
+}
+
+static int invokecmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+
+	int (*func)(struct tcmu_device *, struct tcmulib_cmd *) =
+		(r_handler->handle_cmd) ? : generic_handle_cmd;
+	return func(dev, cmd);
+}
+
+static void *io_work_queue(void *arg)
+{
+	struct tcmu_device *dev = arg;
+	struct tcmu_io_queue *io_wq = &dev->work_queue;
+
+	while (1) {
+		int ret;
+		struct tcmu_io_entry *io_entry;
+
+		pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
+		pthread_mutex_lock(&io_wq->io_lock);
+
+		while (list_empty(&io_wq->io_queue)) {
+			pthread_cond_wait(&io_wq->io_cond,
+					  &io_wq->io_lock);
+		}
+
+		io_entry = list_first_entry(&io_wq->io_queue,
+					    struct tcmu_io_entry, entry);
+		list_del(&io_entry->entry);
+
+		pthread_mutex_unlock(&io_wq->io_lock);
+		pthread_cleanup_pop(0);
+
+		/* kick start I/O request */
+		pthread_cleanup_push(_untrack_in_flight_io, dev);
+		tcmulib_track_aio_request_start(dev);
+
+		ret = invokecmd(dev, io_entry->cmd);
+		tcmulib_command_complete(dev, io_entry->cmd, ret);
+
+		pthread_cleanup_pop(1); /* untrack aio */
+		free(io_entry);
+	}
+
+	return NULL;
+}
+
+static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmu_io_entry *io_entry;
+	uint8_t *sense = cmd->sense_buf;
+	struct tcmu_io_queue *io_wq = &dev->work_queue;
+
+	io_entry = malloc(sizeof(*io_entry));
+	if (!io_entry) {
+		return errno_to_sam_status(-ENOMEM, sense);
+	}
+
+	io_entry->cmd = cmd;
+	list_node_init(&io_entry->entry);
+
+	/* cleanup push/pop not _really_ required here atm */
+	pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
+	pthread_mutex_lock(&io_wq->io_lock);
+
+	list_add_tail(&io_wq->io_queue, &io_entry->entry);
+	pthread_cond_signal(&io_wq->io_cond); // TODO: conditional
+
+	pthread_mutex_unlock(&io_wq->io_lock);
+	pthread_cleanup_pop(0);
+
+	return TCMU_ASYNC_HANDLED;
+}
+
+static int setup_io_work_queue(struct tcmu_device *dev)
+{
+	int ret;
+	struct tcmu_io_queue *io_wq = &dev->work_queue;
+
+	list_head_init(&io_wq->io_queue);
+
+	ret = pthread_mutex_init(&io_wq->io_lock, NULL);
+	if (ret < 0) {
+		goto out;
+	}
+	ret = pthread_cond_init(&io_wq->io_cond, NULL);
+	if (ret < 0) {
+		goto cleanup_lock;
+	}
+
+	// TODO: >1 worker threads (per device via config)
+	ret = pthread_create(&io_wq->io_wq_thread, NULL, io_work_queue, dev);
+	if (ret < 0) {
+		goto cleanup_cond;
+	}
+
+	return 0;
+
+cleanup_cond:
+	pthread_cond_destroy(&io_wq->io_cond);
+cleanup_lock:
+	pthread_mutex_destroy(&io_wq->io_lock);
+out:
+	return ret;
+}
+
+static void cleanup_io_work_queue(struct tcmu_device *dev,
+				  bool cancel)
+{
+	int ret;
+	struct tcmu_io_queue *io_wq = &dev->work_queue;
+
+	if (cancel) {
+		cancel_thread(io_wq->io_wq_thread);
+	}
+
+	/*
+	 * Note that there's no need to drain ->io_queue at this point
+	 * as it _should_ be empty (target layer would call this path
+	 * when no commands are running - thanks Mike).
+	 *
+	 * Out of tree handlers which do not use the aio code are not
+	 * supported in this path.
+	 */
+
+	ret = pthread_mutex_destroy(&io_wq->io_lock);
+	if (ret != 0) {
+		tcmu_err("failed to destroy io workqueue lock\n");
+	}
+
+	ret = pthread_cond_destroy(&io_wq->io_cond);
+	if (ret != 0) {
+		tcmu_err("failed to destroy io workqueue cond\n");
+	}
+}
+
+static int setup_aio_tracking(struct tcmu_device *dev)
+{
+	int ret;
+	struct tcmu_track_aio *aio_track = &dev->track_queue;
+
+	aio_track->tracked_aio_ops = 0;
+	ret = pthread_spin_init(&aio_track->track_lock, 0);
+	if (ret < 0) {
+		return ret;
+	}
+
+	return 0;
+}
+
+static void cleanup_aio_tracking(struct tcmu_device *dev)
+{
+	int ret;
+	struct tcmu_track_aio *aio_track = &dev->track_queue;
+
+	assert(aio_track->tracked_aio_ops == 0);
+
+	ret = pthread_spin_destroy(&aio_track->track_lock);
+	if (ret < 0) {
+		tcmu_err("failes to destroy track lock\n");
+	}
+}
+
+static void async_call_command(struct tcmu_device *dev,
+			       struct tcmulib_cmd *cmd)
+{
+	int ret;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+
+	if (r_handler->aio_supported) {
+		ret = invokecmd(dev, cmd);
+	} else {
+		ret = aio_schedule(dev, cmd);
+	}
+
+	/*
+	 * command (processing) completion is done when one of the
+	 * following scenario occurs:
+	 *  - synchronous handler:
+	 *	only if aio_schedule() returns an error
+	 *  - asynchronous handler:
+	 *	on an error or if the command was not asynchronously
+	 *	handled (see generic_handle_cmd(), non store callouts)
+	 */
+	if (ret != TCMU_ASYNC_HANDLED) {
+		tcmulib_command_complete(dev, cmd, ret);
+		tcmulib_processing_complete(dev);
+	}
+}
+
 static void *tcmu_cmdproc_thread(void *arg)
 {
 	struct tcmu_device *dev = arg;
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *r_handler = handler->hm_private;
 	struct pollfd pfd;
-	int ret;
 
 	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
 
 	while (1) {
-		int completed = 0;
 		struct tcmulib_cmd *cmd;
 
 		tcmulib_processing_start(dev);
@@ -408,18 +665,9 @@ static void *tcmu_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG)
 				tcmu_cdb_debug_info(cmd);
 
-			if (r_handler->handle_cmd)
-				ret = r_handler->handle_cmd(dev, cmd);
-			else
-				ret = generic_handle_cmd(dev, cmd);
-			if (ret != TCMU_ASYNC_HANDLED) {
-				tcmulib_command_complete(dev, cmd, ret);
-				completed = 1;
-			}
+			/* call async command */
+			async_call_command(dev, cmd);
 		}
-
-		if (completed)
-			tcmulib_processing_complete(dev);
 
 		pfd.fd = tcmu_get_dev_fd(dev);
 		pfd.events = POLLIN;
@@ -559,6 +807,16 @@ static int add_device(struct tcmulib_context *ctx,
 		goto err_munmap;
 	}
 
+	ret = setup_io_work_queue(dev);
+	if (ret < 0) {
+		goto cleanup_lock;
+	}
+
+	ret = setup_aio_tracking(dev);
+	if (ret < 0) {
+		goto cleanup_io_work_queue;
+	}
+
 	dev->cmd_tail = mb->cmd_tail;
 
 	dev->ctx = ctx;
@@ -568,11 +826,15 @@ static int add_device(struct tcmulib_context *ctx,
 	ret = dev->handler->added(dev);
 	if (ret < 0) {
 		tcmu_err("handler open failed for %s\n", dev->dev_name);
-		goto cleanup_lock;
+		goto cleanup_aio_tracking;
 	}
 
 	return 0;
 
+cleanup_aio_tracking:
+	cleanup_aio_tracking(dev);
+cleanup_io_work_queue:
+	cleanup_io_work_queue(dev, true);
 cleanup_lock:
 	pthread_spin_destroy(&dev->lock);
 err_munmap:
@@ -604,6 +866,7 @@ static void remove_device(struct tcmulib_context *ctx,
 	struct tcmu_device *dev;
 	int i = 0, ret;
 	bool found = false;
+	struct tcmu_io_queue *io_wq;
 
 	darray_foreach(dev_ptr, ctx->devices) {
 		dev = *dev_ptr;
@@ -623,7 +886,19 @@ static void remove_device(struct tcmulib_context *ctx,
 
 	darray_remove(ctx->devices, i);
 
+	io_wq = &dev->work_queue;
+
+	/*
+	 * The order of cleaning up worker threads and calling ->removed()
+	 * is important: for sync handlers, the worker thread needs to be
+	 * terminated before removing the handler (i.e., calling handlers
+	 * ->close() callout) in order to ensure that no store callouts
+	 * are getting invoked when shutting down the handler.
+	 */
+	cancel_thread(io_wq->io_wq_thread);
 	dev->handler->removed(dev);
+	cleanup_io_work_queue(dev, false);
+	cleanup_aio_tracking(dev);
 
 	ret = close(dev->fd);
 	if (ret != 0) {
@@ -906,11 +1181,6 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 do { \
 	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
 } while (0);
-
-static void _cleanup_spin_lock(void *arg)
-{
-	pthread_spin_unlock(arg);
-}
 
 void tcmulib_command_complete(
 	struct tcmu_device *dev,

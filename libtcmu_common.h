@@ -21,6 +21,8 @@
 #ifndef __LIBTCMU_COMMON_H
 #define __LIBTCMU_COMMON_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
