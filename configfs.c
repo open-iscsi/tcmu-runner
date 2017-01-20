@@ -28,28 +28,26 @@
 
 #define CFGFS_CORE "/sys/kernel/config/target/core"
 
-int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
+static int tcmu_get_cfgfs_int(const char *path)
 {
 	int fd;
-	char path[256];
 	char buf[16];
 	ssize_t ret;
 	unsigned int val;
 
-	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/attrib/%s",
-		 dev->tcm_hba_name, dev->tcm_dev_name, name);
-
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read attribute %s\n", name);
-		return -EINVAL;
+		tcmu_err("Could not open configfs to read attribute %s: %s\n",
+			 path, strerror(errno));
+		return -errno;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	close(fd);
 	if (ret == -1) {
-		tcmu_err("Could not read configfs to read attribute %s\n", name);
-		return -EINVAL;
+		tcmu_err("Could not read configfs to read attribute %s: %s\n",
+			 path, strerror(errno));
+		return -errno;
 	}
 
 	val = strtoul(buf, NULL, 0);
@@ -59,6 +57,15 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 	}
 
 	return val;
+}
+
+int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
+{
+	char path[PATH_MAX];
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/attrib/%s",
+		 dev->tcm_hba_name, dev->tcm_dev_name, name);
+	return tcmu_get_cfgfs_int(path);
 }
 
 
