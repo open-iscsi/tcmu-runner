@@ -187,8 +187,6 @@ int main(int argc, char **argv)
 	GIOChannel *libtcmu_gio;
 	struct tcmulib_context *ctx;
 
-	tcmu_log_open_syslog(TCMU_SYNC, 0, 0);
-
 	while (1) {
 		int c;
 		int option_index = 0;
@@ -224,6 +222,5 @@ int main(int argc, char **argv)
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 	g_main_loop_unref(loop);
-	tcmu_log_close_syslog();
 	return 0;
 }

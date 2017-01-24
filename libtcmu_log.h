@@ -32,10 +32,9 @@
 #define TCMU_LOG_INFO	LOG_INFO	/* informational */
 #define TCMU_LOG_DEBUG	LOG_DEBUG	/* debug-level messages */
 
-void tcmu_log_open_syslog(const char *ident, int option, int facility);
-void tcmu_log_close_syslog(void);
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
+void tcmu_cancel_log_thread(void);
 
 void tcmu_err_message(const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_warn_message(const char *funcname, int linenr, const char *fmt, ...);
