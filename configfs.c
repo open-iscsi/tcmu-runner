@@ -27,6 +27,7 @@
 #include "libtcmu_priv.h"
 
 #define CFGFS_CORE "/sys/kernel/config/target/core"
+#define CFGFS_BUF_SIZE 4096
 
 static int tcmu_get_cfgfs_int(const char *path)
 {
@@ -77,8 +78,8 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 char *tcmu_get_wwn(struct tcmu_device *dev)
 {
 	int fd;
-	char path[256];
-	char buf[256];
+	char path[PATH_MAX];
+	char buf[CFGFS_BUF_SIZE];
 	char *ret_buf;
 	int ret;
 
@@ -115,8 +116,8 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 long long tcmu_get_device_size(struct tcmu_device *dev)
 {
 	int fd;
-	char path[256];
-	char buf[4096];
+	char path[PATH_MAX];
+	char buf[CFGFS_BUF_SIZE];
 	ssize_t ret;
 	char *rover;
 	unsigned long long size;
