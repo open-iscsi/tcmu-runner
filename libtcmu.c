@@ -37,6 +37,7 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
+#include "tcmu-runner.h"
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
 
@@ -44,6 +45,8 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_DEVICE]	= { .type = NLA_STRING },
 	[TCMU_ATTR_MINOR]	= { .type = NLA_U32 },
 };
+
+static darray(struct tcmu_thread) g_threads = darray_new();
 
 static int add_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
 static void remove_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
@@ -155,6 +158,27 @@ static void teardown_netlink(struct nl_sock *sock)
 	nl_socket_free(sock);
 }
 
+static void cancel_thread(pthread_t thread)
+{
+	void *join_retval;
+	int ret;
+
+	ret = pthread_cancel(thread);
+	if (ret) {
+		tcmu_err("pthread_cancel failed with value %d\n", ret);
+		return;
+	}
+
+	ret = pthread_join(thread, &join_retval);
+	if (ret) {
+		tcmu_err("pthread_join failed with value %d\n", ret);
+		return;
+	}
+
+	if (join_retval != PTHREAD_CANCELED)
+		tcmu_err("unexpected join retval: %p\n", join_retval);
+}
+
 static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 					    char *cfgstring)
 {
@@ -169,6 +193,249 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 		if (!strncmp(cfgstring, handler->subtype, len))
 		    return handler;
 	}
+
+	return NULL;
+}
+
+static void cmdproc_thread_cleanup(void *arg)
+{
+	struct tcmu_device *dev = arg;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+
+	r_handler->close(dev);
+	free(dev);
+}
+
+static int generic_handle_cmd(struct tcmu_device *dev,
+			      struct tcmulib_cmd *tcmulib_cmd)
+{
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *store = handler->hm_private;
+	uint8_t *cdb = tcmulib_cmd->cdb;
+	struct iovec *iovec = tcmulib_cmd->iovec;
+	size_t iov_cnt = tcmulib_cmd->iov_cnt;
+	uint8_t *sense = tcmulib_cmd->sense_buf;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	uint8_t cmd;
+	ssize_t ret, l = tcmu_iovec_length(iovec, iov_cnt);
+	off_t offset = block_size * tcmu_get_lba(cdb);
+	struct iovec iov;
+	size_t half = l / 2;
+	uint32_t cmp_offset;
+
+	cmd = cdb[0];
+
+	switch (cmd) {
+	case INQUIRY:
+		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
+	case TEST_UNIT_READY:
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+	case SERVICE_ACTION_IN_16:
+		if (cdb[1] == READ_CAPACITY_16)
+			return tcmu_emulate_read_capacity_16(num_lbas,
+							     block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
+		else
+			return TCMU_NOT_HANDLED;
+	case READ_CAPACITY:
+		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
+			/* Reserved bits for MM logical units */
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_INVALID_FIELD_IN_CDB,
+						   NULL);
+		else
+			return tcmu_emulate_read_capacity_10(num_lbas,
+							     block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+	case START_STOP:
+		return tcmu_emulate_start_stop(dev, cdb, sense);
+	case MODE_SELECT:
+	case MODE_SELECT_10:
+		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+	case READ_6:
+	case READ_10:
+	case READ_12:
+	case READ_16:
+		ret = store->read(dev, iovec, iov_cnt, offset);
+		if (ret != l) {
+			tcmu_err("Error on read %x, %x\n", ret, l);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	case WRITE_VERIFY:
+		return tcmu_emulate_write_verify(dev, tcmulib_cmd,
+						 store->read,
+						 store->write,
+						 iovec, iov_cnt, offset);
+	case WRITE_6:
+	case WRITE_10:
+	case WRITE_12:
+	case WRITE_16:
+		ret = store->write(dev, iovec, iov_cnt, offset);
+		if (ret != l) {
+			tcmu_err("Error on write %x, %x\n", ret, l);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	case SYNCHRONIZE_CACHE:
+	case SYNCHRONIZE_CACHE_16:
+		ret = store->flush(dev);
+		if (ret < 0) {
+			tcmu_err("Error on flush %x\n", ret);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	case COMPARE_AND_WRITE:
+		iov.iov_base = malloc(half);
+		if (!iov.iov_base) {
+			tcmu_err("out of memory\n");
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		}
+		iov.iov_len = half;
+		ret = store->read(dev, &iov, 1, offset);
+		if (ret != l) {
+			tcmu_err("Error on read %x, %x\n", ret, l);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		}
+		cmp_offset = tcmu_compare_with_iovec(iov.iov_base, iovec, half);
+		if (cmp_offset != -1) {
+			return tcmu_set_sense_data(sense, MISCOMPARE,
+					ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
+					&cmp_offset);
+		}
+		free(iov.iov_base);
+
+		tcmu_seek_in_iovec(iovec, half);
+		ret = store->write(dev, iovec, iov_cnt, offset);
+		if (ret != half) {
+			tcmu_err("Error on write %x, %x\n", ret, half);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	default:
+		tcmu_err("unknown command %x\n", cdb[0]);
+		return TCMU_NOT_HANDLED;
+	}
+}
+
+#define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)
+#define CDB_FIX_BYTES 64 /* 64 bytes for default */
+#define CDB_FIX_SIZE CDB_TO_BUF_SIZE(CDB_FIX_BYTES)
+static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
+{
+	int i, n, bytes;
+	char fix[CDB_FIX_SIZE], *buf;
+	uint8_t group_code = cmd->cdb[0] >> 5;
+
+	buf = fix;
+
+	switch (group_code) {
+	case 0: /*000b for 6 bytes commands */
+		bytes = 6;
+		break;
+	case 1: /*001b for 10 bytes commands */
+	case 2: /*010b for 10 bytes commands */
+		bytes = 10;
+		break;
+	case 3: /*011b Reserved ? */
+		if (cmd->cdb[0] == 0x7f) {
+			bytes = 7 + cmd->cdb[7];
+			if (bytes > CDB_FIX_SIZE) {
+				buf = malloc(CDB_TO_BUF_SIZE(bytes));
+				if (!buf) {
+					tcmu_err("out of memory\n");
+					return;
+				}
+			}
+		} else {
+			bytes = 6;
+		}
+		break;
+	case 4: /*100b for 16 bytes commands */
+		bytes = 16;
+		break;
+	case 5: /*101b for 12 bytes commands */
+		bytes = 12;
+		break;
+	case 6: /*110b Vendor Specific */
+	case 7: /*111b Vendor Specific */
+	default:
+		/* TODO: */
+		bytes = 6;
+	}
+
+	for (i = 0, n = 0; i < bytes; i++) {
+		n += sprintf(buf + n, "%x ", cmd->cdb[i]);
+	}
+	sprintf(buf + n, "\n");
+
+	tcmu_dbg(buf);
+
+	if (bytes > CDB_FIX_SIZE)
+		free(buf);
+}
+
+static void *tcmu_cmdproc_thread(void *arg)
+{
+	struct tcmu_device *dev = arg;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+	struct pollfd pfd;
+	int ret;
+
+	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
+
+	while (1) {
+		int completed = 0;
+		struct tcmulib_cmd *cmd;
+
+		tcmulib_processing_start(dev);
+
+		while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
+			if (tcmu_get_log_level() == TCMU_LOG_DEBUG)
+				tcmu_cdb_debug_info(cmd);
+
+			if (r_handler->handle_cmd)
+				ret = r_handler->handle_cmd(dev, cmd);
+			else
+				ret = generic_handle_cmd(dev, cmd);
+			if (ret != TCMU_ASYNC_HANDLED) {
+				tcmulib_command_complete(dev, cmd, ret);
+				completed = 1;
+			}
+		}
+
+		if (completed)
+			tcmulib_processing_complete(dev);
+
+		pfd.fd = tcmu_get_dev_fd(dev);
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+
+		poll(&pfd, 1, -1);
+
+		if (pfd.revents != POLLIN) {
+			tcmu_err("poll received unexpected revent: 0x%x\n", pfd.revents);
+			break;
+		}
+	}
+
+	tcmu_err("thread terminating, should never happen\n");
+
+	pthread_cleanup_pop(1);
 
 	return NULL;
 }
@@ -719,4 +986,52 @@ void tcmulib_processing_complete(struct tcmu_device *dev)
 	} while (r == -1 && errno == EINTR);
 	if (r == -1 && errno != EAGAIN)
 		perror("write");
+}
+
+int tcmulib_start_cmdproc_thread(struct tcmu_device *dev)
+{
+	int ret;
+	struct tcmu_thread thread;
+
+	thread.dev = dev;
+
+	ret = pthread_create(&thread.thread_id, NULL, tcmu_cmdproc_thread, dev);
+	if (ret) {
+		return -1;
+	}
+
+	darray_append(g_threads, thread);
+	return 0;
+}
+
+void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev)
+{
+	struct tcmu_thread *thread;
+	int i = 0;
+	bool found = false;
+
+	darray_foreach(thread, g_threads) {
+		if (thread->dev == dev) {
+			found = true;
+			break;
+		} else {
+			i++;
+		}
+	}
+
+	if (!found) {
+		tcmu_err("could not remove a device: not found\n");
+		return;
+	}
+
+	cancel_thread(thread->thread_id);
+	darray_remove(g_threads, i);
+}
+
+void tcmulib_cleanup_all_cmdproc_threads()
+{
+	struct tcmu_thread *thread;
+	darray_foreach(thread, g_threads) {
+		cancel_thread(thread->thread_id);
+	}
 }

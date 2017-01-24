@@ -114,6 +114,15 @@ void tcmulib_processing_complete(struct tcmu_device *dev);
 /* Clean up loose ends when exiting */
 void tcmulib_close(struct tcmulib_context *ctx);
 
+/* kick start command processing thread */
+int tcmulib_start_cmdproc_thread(struct tcmu_device *dev);
+
+/* cleanup command processing thread for a given device */
+void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev);
+
+/* cleanup all (devices) command processing threads */
+void tcmulib_cleanup_all_cmdproc_threads();
+
 #ifdef __cplusplus
 }
 #endif
