@@ -269,7 +269,6 @@ int tcmu_emulate_std_inquiry(
 	uint8_t *sense)
 {
 	uint8_t buf[36];
-	size_t copied;
 
 	memset(buf, 0, sizeof(buf));
 
@@ -283,12 +282,7 @@ int tcmu_emulate_std_inquiry(
 	memcpy(&buf[32], "0002", 4);
 	buf[4] = 31; /* Set additional length to 31 */
 
-	copied = tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
-	if (copied != sizeof(buf)) {
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
-	}
-
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 	return SAM_STAT_GOOD;
 }
 
@@ -317,8 +311,6 @@ int tcmu_emulate_evpd_inquiry(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
-	size_t copied;
-
 	switch (cdb[2]) {
 	case 0x0: /* Supported VPD pages */
 	{
@@ -333,14 +325,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		data[3] = 3;
 
-		copied = tcmu_memcpy_into_iovec(iovec, iov_cnt, data,
-						sizeof(data));
-		if (copied != sizeof(data)) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
-		}
-
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 		return SAM_STAT_GOOD;
 	}
 	break;
@@ -429,13 +414,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		*tot_len = htobe16(used);
 
-		copied = tcmu_memcpy_into_iovec(iovec, iov_cnt, data,
-						used + 4);
-		if (copied != used + 4) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
-		}
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, used + 4);
 
 		free(wwn);
 		wwn = NULL;
@@ -480,13 +459,7 @@ int tcmu_emulate_evpd_inquiry(
 		/* Optimal xfer length */
 		memcpy(&data[12], &val32, 4);
 
-		copied = tcmu_memcpy_into_iovec(iovec, iov_cnt, data,
-						sizeof(data));
-		if (copied != sizeof(data)) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
-		}
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 
 		return SAM_STAT_GOOD;
 	}
