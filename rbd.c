@@ -159,8 +159,9 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 	free(state);
 }
 
-static ssize_t tcmu_rbd_read(struct tcmu_device *dev, struct iovec *iov,
-			     size_t iov_cnt, off_t offset)
+static ssize_t tcmu_rbd_read(struct tcmu_device *dev,
+			     struct tcmulib_cmd *tcmulib_cmd,
+			     struct iovec *iov, size_t iov_cnt, off_t offset)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	size_t length = tcmu_iovec_length(iov, iov_cnt);
@@ -179,8 +180,9 @@ out:
 	return ret;
 }
 
-static ssize_t tcmu_rbd_write(struct tcmu_device *dev, struct iovec *iov,
-			      size_t iov_cnt, off_t offset)
+static ssize_t tcmu_rbd_write(struct tcmu_device *dev,
+			      struct tcmulib_cmd *tcmulib_cmd,
+			      struct iovec *iov, size_t iov_cnt, off_t offset)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	size_t length = tcmu_iovec_length(iov, iov_cnt);
@@ -196,7 +198,8 @@ out:
 	return ret;
 }
 
-static int tcmu_rbd_flush(struct tcmu_device *dev)
+static int tcmu_rbd_flush(struct tcmu_device *dev,
+			  struct tcmulib_cmd *tcmulib_cmd)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 

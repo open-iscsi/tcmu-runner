@@ -35,8 +35,10 @@ struct tcmulib_cmd;
 
 #define SENSE_BUFFERSIZE 96
 
-typedef ssize_t (*store_rw_t)(struct tcmu_device *, struct iovec *, size_t, off_t);
-typedef int (*store_flush_t)(struct tcmu_device *);
+typedef ssize_t (*store_rw_t)(struct tcmu_device *,
+			      struct tcmulib_cmd *,
+			      struct iovec *, size_t, off_t);
+typedef int (*store_flush_t)(struct tcmu_device *, struct tcmulib_cmd *);
 typedef int (*store_handle_cmd_t)(struct tcmu_device *, struct tcmulib_cmd *);
 
 typedef void (*callout_cbk_t)(struct tcmu_device *, struct tcmulib_cmd *, int);

@@ -539,23 +539,26 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 	free(gfsp);
 }
 
-static ssize_t tcmu_glfs_read(struct tcmu_device *dev, struct iovec *iov,
-			      size_t iov_cnt, off_t offset)
+static ssize_t tcmu_glfs_read(struct tcmu_device *dev,
+			      struct tcmulib_cmd *tcmulib_cmd,
+			      struct iovec *iov, size_t iov_cnt, off_t offset)
 {
         struct glfs_state *state = tcmu_get_dev_private(dev);
 
         return glfs_preadv(state->gfd, iov, iov_cnt, offset, SEEK_SET);
 }
 
-static ssize_t tcmu_glfs_write(struct tcmu_device *dev, struct iovec *iov,
-			       size_t iov_cnt, off_t offset)
+static ssize_t tcmu_glfs_write(struct tcmu_device *dev,
+			       struct tcmulib_cmd *tcmulib_cmd,
+			       struct iovec *iov, size_t iov_cnt, off_t offset)
 {
 	struct glfs_state *state = tcmu_get_dev_private(dev);
 
         return glfs_pwritev(state->gfd, iov, iov_cnt, offset, ALLOWED_BSOFLAGS);
 }
 
-static int tcmu_glfs_flush(struct tcmu_device *dev)
+static int tcmu_glfs_flush(struct tcmu_device *dev,
+			   struct tcmulib_cmd *tcmulib_cmd)
 {
 	struct glfs_state *state = tcmu_get_dev_private(dev);
 

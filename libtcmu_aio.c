@@ -84,7 +84,7 @@ static int call_stub_exec(struct tcmu_device *dev,
 	case TCMU_STORE_OP_READ:
 	case TCMU_STORE_OP_WRITE:
 		requested = tcmu_iovec_length(stub->u.rw.iov, stub->u.rw.iov_cnt);
-		ret  = stub->u.rw.exec(dev, stub->u.rw.iov,
+		ret  = stub->u.rw.exec(dev, cmd, stub->u.rw.iov,
 				       stub->u.rw.iov_cnt, stub->u.rw.off);
 		if (!is_async) {
 			if (ret != requested)
@@ -95,7 +95,7 @@ static int call_stub_exec(struct tcmu_device *dev,
 
 		break;
 	case TCMU_STORE_OP_FLUSH:
-		ret = (ssize_t) stub->u.flush.exec(dev);
+		ret = (ssize_t) stub->u.flush.exec(dev, cmd);
 		break;
 	case TCMU_STORE_OP_HANDLE_CMD:
 		ret = (ssize_t) stub->u.handle_cmd.exec(dev, cmd);
