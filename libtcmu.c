@@ -347,6 +347,8 @@ static void remove_device(struct tcmulib_context *ctx,
 
 	darray_remove(ctx->devices, i);
 
+	dev->handler->removed(dev);
+
 	ret = close(dev->fd);
 	if (ret != 0) {
 		tcmu_err("could not close device fd %s: %d\n", dev_name, errno);
@@ -355,8 +357,6 @@ static void remove_device(struct tcmulib_context *ctx,
 	if (ret != 0) {
 		tcmu_err("could not unmap device %s: %d\n", dev_name, errno);
 	}
-
-	dev->handler->removed(dev);
 }
 
 static int is_uio(const struct dirent *dirent)
