@@ -41,6 +41,14 @@ struct tcmu_rbd_state {
 	rbd_image_t image;
 };
 
+struct rbd_aio_cb {
+	struct tcmu_device *dev;
+	struct tcmulib_cmd *tcmulib_cmd;
+
+	int64_t length;
+	char *bounce_buffer;
+};
+
 static int tcmu_rbd_open(struct tcmu_device *dev)
 {
 
@@ -159,51 +167,216 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 	free(state);
 }
 
+/*
+ * NOTE: RBD async APIs almost always return 0 (success), except
+ * when allocation (via new) fails - which is not caught. So,
+ * the only errno we've to bother about as of now are memory
+ * allocation errors.
+ */
+
+static void rbd_finish_aio_read(rbd_completion_t completion,
+				struct rbd_aio_cb *aio_cb)
+{
+	struct tcmu_device *dev = aio_cb->dev;
+	struct tcmulib_cmd *tcmulib_cmd = aio_cb->tcmulib_cmd;
+	struct iovec *iovec = tcmulib_cmd->iovec;
+	size_t iov_cnt = tcmulib_cmd->iov_cnt;
+	int64_t ret;
+	int tcmu_r;
+
+	ret = rbd_aio_get_return_value(completion);
+	rbd_aio_release(completion);
+
+	if (ret < 0) {
+		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
+					     MEDIUM_ERROR, ASC_READ_ERROR, NULL);
+	} else {
+		tcmu_r = SAM_STAT_GOOD;
+		tcmu_memcpy_into_iovec(iovec, iov_cnt,
+				       aio_cb->bounce_buffer, aio_cb->length);
+	}
+
+	tcmu_callout_finished(dev, tcmulib_cmd, tcmu_r);
+
+	free(aio_cb->bounce_buffer);
+	free(aio_cb);
+}
+
 static ssize_t tcmu_rbd_read(struct tcmu_device *dev,
 			     struct tcmulib_cmd *tcmulib_cmd,
 			     struct iovec *iov, size_t iov_cnt, off_t offset)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	size_t length = tcmu_iovec_length(iov, iov_cnt);
-	void *buf = malloc(length);
+	struct rbd_aio_cb *aio_cb;
+	rbd_completion_t completion;
 	ssize_t ret = -ENOMEM;
 
-	if (!buf)
+	aio_cb = calloc(1, sizeof(*aio_cb));
+	if (!aio_cb) {
+		tcmu_err("could not allocated aio_cb\n");
 		goto out;
-	ret = rbd_read(state->image, offset, length, buf);
-	if (ret != length)
-		goto out;
+	}
 
-	tcmu_memcpy_into_iovec(iov, iov_cnt, buf, length);
+	aio_cb->dev = dev;
+	aio_cb->length = length;
+	aio_cb->tcmulib_cmd = tcmulib_cmd;
+
+	aio_cb->bounce_buffer = malloc(length);
+	if (!aio_cb->bounce_buffer) {
+		tcmu_err("could not allocate bounce buffer\n");
+		goto out_free_aio_cb;
+	}
+
+	ret = rbd_aio_create_completion
+		(aio_cb, (rbd_callback_t) rbd_finish_aio_read, &completion);
+	if (ret < 0) {
+		goto out_free_bounce_buffer;
+	}
+
+	ret = rbd_aio_read(state->image, offset, length, aio_cb->bounce_buffer,
+			   completion);
+	if (ret < 0) {
+		goto out_remove_tracked_aio;
+	}
+
+	return TCMU_ASYNC_HANDLED;
+
+out_remove_tracked_aio:
+	rbd_aio_release(completion);
+out_free_bounce_buffer:
+	free(aio_cb->bounce_buffer);
+out_free_aio_cb:
+	free(aio_cb);
 out:
-	free(buf);
 	return ret;
+}
+
+static void rbd_finish_aio_generic(rbd_completion_t completion,
+				   struct rbd_aio_cb *aio_cb)
+{
+	struct tcmu_device *dev = aio_cb->dev;
+	struct tcmulib_cmd *tcmulib_cmd = aio_cb->tcmulib_cmd;
+	int64_t ret;
+	int tcmu_r;
+
+	ret = rbd_aio_get_return_value(completion);
+	rbd_aio_release(completion);
+
+	if (ret < 0) {
+		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
+					     MEDIUM_ERROR, ASC_READ_ERROR, NULL);
+	} else {
+		tcmu_r = SAM_STAT_GOOD;
+	}
+
+	tcmu_callout_finished(dev, tcmulib_cmd, tcmu_r);
+
+	if (aio_cb->bounce_buffer) {
+		free(aio_cb->bounce_buffer);
+	}
+	free(aio_cb);
 }
 
 static ssize_t tcmu_rbd_write(struct tcmu_device *dev,
 			      struct tcmulib_cmd *tcmulib_cmd,
 			      struct iovec *iov, size_t iov_cnt, off_t offset)
 {
+
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	size_t length = tcmu_iovec_length(iov, iov_cnt);
-	void *buf = malloc(length);
+	struct rbd_aio_cb *aio_cb;
+	rbd_completion_t completion;
 	ssize_t ret = -ENOMEM;
 
-	if (!buf)
+	aio_cb = calloc(1, sizeof(*aio_cb));
+	if (!aio_cb) {
+		tcmu_err("could not allocated aio_cb\n");
 		goto out;
-	tcmu_memcpy_from_iovec(buf, length, iov, iov_cnt);
-	ret = rbd_write(state->image, offset, length, buf);
+	}
+
+	aio_cb->dev = dev;
+	aio_cb->length = length;
+	aio_cb->tcmulib_cmd = tcmulib_cmd;
+
+	aio_cb->bounce_buffer = malloc(length);
+	if (!aio_cb->bounce_buffer) {
+		tcmu_err("failed to allocate bounce buffer\n");
+		goto out_free_aio_cb;
+	}
+
+	tcmu_memcpy_from_iovec(aio_cb->bounce_buffer, length, iov, iov_cnt);
+
+	ret = rbd_aio_create_completion
+		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
+	if (ret < 0) {
+		goto out_free_bounce_buffer;
+	}
+
+	ret = rbd_aio_write(state->image, offset,
+			    length, aio_cb->bounce_buffer, completion);
+	if (ret < 0) {
+		goto out_remove_tracked_aio;
+	}
+
+	return TCMU_ASYNC_HANDLED;
+
+out_remove_tracked_aio:
+	rbd_aio_release(completion);
+out_free_bounce_buffer:
+	free(aio_cb->bounce_buffer);
+out_free_aio_cb:
+	free(aio_cb);
 out:
-	free(buf);
 	return ret;
+}
+
+static int rbd_aio_flush_wrapper(rbd_image_t image, rbd_completion_t completion)
+{
+#ifdef LIBRBD_SUPPORTS_AIO_FLUSH
+	return rbd_aio_flush(image, completion);
+#else
+	return -ENOTSUP;
+#endif
 }
 
 static int tcmu_rbd_flush(struct tcmu_device *dev,
 			  struct tcmulib_cmd *tcmulib_cmd)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct rbd_aio_cb *aio_cb;
+	rbd_completion_t completion;
+	ssize_t ret = -ENOMEM;
 
-	return rbd_flush(state->image);
+	aio_cb = calloc(1, sizeof(*aio_cb));
+	if (!aio_cb) {
+		tcmu_err("could not allocated aio_cb\n");
+		goto out;
+	}
+
+	aio_cb->dev = dev;
+	aio_cb->tcmulib_cmd = tcmulib_cmd;
+	aio_cb->bounce_buffer = NULL;
+
+	ret = rbd_aio_create_completion
+		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
+	if (ret < 0) {
+		goto out_free_aio_cb;
+	}
+
+	ret = rbd_aio_flush_wrapper(state->image, completion);
+	if (ret < 0) {
+		goto out_remove_tracked_aio;
+	}
+
+	return TCMU_ASYNC_HANDLED;
+
+out_remove_tracked_aio:
+	rbd_aio_release(completion);
+out_free_aio_cb:
+	free(aio_cb);
+out:
+	return ret;
 }
 
 /*
@@ -225,14 +398,15 @@ static const char tcmu_rbd_cfg_desc[] =
 	"devicename:	Name of the RBD image\n";
 
 struct tcmur_handler tcmu_rbd_handler = {
-	.name		= "Ceph RBD handler",
-	.subtype	= "rbd",
-	.cfg_desc	= tcmu_rbd_cfg_desc,
-	.open		= tcmu_rbd_open,
-	.close		= tcmu_rbd_close,
-	.read		= tcmu_rbd_read,
-	.write		= tcmu_rbd_write,
-	.flush		= tcmu_rbd_flush,
+	.name	       = "Ceph RBD handler",
+	.subtype       = "rbd",
+	.cfg_desc      = tcmu_rbd_cfg_desc,
+	.open	       = tcmu_rbd_open,
+	.close	       = tcmu_rbd_close,
+	.aio_supported = true,
+	.read	       = tcmu_rbd_read,
+	.write	       = tcmu_rbd_write,
+	.flush	       = tcmu_rbd_flush,
 };
 
 int handler_init(void)
