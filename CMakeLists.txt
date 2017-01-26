@@ -50,6 +50,7 @@ set_target_properties(tcmu
 target_include_directories(tcmu
   PUBLIC ${LIBNL_INCLUDE_DIR}
   PUBLIC ${GLIB_INCLUDE_DIRS}
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 target_link_libraries(tcmu
   ${LIBNL_LIB}
@@ -70,6 +71,7 @@ add_library(tcmu_static
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
   PUBLIC ${GLIB_INCLUDE_DIRS}
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 target_link_libraries(tcmu_static
   ${GLIB_LIBRARIES}
@@ -85,6 +87,7 @@ target_include_directories(tcmu-runner
   PUBLIC ${PROJECT_BINARY_DIR}
   PUBLIC ${GLIB_INCLUDE_DIRS}
   PUBLIC ${KMOD_INCLUDE_DIRS}
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 target_link_libraries(tcmu-runner
   ${GLIB_LIBRARIES}
@@ -103,6 +106,7 @@ target_link_libraries(tcmu-synthesizer tcmu)
 target_include_directories(tcmu-synthesizer
   PUBLIC ${PROJECT_BINARY_DIR}
   PUBLIC ${GLIB_INCLUDE_DIRS}
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 target_link_libraries(tcmu-synthesizer
   ${GLIB_LIBRARIES}
