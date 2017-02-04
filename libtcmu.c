@@ -37,6 +37,7 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
+#include "libtcmu_store.h"
 #include "tcmu-runner.h"
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
@@ -224,31 +225,16 @@ static void cmdproc_thread_cleanup(void *arg)
 	r_handler->close(dev);
 }
 
-static int generic_handle_cmd(struct tcmu_device *dev,
-			      struct tcmulib_cmd *tcmulib_cmd)
+static int generic_cmd(struct tcmu_device *dev,
+		       struct tcmulib_cmd *tcmulib_cmd, uint8_t cmd)
 {
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *store = handler->hm_private;
 	uint8_t *cdb = tcmulib_cmd->cdb;
 	struct iovec *iovec = tcmulib_cmd->iovec;
 	size_t iov_cnt = tcmulib_cmd->iov_cnt;
 	uint8_t *sense = tcmulib_cmd->sense_buf;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
-	uint8_t cmd;
-	ssize_t ret = TCMU_NOT_HANDLED, l = tcmu_iovec_length(iovec, iov_cnt);
-	off_t offset = block_size * tcmu_get_lba(cdb);
-	struct iovec iov;
-	size_t half = l / 2;
-	uint32_t cmp_offset;
 
-	if (store->handle_cmd)
-		ret = store->handle_cmd(dev, tcmulib_cmd);
-
-	if (ret != TCMU_NOT_HANDLED)
-		return ret;
-
-	cmd = cdb[0];
 	switch (cmd) {
 	case INQUIRY:
 		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
@@ -281,76 +267,43 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 	case MODE_SELECT:
 	case MODE_SELECT_10:
 		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
-	case READ_6:
-	case READ_10:
-	case READ_12:
-	case READ_16:
-		ret = store->read(dev, iovec, iov_cnt, offset);
-		if (ret != l) {
-			tcmu_err("Error on read %x, %x\n", ret, l);
-			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
-						   ASC_READ_ERROR, NULL);
-		} else
-			return SAM_STAT_GOOD;
-	case WRITE_VERIFY:
-		return tcmu_emulate_write_verify(dev, tcmulib_cmd,
-						 store->read,
-						 store->write,
-						 iovec, iov_cnt, offset);
-	case WRITE_6:
-	case WRITE_10:
-	case WRITE_12:
-	case WRITE_16:
-		ret = store->write(dev, iovec, iov_cnt, offset);
-		if (ret != l) {
-			tcmu_err("Error on write %x, %x\n", ret, l);
-			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
-						   ASC_READ_ERROR, NULL);
-		} else
-			return SAM_STAT_GOOD;
-	case SYNCHRONIZE_CACHE:
-	case SYNCHRONIZE_CACHE_16:
-		ret = store->flush(dev);
-		if (ret < 0) {
-			tcmu_err("Error on flush %x\n", ret);
-			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
-						   ASC_READ_ERROR, NULL);
-		} else
-			return SAM_STAT_GOOD;
-	case COMPARE_AND_WRITE:
-		iov.iov_base = malloc(half);
-		if (!iov.iov_base) {
-			tcmu_err("out of memory\n");
-			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
-						   ASC_READ_ERROR, NULL);
-		}
-		iov.iov_len = half;
-		ret = store->read(dev, &iov, 1, offset);
-		if (ret != l) {
-			tcmu_err("Error on read %x, %x\n", ret, l);
-			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
-						   ASC_READ_ERROR, NULL);
-		}
-		cmp_offset = tcmu_compare_with_iovec(iov.iov_base, iovec, half);
-		if (cmp_offset != -1) {
-			return tcmu_set_sense_data(sense, MISCOMPARE,
-					ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					&cmp_offset);
-		}
-		free(iov.iov_base);
-
-		tcmu_seek_in_iovec(iovec, half);
-		ret = store->write(dev, iovec, iov_cnt, offset);
-		if (ret != half) {
-			tcmu_err("Error on write %x, %x\n", ret, half);
-			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
-						   ASC_READ_ERROR, NULL);
-		} else
-			return SAM_STAT_GOOD;
 	default:
 		tcmu_err("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
+}
+
+static bool command_is_store_call(uint8_t cmd)
+{
+	switch(cmd) {
+	case READ_6:
+	case READ_10:
+	case READ_12:
+	case READ_16:
+	case WRITE_6:
+	case WRITE_10:
+	case WRITE_12:
+	case WRITE_16:
+	case SYNCHRONIZE_CACHE:
+	case SYNCHRONIZE_CACHE_16:
+	case COMPARE_AND_WRITE:
+	case WRITE_VERIFY:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static int generic_handle_cmd(struct tcmu_device *dev,
+			      struct tcmulib_cmd *tcmulib_cmd)
+{
+
+	uint8_t cmd = (tcmulib_cmd->cdb)[0];
+
+	if (command_is_store_call(cmd))
+		return call_store(dev, tcmulib_cmd, cmd);
+	else
+		return generic_cmd(dev, tcmulib_cmd, cmd);
 }
 
 #define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)
