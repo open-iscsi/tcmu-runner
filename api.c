@@ -922,14 +922,13 @@ int tcmu_emulate_write_verify(struct tcmu_device *dev,
 	uint8_t *cdb = tcmulib_cmd->cdb;
 	size_t length = tcmu_get_xfer_length(cdb) * tcmu_get_dev_block_size(dev);
 	size_t remaining = length;
-	int rc = SAM_STAT_GOOD;
 	int len;
 	int ret;
 
 	while (remaining) {
 		ret = write(dev, iovec, iov_cnt, offset);
 		if (ret < 0) {
-			tcmu_err("writefailed: %m\n");
+			tcmu_err("write failed\n");
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						   ASC_READ_ERROR, NULL);
 		}
@@ -946,28 +945,20 @@ int tcmu_emulate_write_verify(struct tcmu_device *dev,
 
 		ret = read(dev, &iov, iov_cnt, offset);
 		if (ret != len) {
-			tcmu_err("read failed: %m\n");
+			tcmu_err("read failed\n");
 			free(iov.iov_base);
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						   ASC_READ_ERROR, NULL);
 		}
-		cmp_offset = tcmu_compare_with_iovec(iov.iov_base,
-						     iovec,
-						     len);
-		if (cmp_offset != -1) {
-			tcmu_err("tcmu compare iovec fail\n");
-			rc = tcmu_set_sense_data(sense, MISCOMPARE,
-						 ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-						 &cmp_offset);
-		}
-
+		cmp_offset = tcmu_compare_with_iovec(iov.iov_base, iovec, len);
 		free(iov.iov_base);
-
-		if (rc != SAM_STAT_GOOD) {
-			tcmu_err("write_verify failed: %m\n");
-			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
-						   ASC_READ_ERROR, NULL);
+		if (cmp_offset != -1) {
+			tcmu_err("Verify failed at offset %lu\n", cmp_offset);
+			return tcmu_set_sense_data(sense, MISCOMPARE,
+					ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
+					&cmp_offset);
 		}
+
 		tcmu_seek_in_iovec(iovec, ret);
 		remaining -= ret;
 	}

@@ -340,12 +340,11 @@ static int do_verify_op(struct file_state *state, struct iovec *iovec, uint64_t 
 	}
 
 	cmp_offset = tcmu_compare_with_iovec(buf, iovec, length);
-	if (cmp_offset != -1)
+	if (cmp_offset != -1) {
 		rc = tcmu_set_sense_data(sense, MISCOMPARE,
-					 ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					 &cmp_offset);
-
-	tcmu_err("cmp_offset %lu: %m\n", cmp_offset);
+					 ASC_MISCOMPARE_DURING_VERIFY_OPERATION,					 &cmp_offset);
+		tcmu_err("Verify failed at offset %lu\n", cmp_offset);
+	}
 
 	free(buf);
 
