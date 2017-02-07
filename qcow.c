@@ -1466,6 +1466,22 @@ static int set_medium_error(uint8_t *sense)
 	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
 }
 
+static ssize_t _tcmu_qcow_read(struct tcmu_device *dev,
+			       struct iovec *iov, size_t iov_cnt,
+			       off_t offset)
+{
+	struct bdev *bdev = tcmu_get_dev_private(dev);
+	return bdev->ops->preadv(bdev, iov, iov_cnt, offset);
+}
+
+static ssize_t _tcmu_qcow_write(struct tcmu_device *dev,
+				struct iovec *iov, size_t iov_cnt,
+				off_t offset)
+{
+	struct bdev *bdev = tcmu_get_dev_private(dev);
+	return bdev->ops->pwritev(bdev, iov, iov_cnt, offset);
+}
+
 /*
  * Return scsi status or TCMU_NOT_HANDLED
  */
@@ -1480,6 +1496,7 @@ static int qcow_handle_cmd(
 	struct bdev *bdev = tcmu_get_dev_private(dev);
 	uint8_t cmd;
 	ssize_t ret;
+	uint64_t offset = bdev->block_size * tcmu_get_lba(cdb);
 
 	cmd = cdb[0];
 
@@ -1492,8 +1509,10 @@ static int qcow_handle_cmd(
 		break;
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
-			return tcmu_emulate_read_capacity_16(bdev->num_lbas, bdev->block_size,
-							     cdb, iovec, iov_cnt, sense);
+			return tcmu_emulate_read_capacity_16(bdev->num_lbas,
+							     bdev->block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
 		else
 			return TCMU_NOT_HANDLED;
 		break;
@@ -1524,7 +1543,6 @@ static int qcow_handle_cmd(
 	case READ_12:
 	case READ_16:
 	{
-		uint64_t offset = bdev->block_size * tcmu_get_lba(cdb);
 		size_t length = tcmu_get_xfer_length(cdb) * bdev->block_size;
 		assert(tcmu_iovec_length(iovec, iov_cnt) == length);
 		size_t remaining = length;
@@ -1540,6 +1558,11 @@ static int qcow_handle_cmd(
 		return SAM_STAT_GOOD;
 	}
 	break;
+	case WRITE_VERIFY:
+		return tcmu_emulate_write_verify(dev, tcmulib_cmd,
+						 _tcmu_qcow_read,
+						 _tcmu_qcow_write,
+						 iovec, iov_cnt, offset);
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
@@ -1549,6 +1572,7 @@ static int qcow_handle_cmd(
 		size_t length = tcmu_get_xfer_length(cdb) * bdev->block_size;
 		assert(tcmu_iovec_length(iovec, iov_cnt) == length);
 		size_t remaining = length;
+
 		while (remaining) {
 			ret = bdev->ops->pwritev(bdev, iovec, iov_cnt, offset);
 			if (ret < 0) {
