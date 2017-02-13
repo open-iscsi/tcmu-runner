@@ -431,6 +431,8 @@ static void sighandler(int signal)
 		cancel_thread(thread->thread_id);
 	}
 
+	tcmu_cancel_log_thread();
+
 	exit(1);
 }
 
@@ -846,8 +848,6 @@ int main(int argc, char **argv)
 	tcmu_load_config(cfg, NULL);
 	tcmu_set_log_level(cfg->log_level);
 
-	tcmu_log_open_syslog(TCMU_RUNNER, 0, 0);
-
 	while (1) {
 		int option_index = 0;
 
@@ -946,7 +946,6 @@ int main(int argc, char **argv)
 	tcmu_dbg("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
-	tcmu_log_close_syslog();
 	tcmu_config_destroy(cfg);
 
 	return 0;
