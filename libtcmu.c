@@ -37,6 +37,7 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
+#include "tcmu-runner.h"
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
 
@@ -44,6 +45,8 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_DEVICE]	= { .type = NLA_STRING },
 	[TCMU_ATTR_MINOR]	= { .type = NLA_U32 },
 };
+
+static darray(struct tcmu_thread) g_threads = darray_new();
 
 static int add_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
 static void remove_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
@@ -155,6 +158,27 @@ static void teardown_netlink(struct nl_sock *sock)
 	nl_socket_free(sock);
 }
 
+static void cancel_thread(pthread_t thread)
+{
+	void *join_retval;
+	int ret;
+
+	ret = pthread_cancel(thread);
+	if (ret) {
+		tcmu_err("pthread_cancel failed with value %d\n", ret);
+		return;
+	}
+
+	ret = pthread_join(thread, &join_retval);
+	if (ret) {
+		tcmu_err("pthread_join failed with value %d\n", ret);
+		return;
+	}
+
+	if (join_retval != PTHREAD_CANCELED)
+		tcmu_err("unexpected join retval: %p\n", join_retval);
+}
+
 static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 					    char *cfgstring)
 {
@@ -169,6 +193,497 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 		if (!strncmp(cfgstring, handler->subtype, len))
 		    return handler;
 	}
+
+	return NULL;
+}
+
+/*
+ * convert errno to closest possible SAM status code.
+ * (add more conversions as required)
+ */
+static int errno_to_sam_status(int rc, uint8_t *sense)
+{
+	if (rc == -ENOMEM) {
+		return SAM_STAT_TASK_SET_FULL;
+	} else if (rc == -EIO) {
+		return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+					   ASC_READ_ERROR, NULL);
+	} else if (rc < 0) {
+		return TCMU_NOT_HANDLED;
+	} else {
+		return SAM_STAT_GOOD;
+	}
+}
+
+static void cmdproc_thread_cleanup(void *arg)
+{
+	struct tcmu_device *dev = arg;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+
+	r_handler->close(dev);
+	free(dev);
+}
+
+static int generic_handle_cmd(struct tcmu_device *dev,
+			      struct tcmulib_cmd *tcmulib_cmd)
+{
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *store = handler->hm_private;
+	uint8_t *cdb = tcmulib_cmd->cdb;
+	struct iovec *iovec = tcmulib_cmd->iovec;
+	size_t iov_cnt = tcmulib_cmd->iov_cnt;
+	uint8_t *sense = tcmulib_cmd->sense_buf;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	uint8_t cmd;
+	ssize_t ret, l = tcmu_iovec_length(iovec, iov_cnt);
+	off_t offset = block_size * tcmu_get_lba(cdb);
+	struct iovec iov;
+	size_t half = l / 2;
+	uint32_t cmp_offset;
+
+	cmd = cdb[0];
+
+	switch (cmd) {
+	case INQUIRY:
+		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
+	case TEST_UNIT_READY:
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+	case SERVICE_ACTION_IN_16:
+		if (cdb[1] == READ_CAPACITY_16)
+			return tcmu_emulate_read_capacity_16(num_lbas,
+							     block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
+		else
+			return TCMU_NOT_HANDLED;
+	case READ_CAPACITY:
+		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
+			/* Reserved bits for MM logical units */
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_INVALID_FIELD_IN_CDB,
+						   NULL);
+		else
+			return tcmu_emulate_read_capacity_10(num_lbas,
+							     block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+	case START_STOP:
+		return tcmu_emulate_start_stop(dev, cdb, sense);
+	case MODE_SELECT:
+	case MODE_SELECT_10:
+		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+	case READ_6:
+	case READ_10:
+	case READ_12:
+	case READ_16:
+		ret = store->read(dev, iovec, iov_cnt, offset);
+		if (ret != l) {
+			tcmu_err("Error on read %x, %x\n", ret, l);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	case WRITE_VERIFY:
+		return tcmu_emulate_write_verify(dev, tcmulib_cmd,
+						 store->read,
+						 store->write,
+						 iovec, iov_cnt, offset);
+	case WRITE_6:
+	case WRITE_10:
+	case WRITE_12:
+	case WRITE_16:
+		ret = store->write(dev, iovec, iov_cnt, offset);
+		if (ret != l) {
+			tcmu_err("Error on write %x, %x\n", ret, l);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	case SYNCHRONIZE_CACHE:
+	case SYNCHRONIZE_CACHE_16:
+		ret = store->flush(dev);
+		if (ret < 0) {
+			tcmu_err("Error on flush %x\n", ret);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	case COMPARE_AND_WRITE:
+		iov.iov_base = malloc(half);
+		if (!iov.iov_base) {
+			tcmu_err("out of memory\n");
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		}
+		iov.iov_len = half;
+		ret = store->read(dev, &iov, 1, offset);
+		if (ret != l) {
+			tcmu_err("Error on read %x, %x\n", ret, l);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		}
+		cmp_offset = tcmu_compare_with_iovec(iov.iov_base, iovec, half);
+		if (cmp_offset != -1) {
+			return tcmu_set_sense_data(sense, MISCOMPARE,
+					ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
+					&cmp_offset);
+		}
+		free(iov.iov_base);
+
+		tcmu_seek_in_iovec(iovec, half);
+		ret = store->write(dev, iovec, iov_cnt, offset);
+		if (ret != half) {
+			tcmu_err("Error on write %x, %x\n", ret, half);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_READ_ERROR, NULL);
+		} else
+			return SAM_STAT_GOOD;
+	default:
+		tcmu_err("unknown command %x\n", cdb[0]);
+		return TCMU_NOT_HANDLED;
+	}
+}
+
+#define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)
+#define CDB_FIX_BYTES 64 /* 64 bytes for default */
+#define CDB_FIX_SIZE CDB_TO_BUF_SIZE(CDB_FIX_BYTES)
+static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
+{
+	int i, n, bytes;
+	char fix[CDB_FIX_SIZE], *buf;
+	uint8_t group_code = cmd->cdb[0] >> 5;
+
+	buf = fix;
+
+	switch (group_code) {
+	case 0: /*000b for 6 bytes commands */
+		bytes = 6;
+		break;
+	case 1: /*001b for 10 bytes commands */
+	case 2: /*010b for 10 bytes commands */
+		bytes = 10;
+		break;
+	case 3: /*011b Reserved ? */
+		if (cmd->cdb[0] == 0x7f) {
+			bytes = 7 + cmd->cdb[7];
+			if (bytes > CDB_FIX_SIZE) {
+				buf = malloc(CDB_TO_BUF_SIZE(bytes));
+				if (!buf) {
+					tcmu_err("out of memory\n");
+					return;
+				}
+			}
+		} else {
+			bytes = 6;
+		}
+		break;
+	case 4: /*100b for 16 bytes commands */
+		bytes = 16;
+		break;
+	case 5: /*101b for 12 bytes commands */
+		bytes = 12;
+		break;
+	case 6: /*110b Vendor Specific */
+	case 7: /*111b Vendor Specific */
+	default:
+		/* TODO: */
+		bytes = 6;
+	}
+
+	for (i = 0, n = 0; i < bytes; i++) {
+		n += sprintf(buf + n, "%x ", cmd->cdb[i]);
+	}
+	sprintf(buf + n, "\n");
+
+	tcmu_dbg(buf);
+
+	if (bytes > CDB_FIX_SIZE)
+		free(buf);
+}
+
+static void _cleanup_mutex_lock(void *arg)
+{
+	pthread_mutex_unlock(arg);
+}
+
+static void _cleanup_spin_lock(void *arg)
+{
+	pthread_spin_unlock(arg);
+}
+
+static void tcmulib_track_aio_request_start(struct tcmu_device *dev)
+{
+	struct tcmu_track_aio *aio_track = &dev->track_queue;
+
+	pthread_cleanup_push(_cleanup_spin_lock, (void *)&aio_track->track_lock);
+	pthread_spin_lock(&aio_track->track_lock);
+
+	++aio_track->tracked_aio_ops;
+
+	pthread_spin_unlock(&aio_track->track_lock);
+	pthread_cleanup_pop(0);
+}
+
+static void tcmulib_track_aio_request_finish(struct tcmu_device *dev, int *is_idle)
+{
+	struct tcmu_track_aio *aio_track = &dev->track_queue;
+
+	pthread_cleanup_push(_cleanup_spin_lock, (void *)&aio_track->track_lock);
+	pthread_spin_lock(&aio_track->track_lock);
+
+	assert(aio_track->tracked_aio_ops > 0);
+
+	--aio_track->tracked_aio_ops;
+	if (is_idle) {
+		*is_idle = (aio_track->tracked_aio_ops == 0) ? 1 : 0;
+	}
+
+	pthread_spin_unlock(&aio_track->track_lock);
+	pthread_cleanup_pop(0);
+
+}
+
+static void _untrack_in_flight_io(void *arg)
+{
+	int wakeup;
+	tcmulib_track_aio_request_finish(arg, &wakeup);
+	if (wakeup) {
+		tcmulib_processing_complete(arg);
+	}
+}
+
+static int invokecmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+
+	int (*func)(struct tcmu_device *, struct tcmulib_cmd *) =
+		(r_handler->handle_cmd) ? : generic_handle_cmd;
+	return func(dev, cmd);
+}
+
+static void *io_work_queue(void *arg)
+{
+	struct tcmu_device *dev = arg;
+	struct tcmu_io_queue *io_wq = &dev->work_queue;
+
+	while (1) {
+		int ret;
+		struct tcmu_io_entry *io_entry;
+
+		pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
+		pthread_mutex_lock(&io_wq->io_lock);
+
+		while (list_empty(&io_wq->io_queue)) {
+			pthread_cond_wait(&io_wq->io_cond,
+					  &io_wq->io_lock);
+		}
+
+		io_entry = list_first_entry(&io_wq->io_queue,
+					    struct tcmu_io_entry, entry);
+		list_del(&io_entry->entry);
+
+		pthread_mutex_unlock(&io_wq->io_lock);
+		pthread_cleanup_pop(0);
+
+		/* kick start I/O request */
+		pthread_cleanup_push(_untrack_in_flight_io, dev);
+		tcmulib_track_aio_request_start(dev);
+
+		ret = invokecmd(dev, io_entry->cmd);
+		tcmulib_command_complete(dev, io_entry->cmd, ret);
+
+		pthread_cleanup_pop(1); /* untrack aio */
+		free(io_entry);
+	}
+
+	return NULL;
+}
+
+static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmu_io_entry *io_entry;
+	uint8_t *sense = cmd->sense_buf;
+	struct tcmu_io_queue *io_wq = &dev->work_queue;
+
+	io_entry = malloc(sizeof(*io_entry));
+	if (!io_entry) {
+		return errno_to_sam_status(-ENOMEM, sense);
+	}
+
+	io_entry->cmd = cmd;
+	list_node_init(&io_entry->entry);
+
+	/* cleanup push/pop not _really_ required here atm */
+	pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
+	pthread_mutex_lock(&io_wq->io_lock);
+
+	list_add_tail(&io_wq->io_queue, &io_entry->entry);
+	pthread_cond_signal(&io_wq->io_cond); // TODO: conditional
+
+	pthread_mutex_unlock(&io_wq->io_lock);
+	pthread_cleanup_pop(0);
+
+	return TCMU_ASYNC_HANDLED;
+}
+
+static int setup_io_work_queue(struct tcmu_device *dev)
+{
+	int ret;
+	struct tcmu_io_queue *io_wq = &dev->work_queue;
+
+	list_head_init(&io_wq->io_queue);
+
+	ret = pthread_mutex_init(&io_wq->io_lock, NULL);
+	if (ret < 0) {
+		goto out;
+	}
+	ret = pthread_cond_init(&io_wq->io_cond, NULL);
+	if (ret < 0) {
+		goto cleanup_lock;
+	}
+
+	// TODO: >1 worker threads (per device via config)
+	ret = pthread_create(&io_wq->io_wq_thread, NULL, io_work_queue, dev);
+	if (ret < 0) {
+		goto cleanup_cond;
+	}
+
+	return 0;
+
+cleanup_cond:
+	pthread_cond_destroy(&io_wq->io_cond);
+cleanup_lock:
+	pthread_mutex_destroy(&io_wq->io_lock);
+out:
+	return ret;
+}
+
+static void cleanup_io_work_queue(struct tcmu_device *dev,
+				  bool cancel)
+{
+	int ret;
+	struct tcmu_io_queue *io_wq = &dev->work_queue;
+
+	if (cancel) {
+		cancel_thread(io_wq->io_wq_thread);
+	}
+
+	/*
+	 * Note that there's no need to drain ->io_queue at this point
+	 * as it _should_ be empty (target layer would call this path
+	 * when no commands are running - thanks Mike).
+	 *
+	 * Out of tree handlers which do not use the aio code are not
+	 * supported in this path.
+	 */
+
+	ret = pthread_mutex_destroy(&io_wq->io_lock);
+	if (ret != 0) {
+		tcmu_err("failed to destroy io workqueue lock\n");
+	}
+
+	ret = pthread_cond_destroy(&io_wq->io_cond);
+	if (ret != 0) {
+		tcmu_err("failed to destroy io workqueue cond\n");
+	}
+}
+
+static int setup_aio_tracking(struct tcmu_device *dev)
+{
+	int ret;
+	struct tcmu_track_aio *aio_track = &dev->track_queue;
+
+	aio_track->tracked_aio_ops = 0;
+	ret = pthread_spin_init(&aio_track->track_lock, 0);
+	if (ret < 0) {
+		return ret;
+	}
+
+	return 0;
+}
+
+static void cleanup_aio_tracking(struct tcmu_device *dev)
+{
+	int ret;
+	struct tcmu_track_aio *aio_track = &dev->track_queue;
+
+	assert(aio_track->tracked_aio_ops == 0);
+
+	ret = pthread_spin_destroy(&aio_track->track_lock);
+	if (ret < 0) {
+		tcmu_err("failes to destroy track lock\n");
+	}
+}
+
+static void async_call_command(struct tcmu_device *dev,
+			       struct tcmulib_cmd *cmd)
+{
+	int ret;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+
+	if (r_handler->aio_supported) {
+		ret = invokecmd(dev, cmd);
+	} else {
+		ret = aio_schedule(dev, cmd);
+	}
+
+	/*
+	 * command (processing) completion is done when one of the
+	 * following scenario occurs:
+	 *  - synchronous handler:
+	 *	only if aio_schedule() returns an error
+	 *  - asynchronous handler:
+	 *	on an error or if the command was not asynchronously
+	 *	handled (see generic_handle_cmd(), non store callouts)
+	 */
+	if (ret != TCMU_ASYNC_HANDLED) {
+		tcmulib_command_complete(dev, cmd, ret);
+		tcmulib_processing_complete(dev);
+	}
+}
+
+static void *tcmu_cmdproc_thread(void *arg)
+{
+	struct tcmu_device *dev = arg;
+	struct pollfd pfd;
+
+	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
+
+	while (1) {
+		struct tcmulib_cmd *cmd;
+
+		tcmulib_processing_start(dev);
+
+		while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
+			if (tcmu_get_log_level() == TCMU_LOG_DEBUG)
+				tcmu_cdb_debug_info(cmd);
+
+			/* call async command */
+			async_call_command(dev, cmd);
+		}
+
+		pfd.fd = tcmu_get_dev_fd(dev);
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+
+		poll(&pfd, 1, -1);
+
+		if (pfd.revents != POLLIN) {
+			tcmu_err("poll received unexpected revent: 0x%x\n", pfd.revents);
+			break;
+		}
+	}
+
+	tcmu_err("thread terminating, should never happen\n");
+
+	pthread_cleanup_pop(1);
 
 	return NULL;
 }
@@ -285,6 +800,23 @@ static int add_device(struct tcmulib_context *ctx,
 			KERN_IFACE_VER, mb->version);
 		goto err_munmap;
 	}
+
+	ret = pthread_spin_init(&dev->lock, 0);
+	if (ret < 0) {
+		tcmu_err("failed to initialize mailbox lock\n");
+		goto err_munmap;
+	}
+
+	ret = setup_io_work_queue(dev);
+	if (ret < 0) {
+		goto cleanup_lock;
+	}
+
+	ret = setup_aio_tracking(dev);
+	if (ret < 0) {
+		goto cleanup_io_work_queue;
+	}
+
 	dev->cmd_tail = mb->cmd_tail;
 
 	dev->ctx = ctx;
@@ -294,11 +826,17 @@ static int add_device(struct tcmulib_context *ctx,
 	ret = dev->handler->added(dev);
 	if (ret < 0) {
 		tcmu_err("handler open failed for %s\n", dev->dev_name);
-		goto err_munmap;
+		goto cleanup_aio_tracking;
 	}
 
 	return 0;
 
+cleanup_aio_tracking:
+	cleanup_aio_tracking(dev);
+cleanup_io_work_queue:
+	cleanup_io_work_queue(dev, true);
+cleanup_lock:
+	pthread_spin_destroy(&dev->lock);
 err_munmap:
 	munmap(dev->map, dev->map_len);
 err_fd_close:
@@ -328,6 +866,7 @@ static void remove_device(struct tcmulib_context *ctx,
 	struct tcmu_device *dev;
 	int i = 0, ret;
 	bool found = false;
+	struct tcmu_io_queue *io_wq;
 
 	darray_foreach(dev_ptr, ctx->devices) {
 		dev = *dev_ptr;
@@ -347,6 +886,20 @@ static void remove_device(struct tcmulib_context *ctx,
 
 	darray_remove(ctx->devices, i);
 
+	io_wq = &dev->work_queue;
+
+	/*
+	 * The order of cleaning up worker threads and calling ->removed()
+	 * is important: for sync handlers, the worker thread needs to be
+	 * terminated before removing the handler (i.e., calling handlers
+	 * ->close() callout) in order to ensure that no store callouts
+	 * are getting invoked when shutting down the handler.
+	 */
+	cancel_thread(io_wq->io_wq_thread);
+	dev->handler->removed(dev);
+	cleanup_io_work_queue(dev, false);
+	cleanup_aio_tracking(dev);
+
 	ret = close(dev->fd);
 	if (ret != 0) {
 		tcmu_err("could not close device fd %s: %d\n", dev_name, errno);
@@ -356,7 +909,10 @@ static void remove_device(struct tcmulib_context *ctx,
 		tcmu_err("could not unmap device %s: %d\n", dev_name, errno);
 	}
 
-	dev->handler->removed(dev);
+	ret = pthread_spin_destroy(&dev->lock);
+	if (ret < 0) {
+		tcmu_err("could not cleanup mailbox lock %s: %d\n", dev_name, errno);
+	}
 }
 
 static int is_uio(const struct dirent *dirent)
@@ -632,6 +1188,9 @@ void tcmulib_command_complete(
 	int result)
 {
 	struct tcmu_mailbox *mb = dev->map;
+
+	pthread_cleanup_push(_cleanup_spin_lock, (void *)&dev->lock);
+	pthread_spin_lock(&dev->lock);
 	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 
 	/* current command could be PAD in async case */
@@ -653,11 +1212,11 @@ void tcmulib_command_complete(
 
 		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
 
-		buf[0] = 0x70;  /* fixed, current */
-		buf[2] = 0x5;   /* illegal request */
+		buf[0] = 0x70;	/* fixed, current */
+		buf[2] = 0x5;	/* illegal request */
 		buf[7] = 0xa;
 		buf[12] = 0x20; /* ASC: invalid command operation code */
-		buf[13] = 0x0;  /* ASCQ: (none) */
+		buf[13] = 0x0;	/* ASCQ: (none) */
 	} else {
 		if (result != SAM_STAT_GOOD) {
 			memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
@@ -667,6 +1226,9 @@ void tcmulib_command_complete(
 	}
 
 	TCMU_UPDATE_RB_TAIL(mb, ent);
+	pthread_spin_unlock(&dev->lock);
+	pthread_cleanup_pop(0);
+
 	free(cmd);
 }
 
@@ -694,4 +1256,52 @@ void tcmulib_processing_complete(struct tcmu_device *dev)
 	} while (r == -1 && errno == EINTR);
 	if (r == -1 && errno != EAGAIN)
 		perror("write");
+}
+
+int tcmulib_start_cmdproc_thread(struct tcmu_device *dev)
+{
+	int ret;
+	struct tcmu_thread thread;
+
+	thread.dev = dev;
+
+	ret = pthread_create(&thread.thread_id, NULL, tcmu_cmdproc_thread, dev);
+	if (ret) {
+		return -1;
+	}
+
+	darray_append(g_threads, thread);
+	return 0;
+}
+
+void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev)
+{
+	struct tcmu_thread *thread;
+	int i = 0;
+	bool found = false;
+
+	darray_foreach(thread, g_threads) {
+		if (thread->dev == dev) {
+			found = true;
+			break;
+		} else {
+			i++;
+		}
+	}
+
+	if (!found) {
+		tcmu_err("could not remove a device: not found\n");
+		return;
+	}
+
+	cancel_thread(thread->thread_id);
+	darray_remove(g_threads, i);
+}
+
+void tcmulib_cleanup_all_cmdproc_threads()
+{
+	struct tcmu_thread *thread;
+	darray_foreach(thread, g_threads) {
+		cancel_thread(thread->thread_id);
+	}
 }

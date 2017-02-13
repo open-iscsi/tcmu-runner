@@ -248,6 +248,7 @@ static int set_medium_error(uint8_t *sense)
 }
 
 #ifdef ASYNC_FILE_HANDLER
+
 static int file_handle_cmd_async(
 	struct tcmu_device *dev,
 	struct tcmulib_cmd *tcmulib_cmd)
@@ -525,10 +526,12 @@ static struct tcmur_handler file_handler = {
 	.name = "File-backed Handler (example async code)",
 	.subtype = "file_async",
 	.handle_cmd = file_handle_cmd_async,
+	.aio_supported = true,
 #else
 	.name = "File-backed Handler (example code)",
 	.subtype = "file",
 	.handle_cmd = file_handle_cmd,
+        .aio_supported = false,
 #endif
 };
 

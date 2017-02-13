@@ -60,6 +60,9 @@ struct tcmur_handler {
 	int (*open)(struct tcmu_device *dev);
 	void (*close)(struct tcmu_device *dev);
 
+	/* device supports asynchronous IO */
+	bool aio_supported;
+
 	/*
 	 * Returns
 	 * - SCSI status if handled (either good/bad)
