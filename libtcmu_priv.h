@@ -70,4 +70,9 @@ struct tcmu_device {
 	void *hm_private; /* private ptr for handler module */
 };
 
+struct tcmu_thread {
+	pthread_t thread_id;
+	struct tcmu_device *dev;
+};
+
 #endif
