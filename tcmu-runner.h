@@ -33,6 +33,13 @@ extern "C" {
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 
+enum tcmu_store_op {
+	TCMU_STORE_OP_READ = 0,
+	TCMU_STORE_OP_WRITE,
+	TCMU_STORE_OP_FLUSH,
+	TCMU_STORE_OP_HANDLE_CMD,
+};
+
 struct tcmur_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */

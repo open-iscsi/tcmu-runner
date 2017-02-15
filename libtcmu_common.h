@@ -28,6 +28,7 @@ extern "C" {
 #endif
 
 struct tcmu_device;
+struct tcmulib_cmd;
 
 #define TCMU_NOT_HANDLED -1
 #define TCMU_ASYNC_HANDLED -2
@@ -36,6 +37,9 @@ struct tcmu_device;
 
 typedef ssize_t (*store_rw_t)(struct tcmu_device *, struct iovec *, size_t, off_t);
 typedef int (*store_flush_t)(struct tcmu_device *);
+typedef int (*store_handle_cmd_t)(struct tcmu_device *, struct tcmulib_cmd *);
+
+typedef void (*callout_cbk_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
 
 struct tcmulib_cmd {
 	uint16_t cmd_id;
@@ -43,6 +47,15 @@ struct tcmulib_cmd {
 	struct iovec *iovec;
 	size_t iov_cnt;
 	uint8_t sense_buf[SENSE_BUFFERSIZE];
+
+	/*
+	 * this is mostly used by compound operations as such operations
+	 * need to carry some state around for multiple commands.
+	 */
+	void *cmdstate;
+
+	/* callback to finish/continue command processing */
+	callout_cbk_t callout_cbk;
 };
 
 /* Set/Get methods for the opaque tcmu_device */

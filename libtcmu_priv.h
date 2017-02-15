@@ -31,6 +31,7 @@
 #include "scsi_defs.h"
 #include "darray.h"
 #include "ccan/list/list.h"
+#include "tcmu-runner.h"
 
 #define KERN_IFACE_VER 2
 
@@ -48,8 +49,39 @@ struct tcmulib_context {
 	GDBusConnection *connection;
 };
 
+struct tcmu_call_stub {
+	enum tcmu_store_op sop;  /* r, w, etc.. */
+
+	callout_cbk_t callout_cbk;
+
+	/*
+	 * basic {exec, in} parameters to store calls. anything
+	 * more complex than this would required a more generic
+         * mechanism - for now this should suffice.
+	 */
+	union {
+		struct {
+			store_rw_t exec;
+			struct iovec *iov;
+			size_t iov_cnt;
+			off_t off;
+		} rw; /* read/write */
+		struct {
+			store_flush_t exec;
+		} flush; /* flush */
+		struct {
+			store_handle_cmd_t exec;
+		} handle_cmd; /* command passthrough */
+	}u;
+};
+
 struct tcmu_io_entry {
-	struct tcmulib_cmd *cmd;  /* SCSI command */
+	struct tcmu_device *dev;	 /* device backpointer */
+	struct tcmulib_cmd *cmd;	 /* SCSI command */
+
+	int rc;				 /* return value used to complete command */
+	struct tcmu_call_stub stub;	 /* store command call stub */
+
 	struct list_node entry;
 };
 
@@ -81,6 +113,8 @@ struct tcmu_device {
 	struct tcmu_io_queue work_queue;
 	struct tcmu_track_aio track_queue;
 
+	pthread_mutex_t caw_lock; /* for atomic CAW operation */
+
 	uint32_t cmd_tail;
 
 	uint64_t num_lbas;
@@ -101,5 +135,22 @@ struct tcmu_thread {
 	pthread_t thread_id;
 	struct tcmu_device *dev;
 };
+
+/* internal (private) helpers */
+
+/* pthread cleanup handler: unlock a mutex */
+void _cleanup_mutex_lock(void *);
+/* pthread cleanup handler: unlock a spinlock */
+void _cleanup_spin_lock(void *);
+
+/* cancel (+join) a thread */
+void cancel_thread(pthread_t);
+
+/* errno -> SAM status code */
+int errno_to_sam_status(int, uint8_t *);
+
+/* aio request tracking */
+void track_aio_request_start(struct tcmu_device *);
+void track_aio_request_finish(struct tcmu_device *, int *);
 
 #endif
