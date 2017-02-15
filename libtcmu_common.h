@@ -34,6 +34,9 @@ struct tcmu_device;
 
 #define SENSE_BUFFERSIZE 96
 
+typedef ssize_t (*store_rw_t)(struct tcmu_device *, struct iovec *, size_t, off_t);
+typedef int (*store_flush_t)(struct tcmu_device *);
+
 struct tcmulib_cmd {
 	uint16_t cmd_id;
 	uint8_t *cdb;
@@ -77,10 +80,7 @@ int tcmu_emulate_read_capacity_16(uint64_t num_lbas, uint32_t block_size, uint8_
 int tcmu_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_mode_select(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_write_verify(struct tcmu_device *, struct tcmulib_cmd *,
-			      ssize_t (*read)(struct tcmu_device *,
-					      struct iovec *, size_t, off_t),
-			      ssize_t (*write)(struct tcmu_device *,
-					       struct iovec *, size_t, off_t),
+			      store_rw_t read, store_rw_t write,
 			      struct iovec *, size_t, off_t);
 
 #ifdef __cplusplus

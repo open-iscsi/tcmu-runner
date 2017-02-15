@@ -31,7 +31,6 @@ extern "C" {
 #include <sys/uio.h>
 #include "scsi_defs.h"
 #include "libtcmu_log.h"
-
 #include "libtcmu_common.h"
 
 struct tcmur_handler {
@@ -72,9 +71,9 @@ struct tcmur_handler {
 	int (*handle_cmd)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
 	/* Below callbacks are only exected called by generic_handle_cmd */
-	ssize_t (*write)(struct tcmu_device *, struct iovec *, size_t, off_t);
-	ssize_t (*read)(struct tcmu_device *, struct iovec *, size_t, off_t);
-	int (*flush)(struct tcmu_device *);
+	store_rw_t    write;
+	store_rw_t    read;
+	store_flush_t flush;
 };
 
 /*
