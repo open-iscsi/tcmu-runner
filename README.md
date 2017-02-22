@@ -75,8 +75,8 @@ difference is who is responsible for the event loop.
 There are two different ways to write a tcmu-runner plugin handler:
 
 1. one can register .handle_cmd to take the full control of command handling
-2. or else one can register .{read, write, flush, ...} to only handle storage
-   IO stuff.
+2. or else one can register .{read, write, flush, ...} to handle specific
+   operations and .handle_cmd to override the generic handling if needed.
 
 With the option 1, tcmu-runner is in charge of the event loop
 for your plugin, and your handler's `handle_cmd` function is called
