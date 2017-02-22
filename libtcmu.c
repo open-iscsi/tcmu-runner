@@ -158,7 +158,7 @@ static void teardown_netlink(struct nl_sock *sock)
 	nl_socket_free(sock);
 }
 
-static void cancel_thread(pthread_t thread)
+void tcmulib_cancel_thread(pthread_t thread)
 {
 	void *join_retval;
 	int ret;
@@ -222,7 +222,6 @@ static void cmdproc_thread_cleanup(void *arg)
 	struct tcmur_handler *r_handler = handler->hm_private;
 
 	r_handler->close(dev);
-	free(dev);
 }
 
 static int generic_handle_cmd(struct tcmu_device *dev,
@@ -406,7 +405,12 @@ static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 		free(buf);
 }
 
-static void _cleanup_mutex_lock(void *arg)
+void tcmulib_cleanup_malloc(void *buffer)
+{
+        free(buffer);
+}
+
+void tcmulib_cleanup_mutex_lock(void *arg)
 {
 	pthread_mutex_unlock(arg);
 }
@@ -476,7 +480,7 @@ static void *io_work_queue(void *arg)
 		int ret;
 		struct tcmu_io_entry *io_entry;
 
-		pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
+		pthread_cleanup_push(tcmulib_cleanup_mutex_lock, &io_wq->io_lock);
 		pthread_mutex_lock(&io_wq->io_lock);
 
 		while (list_empty(&io_wq->io_queue)) {
@@ -520,7 +524,7 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	list_node_init(&io_entry->entry);
 
 	/* cleanup push/pop not _really_ required here atm */
-	pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
+	pthread_cleanup_push(tcmulib_cleanup_mutex_lock, &io_wq->io_lock);
 	pthread_mutex_lock(&io_wq->io_lock);
 
 	list_add_tail(&io_wq->io_queue, &io_entry->entry);
@@ -571,7 +575,7 @@ static void cleanup_io_work_queue(struct tcmu_device *dev,
 	struct tcmu_io_queue *io_wq = &dev->work_queue;
 
 	if (cancel) {
-		cancel_thread(io_wq->io_wq_thread);
+		tcmulib_cancel_thread(io_wq->io_wq_thread);
 	}
 
 	/*
@@ -895,7 +899,7 @@ static void remove_device(struct tcmulib_context *ctx,
 	 * ->close() callout) in order to ensure that no store callouts
 	 * are getting invoked when shutting down the handler.
 	 */
-	cancel_thread(io_wq->io_wq_thread);
+	tcmulib_cancel_thread(io_wq->io_wq_thread);
 	dev->handler->removed(dev);
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(dev);
@@ -913,6 +917,7 @@ static void remove_device(struct tcmulib_context *ctx,
 	if (ret < 0) {
 		tcmu_err("could not cleanup mailbox lock %s: %d\n", dev_name, errno);
 	}
+	free(dev);
 }
 
 static int is_uio(const struct dirent *dirent)
@@ -1294,7 +1299,7 @@ void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev)
 		return;
 	}
 
-	cancel_thread(thread->thread_id);
+	tcmulib_cancel_thread(thread->thread_id);
 	darray_remove(g_threads, i);
 }
 
@@ -1302,6 +1307,6 @@ void tcmulib_cleanup_all_cmdproc_threads()
 {
 	struct tcmu_thread *thread;
 	darray_foreach(thread, g_threads) {
-		cancel_thread(thread->thread_id);
+		tcmulib_cancel_thread(thread->thread_id);
 	}
 }

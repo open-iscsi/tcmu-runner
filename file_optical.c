@@ -121,12 +121,14 @@ static void *fbo_handler_run(void *arg)
 	struct tcmulib_cmd *cmd;
 
 	while (true) {
+		pthread_cleanup_push(tcmulib_cleanup_mutex_lock, &h->mtx);
 		/* get next command */
 		pthread_mutex_lock(&h->mtx);
 		while (h->cmd_tail == h->cmd_head)
 			pthread_cond_wait(&h->cond, &h->mtx);
 		cmd = h->commands[h->cmd_tail];
 		pthread_mutex_unlock(&h->mtx);
+		pthread_cleanup_pop(0);
 
 		/* process command */
 		result = fbo_handle_cmd(h->dev, cmd);
@@ -134,12 +136,14 @@ static void *fbo_handler_run(void *arg)
                     tcmu_dbg("FBO: Check condition\n");
                     tcmu_dbg("  Sense: 0x%08llx\n", *(uint64_t *)cmd->sense_buf);
                 }
-		pthread_mutex_lock(&state->completion_mtx);
 		tcmulib_command_complete(h->dev, cmd, result);
+
+		pthread_mutex_lock(&state->completion_mtx);
 		tcmulib_processing_complete(h->dev);
 		pthread_mutex_unlock(&state->completion_mtx);
 
 		/* notify that we can process more commands */
+
 		pthread_mutex_lock(&h->mtx);
 		h->commands[h->cmd_tail] = NULL;
 		h->cmd_tail = (h->cmd_tail + 1) % NCOMMANDS;
@@ -168,10 +172,7 @@ static void fbo_handler_init(struct fbo_handler *h, struct tcmu_device *dev,
 
 static void fbo_handler_destroy(struct fbo_handler *h)
 {
-	if (h->thr) {
-		pthread_kill(h->thr, SIGINT);
-		pthread_join(h->thr, NULL);
-	}
+	tcmulib_cancel_thread(h->thr);
 	pthread_cond_destroy(&h->cond);
 	pthread_mutex_destroy(&h->mtx);
 }
@@ -350,6 +351,8 @@ static int fbo_handle_cmd_async(struct tcmu_device *dev,
 
 	state->curr_handler = (state->curr_handler + 1) % NHANDLERS;
 
+	pthread_cleanup_push(tcmulib_cleanup_mutex_lock, &h->mtx);
+
 	/* enqueue command */
 	pthread_mutex_lock(&h->mtx);
 	while ((h->cmd_head + 1) % NCOMMANDS == h->cmd_tail)
@@ -358,6 +361,7 @@ static int fbo_handle_cmd_async(struct tcmu_device *dev,
 	h->cmd_head = (h->cmd_head + 1) % NCOMMANDS;
 	pthread_cond_signal(&h->cond);
 	pthread_mutex_unlock(&h->mtx);
+	pthread_cleanup_pop(0);
 
 	return TCMU_ASYNC_HANDLED;
 }
@@ -1272,7 +1276,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	int length = 0;
 	void *buf;
 	size_t ret;
-	int rc;
+	int rc = SAM_STAT_GOOD;
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	/* DPO and RelAdr bits should be 0 */
@@ -1297,6 +1301,8 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	buf = malloc(length);
 	if (!buf)
 		return set_medium_error(sense);
+
+	pthread_cleanup_push(tcmulib_cleanup_malloc, buf);
 	memset(buf, 0, length);
 
 	pthread_mutex_lock(&state->state_mtx);
@@ -1312,15 +1318,18 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 
 	if (ret == -1) {
 		tcmu_err("read failed: %m\n");
-		free(buf);
-		return set_medium_error(sense);
+		rc = set_medium_error(sense);
+		goto cleanup;
 	}
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, length);
+	rc = SAM_STAT_GOOD;
 
+cleanup:
 	free(buf);
+	pthread_cleanup_pop(0);
 
-	return SAM_STAT_GOOD;
+	return rc;
 }
 
 static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
@@ -1335,6 +1344,8 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 	if (!buf)
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	pthread_cleanup_push(tcmulib_cleanup_malloc, buf);
 
 	memset(buf, 0, length);
 
@@ -1351,8 +1362,8 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 
 	if (ret == -1) {
 		tcmu_err("read failed: %m\n");
-		free(buf);
-		return set_medium_error(sense);
+		rc = set_medium_error(sense);
+		goto cleanup;
 	}
 
 	cmp_offset = tcmu_compare_with_iovec(buf, iovec, length);
@@ -1361,7 +1372,9 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 					 ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
 					 &cmp_offset);
 
+cleanup:
 	free(buf);
+	pthread_cleanup_pop(0);
 
 	return rc;
 }
@@ -1483,6 +1496,8 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 	}
+
+	pthread_cleanup_push(tcmulib_cleanup_malloc, buf);
 	memset(buf, 0, length);
 
 	while (done_blocks < state->num_lbas) {
@@ -1507,7 +1522,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	state->flags &= ~FBO_FORMATTING;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	free(buf);
+	pthread_cleanup_pop(1);
 
 	return rc;
 }

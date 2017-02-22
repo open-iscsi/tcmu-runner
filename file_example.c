@@ -42,10 +42,10 @@
 #include <pthread.h>
 
 #include "tcmu-runner.h"
+#include "libtcmu.h"
 
 #ifdef ASYNC_FILE_HANDLER
 #include <signal.h>
-#include "libtcmu.h"
 #endif
 
 #define NHANDLERS 2
@@ -87,6 +87,7 @@ file_handler_run(void *arg)
 		int result;
 		struct tcmulib_cmd *cmd;
 
+		pthread_cleanup_push(tcmulib_cleanup_mutex_lock, &h->mtx);
 		/* get next command */
 		pthread_mutex_lock(&h->mtx);
 		while (h->cmd_tail == h->cmd_head) {
@@ -94,11 +95,13 @@ file_handler_run(void *arg)
 		}
 		cmd = h->commands[h->cmd_tail];
 		pthread_mutex_unlock(&h->mtx);
+		pthread_cleanup_pop(0);
 
 		/* process command */
 		result = file_handle_cmd(h->dev, cmd);
-		pthread_mutex_lock(&state->completion_mtx);
 		tcmulib_command_complete(h->dev, cmd, result);
+
+		pthread_mutex_lock(&state->completion_mtx);
 		tcmulib_processing_complete(h->dev);
 		pthread_mutex_unlock(&state->completion_mtx);
 
@@ -132,10 +135,7 @@ file_handler_init(struct file_handler *h, struct tcmu_device *dev, int num)
 static void
 file_handler_destroy(struct file_handler *h)
 {
-	if (h->thr) {
-		pthread_kill(h->thr, SIGINT);
-		pthread_join(h->thr, NULL);
-	}
+	tcmulib_cancel_thread(h->thr);
 	pthread_cond_destroy(&h->cond);
 	pthread_mutex_destroy(&h->mtx);
 }
@@ -258,6 +258,7 @@ static int file_handle_cmd_async(
 
 	state->curr_handler = (state->curr_handler + 1) % NHANDLERS;
 
+	pthread_cleanup_push(tcmulib_cleanup_mutex_lock, &h->mtx);
 	/* enqueue command */
 	pthread_mutex_lock(&h->mtx);
 	while ((h->cmd_head + 1) % NCOMMANDS == h->cmd_tail) {
@@ -267,6 +268,7 @@ static int file_handle_cmd_async(
 	h->cmd_head = (h->cmd_head + 1) % NCOMMANDS;
 	pthread_cond_signal(&h->cond);
 	pthread_mutex_unlock(&h->mtx);
+	pthread_cleanup_pop(0);
 
 	return TCMU_ASYNC_HANDLED;
 }
@@ -331,13 +333,14 @@ static int do_verify_op(struct file_state *state, struct iovec *iovec, uint64_t 
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 
+	pthread_cleanup_push(tcmulib_cleanup_malloc, buf);
 	memset(buf, 0, length);
 
 	ret = pread(state->fd, buf, length, offset);
 	if (ret < 0) {
 		tcmu_err("read failed: %m\n");
-		free(buf);
-		return set_medium_error(sense);
+		rc = set_medium_error(sense);
+		goto cleanup;
 	}
 
 	cmp_offset = tcmu_compare_with_iovec(buf, iovec, length);
@@ -347,7 +350,9 @@ static int do_verify_op(struct file_state *state, struct iovec *iovec, uint64_t 
 		tcmu_err("Verify failed at offset %lu\n", cmp_offset);
 	}
 
+cleanup:
 	free(buf);
+	pthread_cleanup_pop(0);
 
 	return rc;
 }
@@ -391,7 +396,7 @@ static int file_handle_cmd(
 	uint64_t offset;
 	int length = 0;
 	uint64_t cur_lba = 0;
-	int rc;
+	int rc = SAM_STAT_GOOD;
 
 	cmd = cdb[0];
 
@@ -450,20 +455,24 @@ static int file_handle_cmd(
 		buf = malloc(length);
 		if (!buf)
 			return set_medium_error(sense);
+		pthread_cleanup_push(tcmulib_cleanup_malloc, buf);
 		memset(buf, 0, length);
 
 		ret = pread(state->fd, buf, length, offset);
 		if (ret == -1) {
 			tcmu_err("read failed: %m\n");
-			free(buf);
-			return set_medium_error(sense);
+			rc = set_medium_error(sense);
+			goto cleanup;
 		}
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, length);
+		rc = SAM_STAT_GOOD;
+		
+		cleanup:
+			free(buf);
+			pthread_cleanup_pop(0);
 
-		free(buf);
-
-		return SAM_STAT_GOOD;
+			return rc;
 	}
 	break;
 	case WRITE_VERIFY:
