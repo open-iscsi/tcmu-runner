@@ -237,14 +237,19 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
 	uint8_t cmd;
-	ssize_t ret, l = tcmu_iovec_length(iovec, iov_cnt);
+	ssize_t ret = TCMU_NOT_HANDLED, l = tcmu_iovec_length(iovec, iov_cnt);
 	off_t offset = block_size * tcmu_get_lba(cdb);
 	struct iovec iov;
 	size_t half = l / 2;
 	uint32_t cmp_offset;
 
-	cmd = cdb[0];
+	if (store->handle_cmd)
+		ret = store->handle_cmd(dev, tcmulib_cmd);
 
+	if (ret != TCMU_NOT_HANDLED)
+		return ret;
+
+	cmd = cdb[0];
 	switch (cmd) {
 	case INQUIRY:
 		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
@@ -463,7 +468,8 @@ static int invokecmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmur_handler *r_handler = handler->hm_private;
 
 	int (*func)(struct tcmu_device *, struct tcmulib_cmd *) =
-		(r_handler->handle_cmd) ? : generic_handle_cmd;
+		(r_handler->write || r_handler->read || r_handler->flush) ?
+		generic_handle_cmd : r_handler->handle_cmd;
 	return func(dev, cmd);
 }
 
