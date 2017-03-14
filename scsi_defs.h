@@ -6,6 +6,8 @@
  * BTW sense codes are at www.t10.org/lists/asc-num.txt
  *
  */
+#ifndef __TCMU_SCSI_DEFS
+#define __TCMU_SCSI_DEFS
 
 /*
  * SCSI Opcodes
@@ -60,3 +62,5 @@
 #define ASC_CANT_WRITE_INCOMPATIBLE_FORMAT      0x3005
 #define ASC_SAVING_PARAMETERS_NOT_SUPPORTED     0x3900
 #define ASC_INTERNAL_TARGET_FAILURE             0x4400
+
+#endif
