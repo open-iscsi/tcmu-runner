@@ -174,9 +174,11 @@ static int fbo_open(struct tcmu_device *dev)
 		tcmu_err("Could not get device block size\n");
 		goto err;
 	}
+	tcmu_set_dev_block_size(dev, state->block_size);
 #else
 	/* MM logical units use a block size of 2048 */
 	state->block_size = 2048;
+	tcmu_set_dev_block_size(dev, state->block_size);
 #endif
 
 	size = tcmu_get_device_size(dev);
@@ -185,6 +187,7 @@ static int fbo_open(struct tcmu_device *dev)
 		goto err;
 	}
 
+	tcmu_set_dev_num_lbas(dev, size / state->block_size);
 	state->num_lbas = size / state->block_size;
 
 	tcmu_dbg("open: cfgstring %s\n", tcmu_get_dev_cfgstring(dev));

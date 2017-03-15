@@ -1435,6 +1435,7 @@ static int qcow_open(struct tcmu_device *dev)
 		goto err;
 	}
 
+	tcmu_set_dev_num_lbas(dev, bdev->size / bdev->block_size);
 	bdev->num_lbas = bdev->size / bdev->block_size;
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
