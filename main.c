@@ -552,7 +552,7 @@ int main(int argc, char **argv)
 				handler_path = strdup(optarg);
 			break;
 		case 'd':
-			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG);
+			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG_SCSI_CMD);
 			break;
 		case 'V':
 			printf("tcmu-runner %s\n", TCMUR_VERSION);

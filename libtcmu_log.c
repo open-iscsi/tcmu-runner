@@ -65,6 +65,8 @@ static inline int to_syslog_level(int level)
 			return TCMU_LOG_INFO;
 		case TCMU_CONF_LOG_DEBUG:
 			return TCMU_LOG_DEBUG;
+		case TCMU_CONF_LOG_DEBUG_SCSI_CMD:
+			return TCMU_LOG_DEBUG_SCSI_CMD;
 		default:
 			return TCMU_LOG_WARN;
 	}
@@ -166,6 +168,10 @@ log_internal(int pri,const char *funcname,
 	if (pri > tcmu_log_level)
 		return;
 
+	/* convert tcmu-runner private level to system level */
+	if (pri > TCMU_LOG_DEBUG)
+		pri = TCMU_LOG_DEBUG;
+
 	if (!fmt)
 		return;
 
@@ -224,13 +230,21 @@ void tcmu_dbg_message(const char *funcname, int linenr, const char *fmt, ...)
 	va_end(args);
 }
 
+void tcmu_dbg_scsi_cmd_message(const char *funcname, int linenr, const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	log_internal(TCMU_LOG_DEBUG_SCSI_CMD, funcname, linenr, fmt, args);
+	va_end(args);
+}
+
 static void log_output(int pri, const char *msg)
 {
 	log_to_syslog(pri, msg);
 	/* log to stdout if tcmu_log_level is DEBUG */
-	if (pri <= TCMU_LOG_DEBUG && tcmu_log_level == TCMU_LOG_DEBUG) {
+	if (pri >= TCMU_LOG_DEBUG)
 		fprintf(stdout, "%s", msg);
-	}
 }
 
 static bool log_buf_not_empty_output(struct log_buf *logbuf)

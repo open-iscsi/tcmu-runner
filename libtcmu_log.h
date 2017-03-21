@@ -31,6 +31,7 @@
 #define TCMU_LOG_WARN	LOG_WARNING	/* warning conditions */
 #define TCMU_LOG_INFO	LOG_INFO	/* informational */
 #define TCMU_LOG_DEBUG	LOG_DEBUG	/* debug-level messages */
+#define TCMU_LOG_DEBUG_SCSI_CMD	(LOG_DEBUG + 1)	/* scsi cmd debug-level messages */
 
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
@@ -40,9 +41,11 @@ void tcmu_err_message(const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_warn_message(const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_info_message(const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_dbg_message(const char *funcname, int linenr, const char *fmt, ...);
+void tcmu_dbg_scsi_cmd_message(const char *funcname, int linenr, const char *fmt, ...);
 
 #define tcmu_err(...)  {tcmu_err_message(__func__, __LINE__, __VA_ARGS__);}
 #define tcmu_warn(...) {tcmu_warn_message(__func__, __LINE__, __VA_ARGS__);}
 #define tcmu_info(...) {tcmu_info_message(__func__, __LINE__, __VA_ARGS__);}
 #define tcmu_dbg(...)  {tcmu_dbg_message(__func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dbg_scsi_cmd(...)  {tcmu_dbg_scsi_cmd_message(__func__, __LINE__, __VA_ARGS__);}
 #endif /* __TCMU_LOG_H */
