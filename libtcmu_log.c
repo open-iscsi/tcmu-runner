@@ -234,11 +234,11 @@ static void log_output(int pri, const char *msg)
 }
 
 static bool log_buf_not_empty_output(struct log_buf *logbuf)
-{	
+{
 	unsigned int tail;
 	uint8_t pri;
 	char *msg, buf[LOG_MSG_LEN];
-	
+
 	if (!logbuf) {
 		return false;
 	}
@@ -257,12 +257,12 @@ static bool log_buf_not_empty_output(struct log_buf *logbuf)
 	pthread_mutex_unlock(&logbuf->lock);
 
 	/*
- 	 * This may block due to rsyslog and syslog-ng, etc.
- 	 * And the log productors could still insert their log
- 	 * messages into the ring buffer without blocking. But
- 	 * the ring buffer may lose some old log rbs if the
- 	 * ring buffer is full.
- 	 */
+	 * This may block due to rsyslog and syslog-ng, etc.
+	 * And the log productors could still insert their log
+	 * messages into the ring buffer without blocking. But
+	 * the ring buffer may lose some old log rbs if the
+	 * ring buffer is full.
+	 */
 	log_output(pri, buf);
 
 	return true;
@@ -355,8 +355,8 @@ static struct log_buf *tcmu_log_initialize(void)
 		pthread_mutex_unlock(&g_mutex);
 		return NULL;
 	}
-	
-	pthread_mutex_lock(&logbuf->lock);	
+
+	pthread_mutex_lock(&logbuf->lock);
 	while (!logbuf->finish_initialize)
 		pthread_cond_wait(&logbuf->cond, &logbuf->lock);
 	pthread_mutex_unlock(&logbuf->lock);
