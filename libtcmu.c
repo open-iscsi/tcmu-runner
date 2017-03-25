@@ -222,7 +222,6 @@ static void cmdproc_thread_cleanup(void *arg)
 	struct tcmur_handler *r_handler = handler->hm_private;
 
 	r_handler->close(dev);
-	free(dev);
 }
 
 static int generic_handle_cmd(struct tcmu_device *dev,
@@ -919,6 +918,7 @@ static void remove_device(struct tcmulib_context *ctx,
 	if (ret < 0) {
 		tcmu_err("could not cleanup mailbox lock %s: %d\n", dev_name, errno);
 	}
+	free(dev);
 }
 
 static int is_uio(const struct dirent *dirent)
