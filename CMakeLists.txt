@@ -144,18 +144,6 @@ set_target_properties(handler_file
   PREFIX ""
   )
 
-# Stuff for building the async file handler
-add_library(handler_file_async
-  SHARED
-  file_example.c
-  )
-set_target_properties(handler_file_async
-  PROPERTIES
-  PREFIX ""
-  COMPILE_FLAGS "-DASYNC_FILE_HANDLER"
-  )
-target_link_libraries(handler_file_async ${PTHREAD})
-
 # Stuff for building the file optical handler
 add_library(handler_file_optical
   SHARED
