@@ -123,6 +123,10 @@ void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev);
 /* cleanup all (devices) command processing threads */
 void tcmulib_cleanup_all_cmdproc_threads();
 
+void tcmulib_cleanup_malloc(void *buffer);
+void tcmulib_cancel_thread(pthread_t thread);
+void tcmulib_cleanup_mutex_lock(void *arg);
+
 #ifdef __cplusplus
 }
 #endif
