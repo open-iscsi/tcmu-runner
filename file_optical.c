@@ -1752,10 +1752,31 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return fbo_emulate_mechanism_status(dev, cdb, iovec, iov_cnt,
 						    sense);
 		break;
+	case RESERVE:
+		if (cdb[1] & 1)
+			goto illegal_request;
+		break;
+	case RESERVE_10:
+		if (cdb[1] & 3)
+			goto illegal_request;
+		break;
+	case RELEASE:
+		if (cdb[1] & 1)
+			goto illegal_request;
+		break;
+	case RELEASE_10:
+		if (cdb[1] & 3)
+			goto illegal_request;
+		break;
 	default:
 		tcmu_err("unknown command 0x%x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
+
+illegal_request:
+	return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+				   ASC_INVALID_FIELD_IN_CDB,
+				   NULL);
 }
 
 static const char fbo_cfg_desc[] =
