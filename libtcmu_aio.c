@@ -56,8 +56,8 @@ void track_aio_request_finish(struct tcmu_device *dev, int *is_idle)
 	pthread_cleanup_pop(0);
 }
 
-static void tcmu_callout_finished(struct tcmu_device *dev,
-				  struct tcmulib_cmd *cmd, int ret)
+void tcmu_callout_finished(struct tcmu_device *dev,
+			   struct tcmulib_cmd *cmd, int ret)
 {
 	cmd->callout_cbk(dev, cmd, ret);
 }

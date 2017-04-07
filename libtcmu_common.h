@@ -98,6 +98,9 @@ int tcmu_emulate_write_verify(struct tcmu_device *, struct tcmulib_cmd *,
 			      store_rw_t read, store_rw_t write,
 			      struct iovec *, size_t, off_t);
 
+void tcmu_callout_finished(struct tcmu_device *dev,
+			   struct tcmulib_cmd *cmd, int ret);
+
 #ifdef __cplusplus
 }
 #endif
