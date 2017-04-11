@@ -38,11 +38,11 @@ add_library(tcmu
   SHARED
   api.c
   libtcmu.c
+  tcmur_cmd_handler.c
   libtcmu-register.c
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
-  libtcmu_store.c
   libtcmu_aio.c
   )
 set_target_properties(tcmu
@@ -65,11 +65,11 @@ install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 add_library(tcmu_static
   api.c
   libtcmu.c
+  tcmur_cmd_handler.c
   libtcmu-register.c
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
-  libtcmu_store.c
   libtcmu_aio.c
   )
 target_include_directories(tcmu_static

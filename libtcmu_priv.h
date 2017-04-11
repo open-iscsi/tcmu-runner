@@ -55,22 +55,22 @@ struct tcmu_call_stub {
 	callout_cbk_t callout_cbk;
 
 	/*
-	 * basic {exec, in} parameters to store calls. anything
+	 * basic {exec, in} parameters to handler calls. anything
 	 * more complex than this would required a more generic
          * mechanism - for now this should suffice.
 	 */
 	union {
 		struct {
-			store_rw_t exec;
+			rw_fn_t exec;
 			struct iovec *iov;
 			size_t iov_cnt;
 			off_t off;
 		} rw; /* read/write */
 		struct {
-			store_flush_t exec;
+			flush_fn_t exec;
 		} flush; /* flush */
 		struct {
-			store_handle_cmd_t exec;
+			handle_cmd_fn_t exec;
 		} handle_cmd; /* command passthrough */
 	}u;
 };

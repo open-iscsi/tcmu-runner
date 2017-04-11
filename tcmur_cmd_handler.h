@@ -14,15 +14,14 @@
  * under the License.
 */
 
-#ifndef __LIBTCMU_STORE_H
-#define __LIBTCMU_STORE_H
+#ifndef __TCMUR_CMD_HANDLER_H
+#define __TCMUR_CMD_HANDLER_H
 
 #include <stdint.h>
 
 struct tcmu_device;
 struct tcmulib_cmd;
 
-int call_store(struct tcmu_device *dev,
-	       struct tcmulib_cmd *tcmulib_cmd, uint8_t cmd);
+int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
-#endif /* __LIBTCMU_STORE_H */
+#endif /* __TCMUR_CMD_HANDLER_H */

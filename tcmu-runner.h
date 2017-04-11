@@ -78,9 +78,9 @@ struct tcmur_handler {
 	int (*handle_cmd)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
 	/* Below callbacks are only exected called by generic_handle_cmd */
-	store_rw_t    write;
-	store_rw_t    read;
-	store_flush_t flush;
+	rw_fn_t write;
+	rw_fn_t read;
+	flush_fn_t flush;
 };
 
 /*

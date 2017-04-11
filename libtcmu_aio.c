@@ -63,11 +63,11 @@ void tcmu_callout_finished(struct tcmu_device *dev,
 }
 
 /*
- * This deals with return values from sync and async store handlers.
+ * This deals with return values from sync and async tcmur handlers.
  * Possible return values:
  *
- * 0: success from sync store handler
- * -errno: failure from [a]sync store handler
+ * 0: success from sync tcmur handler
+ * -errno: failure from [a]sync tcmur handler
  * TCMU_ASYNC_HANDLED: command async handled
  * TCMU_NOT_HANDLED: unhandled command (from command passthru)
  */
@@ -101,8 +101,8 @@ static int call_stub_exec(struct tcmu_device *dev,
 		ret = (ssize_t) stub->u.handle_cmd.exec(dev, cmd);
 		break;
 	default:
-		tcmu_err("unhandled store operation\n");
-		assert(0 == "unhandled store operation");
+		tcmu_err("unhandled tcmur operation\n");
+		assert(0 == "unhandled tmcur operation");
 	}
 
 	if (ret < 0) {
@@ -196,11 +196,11 @@ int async_call_command(struct tcmu_device *dev,
 {
 	int ret;
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *r_handler = handler->hm_private;
+	struct tcmur_handler *rhandler = handler->hm_private;
 
 	cmd->callout_cbk = stub->callout_cbk;
 
-	if (r_handler->aio_supported) {
+	if (rhandler->aio_supported) {
 		ret = call_stub_exec(dev, cmd, stub, true);
 	} else {
 		ret = aio_schedule(dev, cmd, stub);
