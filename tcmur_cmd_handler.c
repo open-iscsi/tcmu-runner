@@ -17,6 +17,7 @@
 #define _GNU_SOURCE
 #include <scsi/scsi.h>
 #include <errno.h>
+#include <inttypes.h>
 
 #include "libtcmu.h"
 #include "libtcmu_aio.h"
@@ -79,6 +80,29 @@ static void free_single_iovec(struct tcmulib_cmd *cmd)
 
 	cmd->iov_cnt = 0;
 	cmd->iovec = NULL;
+}
+
+static int check_lba_and_length(struct tcmu_device *dev,
+				struct tcmulib_cmd *cmd, uint32_t sectors)
+{
+	uint8_t *cdb = cmd->cdb;
+	uint64_t lba = tcmu_get_lba(cdb);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
+
+	if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
+		tcmu_err("iov len mismatch: iov len %zu, xfer len %" PRIu32 ", block size %" PRIu32 "\n",
+			 iov_length, sectors, tcmu_get_dev_block_size(dev));
+
+		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+	}
+
+	if (lba >= num_lbas || lba + sectors > num_lbas)
+		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+					   ASC_LBA_OUT_OF_RANGE, NULL);
+
+	return SAM_STAT_GOOD;
 }
 
 /* async write verify */
@@ -443,6 +467,10 @@ static int handle_caw(struct tcmu_device *dev,
 	uint8_t *sense = cmd->sense_buf;
 	ssize_t half = (tcmu_iovec_length(iovec, iov_cnt)) / 2;
 
+	ret = check_lba_and_length(dev, cmd, cmd->cdb[13] * 2);
+	if (ret)
+		return ret;
+
 	ret = errno_to_sam_status(-ENOMEM, sense);
 
 	readcmd = caw_init_readcmd(cmd, off, half);
@@ -512,6 +540,10 @@ static int handle_write(struct tcmu_device *dev,
 	int ret;
 	struct tcmu_call_stub stub;
 
+	ret = check_lba_and_length(dev, cmd, tcmu_get_xfer_length(cmd->cdb));
+	if (ret)
+		return ret;
+
 	stub.sop = TCMU_STORE_OP_WRITE;
 	stub.callout_cbk = handle_write_cbk;
 
@@ -541,6 +573,10 @@ static int handle_read(struct tcmu_device *dev,
 {
 	int ret;
 	struct tcmu_call_stub stub;
+
+	ret = check_lba_and_length(dev, cmd, tcmu_get_xfer_length(cmd->cdb));
+	if (ret)
+		return ret;
 
 	stub.sop = TCMU_STORE_OP_READ;
 	stub.callout_cbk = handle_read_cbk;
