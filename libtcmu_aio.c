@@ -85,7 +85,8 @@ static int call_stub_exec(struct tcmu_device *dev,
 	case TCMU_STORE_OP_WRITE:
 		requested = tcmu_iovec_length(stub->u.rw.iov, stub->u.rw.iov_cnt);
 		ret  = stub->u.rw.exec(dev, cmd, stub->u.rw.iov,
-				       stub->u.rw.iov_cnt, stub->u.rw.off);
+				       stub->u.rw.iov_cnt, requested,
+				       stub->u.rw.off);
 		if (!is_async) {
 			if (ret != requested)
 				ret = -EIO;

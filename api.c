@@ -921,7 +921,7 @@ int tcmu_emulate_write_verify(struct tcmu_device *dev,
 	int ret;
 
 	while (remaining) {
-		ret = write(dev, tcmulib_cmd, iovec, iov_cnt, offset);
+		ret = write(dev, tcmulib_cmd, iovec, iov_cnt, remaining, offset);
 		if (ret < 0) {
 			tcmu_err("write failed\n");
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
@@ -938,7 +938,7 @@ int tcmu_emulate_write_verify(struct tcmu_device *dev,
 
 		iov.iov_len = len;
 
-		ret = read(dev, tcmulib_cmd, &iov, iov_cnt, offset);
+		ret = read(dev, tcmulib_cmd, &iov, iov_cnt, len, offset);
 		if (ret != len) {
 			tcmu_err("read failed\n");
 			free(iov.iov_base);

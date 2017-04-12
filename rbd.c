@@ -204,10 +204,10 @@ static void rbd_finish_aio_read(rbd_completion_t completion,
 
 static ssize_t tcmu_rbd_read(struct tcmu_device *dev,
 			     struct tcmulib_cmd *tcmulib_cmd,
-			     struct iovec *iov, size_t iov_cnt, off_t offset)
+			     struct iovec *iov, size_t iov_cnt, size_t length,
+			     off_t offset)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	size_t length = tcmu_iovec_length(iov, iov_cnt);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
 	ssize_t ret = -ENOMEM;
@@ -280,11 +280,11 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 
 static ssize_t tcmu_rbd_write(struct tcmu_device *dev,
 			      struct tcmulib_cmd *tcmulib_cmd,
-			      struct iovec *iov, size_t iov_cnt, off_t offset)
+			      struct iovec *iov, size_t iov_cnt, size_t length,
+			      off_t offset)
 {
 
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	size_t length = tcmu_iovec_length(iov, iov_cnt);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
 	ssize_t ret = -ENOMEM;

@@ -541,7 +541,8 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 
 static ssize_t tcmu_glfs_read(struct tcmu_device *dev,
 			      struct tcmulib_cmd *tcmulib_cmd,
-			      struct iovec *iov, size_t iov_cnt, off_t offset)
+			      struct iovec *iov, size_t iov_cnt, size_t length,
+			      off_t offset)
 {
         struct glfs_state *state = tcmu_get_dev_private(dev);
 
@@ -550,7 +551,8 @@ static ssize_t tcmu_glfs_read(struct tcmu_device *dev,
 
 static ssize_t tcmu_glfs_write(struct tcmu_device *dev,
 			       struct tcmulib_cmd *tcmulib_cmd,
-			       struct iovec *iov, size_t iov_cnt, off_t offset)
+			       struct iovec *iov, size_t iov_cnt, size_t length,
+			       off_t offset)
 {
 	struct glfs_state *state = tcmu_get_dev_private(dev);
 

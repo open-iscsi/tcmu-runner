@@ -1470,7 +1470,7 @@ static int set_medium_error(uint8_t *sense)
 static ssize_t _tcmu_qcow_read(struct tcmu_device *dev,
 			       struct tcmulib_cmd *tcmulib_cmd,
 			       struct iovec *iov, size_t iov_cnt,
-			       off_t offset)
+			       size_t length, off_t offset)
 {
 	struct bdev *bdev = tcmu_get_dev_private(dev);
 	return bdev->ops->preadv(bdev, iov, iov_cnt, offset);
@@ -1479,7 +1479,7 @@ static ssize_t _tcmu_qcow_read(struct tcmu_device *dev,
 static ssize_t _tcmu_qcow_write(struct tcmu_device *dev,
 				struct tcmulib_cmd *tcmulib_cmd,
 				struct iovec *iov, size_t iov_cnt,
-				off_t offset)
+				size_t length, off_t offset)
 {
 	struct bdev *bdev = tcmu_get_dev_private(dev);
 	return bdev->ops->pwritev(bdev, iov, iov_cnt, offset);

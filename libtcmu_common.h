@@ -37,7 +37,7 @@ struct tcmulib_cmd;
 
 typedef ssize_t (*rw_fn_t)(struct tcmu_device *,
 				 struct tcmulib_cmd *,
-				 struct iovec *, size_t, off_t);
+				 struct iovec *, size_t, size_t, off_t);
 typedef int (*flush_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
 typedef int (*handle_cmd_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
 
