@@ -62,6 +62,7 @@
 #include <sys/uio.h>
 #include <scsi/scsi.h>
 #include <assert.h>
+#include <errno.h>
 
 #include <zlib.h>
 #if defined(HAVE_LINUX_FALLOC)
@@ -1462,136 +1463,46 @@ static void qcow_close(struct tcmu_device *dev)
 	free(bdev);
 }
 
-static int set_medium_error(uint8_t *sense)
-{
-	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
-}
-
-static ssize_t _tcmu_qcow_read(struct tcmu_device *dev,
-			       struct tcmulib_cmd *tcmulib_cmd,
-			       struct iovec *iov, size_t iov_cnt,
-			       size_t length, off_t offset)
+static ssize_t qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			 struct iovec *iovec, size_t iov_cnt, size_t length,
+			 off_t offset)
 {
 	struct bdev *bdev = tcmu_get_dev_private(dev);
-	return bdev->ops->preadv(bdev, iov, iov_cnt, offset);
-}
+	size_t remaining = length;
+	int ret;
 
-static ssize_t _tcmu_qcow_write(struct tcmu_device *dev,
-				struct tcmulib_cmd *tcmulib_cmd,
-				struct iovec *iov, size_t iov_cnt,
-				size_t length, off_t offset)
-{
-	struct bdev *bdev = tcmu_get_dev_private(dev);
-	return bdev->ops->pwritev(bdev, iov, iov_cnt, offset);
-}
-
-/*
- * Return scsi status or TCMU_NOT_HANDLED
- */
-static int qcow_handle_cmd(
-	struct tcmu_device *dev,
-	struct tcmulib_cmd *tcmulib_cmd)
-{
-	uint8_t *cdb = tcmulib_cmd->cdb;
-	struct iovec *iovec = tcmulib_cmd->iovec;
-	size_t iov_cnt = tcmulib_cmd->iov_cnt;
-	uint8_t *sense = tcmulib_cmd->sense_buf;
-	struct bdev *bdev = tcmu_get_dev_private(dev);
-	uint8_t cmd;
-	ssize_t ret;
-	uint64_t offset = bdev->block_size * tcmu_get_lba(cdb);
-
-	cmd = cdb[0];
-
-	switch (cmd) {
-	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
-		break;
-	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
-		break;
-	case SERVICE_ACTION_IN_16:
-		if (cdb[1] == READ_CAPACITY_16)
-			return tcmu_emulate_read_capacity_16(bdev->num_lbas,
-							     bdev->block_size,
-							     cdb, iovec,
-							     iov_cnt, sense);
-		else
-			return TCMU_NOT_HANDLED;
-		break;
-	case READ_CAPACITY:
-		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
-			/* Reserved bits for MM logical units */
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB,
-						   NULL);
-		else
-			return tcmu_emulate_read_capacity_10(bdev->num_lbas,
-							     bdev->block_size,
-							     cdb, iovec,
-							     iov_cnt, sense);
-	case MODE_SENSE:
-	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
-		break;
-	case START_STOP:
-		return tcmu_emulate_start_stop(dev, cdb, sense);
-		break;
-	case MODE_SELECT:
-	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
-		break;
-	case READ_6:
-	case READ_10:
-	case READ_12:
-	case READ_16:
-	{
-		size_t length = tcmu_get_xfer_length(cdb) * bdev->block_size;
-		assert(tcmu_iovec_length(iovec, iov_cnt) == length);
-		size_t remaining = length;
-		while (remaining) {
-			ret = bdev->ops->preadv(bdev, iovec, iov_cnt, offset);
-			if (ret < 0) {
-				tcmu_err("read failed: %m\n");
-				return set_medium_error(sense);
-			}
-			tcmu_seek_in_iovec(iovec, ret);
-			remaining -= ret;
+	while (remaining) {
+		ret = bdev->ops->preadv(bdev, iovec, iov_cnt, offset);
+		if (ret < 0) {
+			tcmu_err("read failed: %m\n");
+			return -EIO;
 		}
-		return SAM_STAT_GOOD;
+		tcmu_seek_in_iovec(iovec, ret);
+		offset += ret;
+		remaining -= ret;
 	}
-	break;
-	case WRITE_VERIFY:
-		return tcmu_emulate_write_verify(dev, tcmulib_cmd,
-						 _tcmu_qcow_read,
-						 _tcmu_qcow_write,
-						 iovec, iov_cnt, offset);
-	case WRITE_6:
-	case WRITE_10:
-	case WRITE_12:
-	case WRITE_16:
-	{
-		uint64_t offset = bdev->block_size * tcmu_get_lba(cdb);
-		size_t length = tcmu_get_xfer_length(cdb) * bdev->block_size;
-		assert(tcmu_iovec_length(iovec, iov_cnt) == length);
-		size_t remaining = length;
+	return length;
+}
 
-		while (remaining) {
-			ret = bdev->ops->pwritev(bdev, iovec, iov_cnt, offset);
-			if (ret < 0) {
-				tcmu_err("writefailed: %m\n");
-				return set_medium_error(sense);
-			}
-			tcmu_seek_in_iovec(iovec, ret);
-			remaining -= ret;
+static ssize_t qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			  struct iovec *iovec, size_t iov_cnt, size_t length,
+			  off_t offset)
+{
+	struct bdev *bdev = tcmu_get_dev_private(dev);
+	size_t remaining = length;
+	int ret;
+
+	while (remaining) {
+		ret = bdev->ops->pwritev(bdev, iovec, iov_cnt, offset);
+		if (ret < 0) {
+			tcmu_err("write failed: %m\n");
+			return -EIO;
 		}
-		return SAM_STAT_GOOD;
+		tcmu_seek_in_iovec(iovec, ret);
+		offset += ret;
+		remaining -= ret;
 	}
-	break;
-	default:
-		tcmu_err("unknown command %x\n", cdb[0]);
-		return TCMU_NOT_HANDLED;
-	}
+	return length;
 }
 
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";
@@ -1605,7 +1516,8 @@ static struct tcmur_handler qcow_handler = {
 
 	.open = qcow_open,
 	.close = qcow_close,
-	.handle_cmd = qcow_handle_cmd,
+	.write = qcow_write,
+	.read = qcow_read,
 };
 
 /* Entry point must be named "handler_init". */
