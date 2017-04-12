@@ -23,5 +23,6 @@ struct tcmu_device;
 struct tcmulib_cmd;
 
 int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
+bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler);
 
 #endif /* __TCMUR_CMD_HANDLER_H */

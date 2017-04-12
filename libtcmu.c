@@ -315,8 +315,7 @@ static bool command_is_generic(struct tcmulib_cmd *tcmulib_cmd)
 	}
 }
 
-static int generic_handle_cmd(struct tcmu_device *dev,
-			      struct tcmulib_cmd *cmd)
+static int generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	if (command_is_generic(cmd))
 		return generic_cmd(dev, cmd);
@@ -344,10 +343,13 @@ static void *tcmu_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG)
 				tcmu_cdb_debug_info(cmd);
 
-			int (*func)(struct tcmu_device *, struct tcmulib_cmd *) =
-				(rhandler->write || rhandler->read || rhandler->flush) ?
-				generic_handle_cmd : rhandler->handle_cmd;
-			ret = func(dev, cmd);
+			if (rhandler->aio_supported &&
+			    tcmur_handler_is_passthrough_only(rhandler))
+				ret = rhandler->handle_cmd(dev, cmd);
+			else if (tcmur_handler_is_passthrough_only(rhandler))
+				ret = tcmur_cmd_handler(dev, cmd);
+			else
+				ret = generic_handle_cmd(dev, cmd);
 
 			/*
 			 * command (processing) completion is called in the following

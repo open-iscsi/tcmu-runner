@@ -557,55 +557,11 @@ static int handle_read(struct tcmu_device *dev,
 	return ret;
 }
 
-static int call_handler(struct tcmu_device *dev,
-			struct tcmur_handler *rhandler,
-			struct tcmulib_cmd *cmd)
-{
-	uint8_t *cdb = cmd->cdb;
-	struct iovec *iovec = cmd->iovec;
-	size_t iov_cnt = cmd->iov_cnt;
-	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	off_t offset = block_size * tcmu_get_lba(cdb);
-
-	switch(cdb[0]) {
-	case READ_6:
-	case READ_10:
-	case READ_12:
-	case READ_16:
-		return handle_read(dev, rhandler, cmd, iovec, iov_cnt, offset);
-	case WRITE_6:
-	case WRITE_10:
-	case WRITE_12:
-	case WRITE_16:
-		return handle_write(dev, rhandler, cmd, iovec, iov_cnt, offset);
-	case SYNCHRONIZE_CACHE:
-	case SYNCHRONIZE_CACHE_16:
-		return handle_flush(dev, rhandler, cmd);
-	case COMPARE_AND_WRITE:
-		return handle_caw(dev, rhandler, cmd, iovec, iov_cnt, offset);
-	case WRITE_VERIFY:
-		return handle_write_verify(dev, cmd, offset);
-	default:
-		tcmu_err("unknown command %x\n", cdb[0]);
-		return TCMU_NOT_HANDLED;
-	}
-}
-
 /* command passthrough */
 static void
 handle_passthrough_cbk(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		       int ret)
 {
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *rhandler = handler->hm_private;
-
-	if (ret != TCMU_NOT_HANDLED) {
-		aio_command_finish(dev, cmd, ret, true);
-		return;
-	}
-
-	/* passthrough command was not handled - fallback to generic handling */
-	ret = call_handler(dev, rhandler, cmd);
 	aio_command_finish(dev, cmd, ret,
 			    (ret != TCMU_ASYNC_HANDLED) ? true : false);
 }
@@ -628,26 +584,58 @@ static int handle_passthrough(struct tcmu_device *dev,
 	return ret;
 }
 
-/*
- * try to passthrough the command if handler supports command passthrough.
- * note that TCMU_NOT_HANDLED is returned when a tcmur handler does not
- * handle a passthrough command, but since we call ->handle_cmd via
- * async_call_command(), ->handle_cmd can finish in the callers context
- * (asynchronous handler) or work queue context (synchronous handlers),
- * thus we'd need to check if ->handle_cmd handled the passthough command
- * here as well as in handle_passthrough_cbk().
- */
+bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler)
+{
+	if (rhandler->write || rhandler->read || rhandler->flush)
+		return false;
+
+	return true;
+}
+
 int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	int ret;
+	int ret = TCMU_NOT_HANDLED;
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 	struct tcmur_handler *rhandler = handler->hm_private;
+	uint8_t *cdb = cmd->cdb;
+	struct iovec *iovec = cmd->iovec;
+	size_t iov_cnt = cmd->iov_cnt;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	off_t offset = block_size * tcmu_get_lba(cdb);
 
-	if (rhandler->handle_cmd) {
-		ret = handle_passthrough(dev, rhandler, cmd);
-		if ((ret == TCMU_ASYNC_HANDLED) || (ret != TCMU_NOT_HANDLED))
-			return ret;
+	if (tcmur_handler_is_passthrough_only(rhandler))
+		goto passthrough;
+
+	switch(cdb[0]) {
+	case READ_6:
+	case READ_10:
+	case READ_12:
+	case READ_16:
+		return handle_read(dev, rhandler, cmd, iovec, iov_cnt, offset);
+	case WRITE_6:
+	case WRITE_10:
+	case WRITE_12:
+	case WRITE_16:
+		return handle_write(dev, rhandler, cmd, iovec, iov_cnt, offset);
+	case SYNCHRONIZE_CACHE:
+	case SYNCHRONIZE_CACHE_16:
+		return handle_flush(dev, rhandler, cmd);
+	case COMPARE_AND_WRITE:
+		return handle_caw(dev, rhandler, cmd, iovec, iov_cnt, offset);
+	case WRITE_VERIFY:
+		return handle_write_verify(dev, cmd, offset);
 	}
 
-	return call_handler(dev, rhandler, cmd);
+passthrough:
+	/*
+	 * note that TCMU_NOT_HANDLED is returned when a tcmur handler does not
+	 * handle a passthrough command, but since we call ->handle_cmd via
+	 * async_call_command(), ->handle_cmd can finish in the callers context
+	 * (asynchronous handler) or work queue context (synchronous handlers),
+	 * thus we'd need to check if ->handle_cmd handled the passthough
+	 * command here as well as in handle_passthrough_cbk().
+	 */
+	if (rhandler->handle_cmd)
+		ret = handle_passthrough(dev, rhandler, cmd);
+	return ret;
 }
