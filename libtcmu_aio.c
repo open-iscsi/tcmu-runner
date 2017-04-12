@@ -201,7 +201,7 @@ int async_call_command(struct tcmu_device *dev,
 
 	cmd->callout_cbk = stub->callout_cbk;
 
-	if (rhandler->aio_supported) {
+	if (!rhandler->nr_threads) {
 		ret = call_stub_exec(dev, cmd, stub, true);
 	} else {
 		ret = aio_schedule(dev, cmd, stub);
@@ -237,10 +237,33 @@ void cleanup_aio_tracking(struct tcmu_device *dev)
 	}
 }
 
+void cleanup_io_work_queue_threads(struct tcmu_device *dev)
+{
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
+	struct tcmu_io_queue *io_wq = &dev->work_queue;
+	int i, nr_threads = r_handler->nr_threads;
+
+	if (!io_wq->io_wq_threads) {
+		return;
+	}
+
+	for (i = 0; i < nr_threads; i++) {
+		if (io_wq->io_wq_threads[i]) {
+			cancel_thread(io_wq->io_wq_threads[i]);
+		}
+	}
+}
+
 int setup_io_work_queue(struct tcmu_device *dev)
 {
-	int ret;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *r_handler = handler->hm_private;
 	struct tcmu_io_queue *io_wq = &dev->work_queue;
+	int ret, i, nr_threads = r_handler->nr_threads;
+
+	if (!nr_threads)
+		return 0;
 
 	list_head_init(&io_wq->io_queue);
 
@@ -253,14 +276,24 @@ int setup_io_work_queue(struct tcmu_device *dev)
 		goto cleanup_lock;
 	}
 
-	// TODO: >1 worker threads (per device via config)
-	ret = pthread_create(&io_wq->io_wq_thread, NULL, io_work_queue, dev);
-	if (ret < 0) {
+	/* TODO: Allow user to override device defaults */
+	io_wq->io_wq_threads = calloc(nr_threads, sizeof(pthread_t));
+	if (!io_wq->io_wq_threads)
 		goto cleanup_cond;
+
+	for (i = 0; i < nr_threads; i++) {
+		ret = pthread_create(&io_wq->io_wq_threads[i], NULL,
+				      io_work_queue, dev);
+		if (ret < 0) {
+			goto cleanup_threads;
+		}
 	}
 
 	return 0;
 
+cleanup_threads:
+	cleanup_io_work_queue_threads(dev);
+	free(io_wq->io_wq_threads);
 cleanup_cond:
 	pthread_cond_destroy(&io_wq->io_cond);
 cleanup_lock:
@@ -271,11 +304,15 @@ out:
 
 void cleanup_io_work_queue(struct tcmu_device *dev, bool cancel)
 {
-	int ret;
 	struct tcmu_io_queue *io_wq = &dev->work_queue;
+	int ret;
+
+	if (!io_wq->io_wq_threads) {
+		return;
+	}
 
 	if (cancel) {
-		cancel_thread(io_wq->io_wq_thread);
+		cleanup_io_work_queue_threads(dev);
 	}
 
 	/*
@@ -296,4 +333,6 @@ void cleanup_io_work_queue(struct tcmu_device *dev, bool cancel)
 	if (ret != 0) {
 		tcmu_err("failed to destroy io workqueue cond\n");
 	}
+
+	free(io_wq->io_wq_threads);
 }

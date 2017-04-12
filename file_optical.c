@@ -1774,7 +1774,6 @@ static struct tcmur_handler fbo_handler = {
 	.name = "File-backed optical Handler",
 	.subtype = "fbo",
 	.handle_cmd = fbo_handle_cmd_async,
-	.aio_supported = true,
 };
 
 /* Entry point must be named "handler_init". */

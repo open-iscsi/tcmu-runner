@@ -66,8 +66,13 @@ struct tcmur_handler {
 	int (*open)(struct tcmu_device *dev);
 	void (*close)(struct tcmu_device *dev);
 
-	/* device supports asynchronous IO */
-	bool aio_supported;
+	/*
+	 * If > 0, runner will execute up to nr_threads IO callouts from
+	 * threads.
+	 * if 0, runner will call IO callouts from the cmd proc thread or
+	 * completion context for compound commands.
+	 */
+	int nr_threads;
 
 	/*
 	 * Returns

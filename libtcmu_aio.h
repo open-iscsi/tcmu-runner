@@ -23,6 +23,7 @@ struct tcmu_call_stub;
 
 int setup_io_work_queue(struct tcmu_device *);
 void cleanup_io_work_queue(struct tcmu_device *, bool);
+void cleanup_io_work_queue_threads(struct tcmu_device *);
 
 int setup_aio_tracking(struct tcmu_device *);
 void cleanup_aio_tracking(struct tcmu_device *);

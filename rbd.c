@@ -404,7 +404,6 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.cfg_desc      = tcmu_rbd_cfg_desc,
 	.open	       = tcmu_rbd_open,
 	.close	       = tcmu_rbd_close,
-	.aio_supported = true,
 	.read	       = tcmu_rbd_read,
 	.write	       = tcmu_rbd_write,
 	.flush	       = tcmu_rbd_flush,

@@ -199,7 +199,7 @@ static struct tcmur_handler file_handler = {
 	.flush = file_flush,
 	.name = "File-backed Handler (example code)",
 	.subtype = "file",
-	.aio_supported = false,
+	.nr_threads = 2,
 };
 
 /* Entry point must be named "handler_init". */

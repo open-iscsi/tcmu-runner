@@ -1518,6 +1518,7 @@ static struct tcmur_handler qcow_handler = {
 	.close = qcow_close,
 	.write = qcow_write,
 	.read = qcow_read,
+	.nr_threads = 1,
 };
 
 /* Entry point must be named "handler_init". */

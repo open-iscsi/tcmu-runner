@@ -343,7 +343,7 @@ static void *tcmu_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG)
 				tcmu_cdb_debug_info(cmd);
 
-			if (rhandler->aio_supported &&
+			if (!rhandler->nr_threads &&
 			    tcmur_handler_is_passthrough_only(rhandler))
 				ret = rhandler->handle_cmd(dev, cmd);
 			else if (tcmur_handler_is_passthrough_only(rhandler))
@@ -572,7 +572,6 @@ static void remove_device(struct tcmulib_context *ctx,
 	struct tcmu_device *dev;
 	int i = 0, ret;
 	bool found = false;
-	struct tcmu_io_queue *io_wq;
 
 	darray_foreach(dev_ptr, ctx->devices) {
 		dev = *dev_ptr;
@@ -592,8 +591,6 @@ static void remove_device(struct tcmulib_context *ctx,
 
 	darray_remove(ctx->devices, i);
 
-	io_wq = &dev->work_queue;
-
 	/*
 	 * The order of cleaning up worker threads and calling ->removed()
 	 * is important: for sync handlers, the worker thread needs to be
@@ -601,7 +598,7 @@ static void remove_device(struct tcmulib_context *ctx,
 	 * ->close() callout) in order to ensure that no handler callouts
 	 * are getting invoked when shutting down the handler.
 	 */
-	cancel_thread(io_wq->io_wq_thread);
+	cleanup_io_work_queue_threads(dev);
 	dev->handler->removed(dev);
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(dev);

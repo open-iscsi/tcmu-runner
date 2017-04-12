@@ -587,6 +587,7 @@ struct tcmur_handler glfs_handler = {
 	.read 		= tcmu_glfs_read,
 	.write		= tcmu_glfs_write,
 	.flush		= tcmu_glfs_flush,
+	.nr_threads	= 1,
 };
 
 /* Entry point must be named "handler_init". */
