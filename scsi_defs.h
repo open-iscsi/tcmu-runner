@@ -54,6 +54,7 @@
  */
 #define ASC_NOT_READY_FORMAT_IN_PROGRESS        0x0404
 #define ASC_READ_ERROR                          0x1100
+#define ASC_WRITE_ERROR                         0x0C00
 #define ASC_PARAMETER_LIST_LENGTH_ERROR         0x1a00
 #define ASC_MISCOMPARE_DURING_VERIFY_OPERATION  0x1d00
 #define ASC_LBA_OUT_OF_RANGE                    0x2100

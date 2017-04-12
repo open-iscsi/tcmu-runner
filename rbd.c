@@ -265,7 +265,8 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 
 	if (ret < 0) {
 		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     MEDIUM_ERROR, ASC_READ_ERROR, NULL);
+					     MEDIUM_ERROR, ASC_WRITE_ERROR,
+					     NULL);
 	} else {
 		tcmu_r = SAM_STAT_GOOD;
 	}
