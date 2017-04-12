@@ -61,22 +61,6 @@
 #include "tcmu-runner.h"
 #include "libtcmu.h"
 
-#define NHANDLERS 16
-#define NCOMMANDS 16
-
-struct fbo_handler {
-	struct tcmu_device *dev;
-	int num;
-
-	pthread_mutex_t mtx;
-	pthread_cond_t cond;
-
-	pthread_t thr;
-	int cmd_head;
-	int cmd_tail;
-	struct tcmulib_cmd *commands[NCOMMANDS];
-};
-
 struct fbo_state {
 	int fd;
 	uint64_t num_lbas;
@@ -96,7 +80,6 @@ struct fbo_state {
 	pthread_mutex_t state_mtx;
 	pthread_mutex_t completion_mtx;
 	int curr_handler;
-	struct fbo_handler h[NHANDLERS];
 };
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -111,69 +94,6 @@ static void fbo_report_op_change(struct tcmu_device *dev, uint8_t code)
 	if (code > state->event_op_ch_code)
 		state->event_op_ch_code = code;
 	pthread_mutex_unlock(&state->state_mtx);
-}
-
-static void *fbo_handler_run(void *arg)
-{
-	struct fbo_handler *h = (struct fbo_handler *)arg;
-	struct fbo_state *state = tcmu_get_dev_private(h->dev);
-	int result;
-	struct tcmulib_cmd *cmd;
-
-	while (true) {
-		/* get next command */
-		pthread_mutex_lock(&h->mtx);
-		while (h->cmd_tail == h->cmd_head)
-			pthread_cond_wait(&h->cond, &h->mtx);
-		cmd = h->commands[h->cmd_tail];
-		pthread_mutex_unlock(&h->mtx);
-
-		/* process command */
-		result = fbo_handle_cmd(h->dev, cmd);
-                if (result == SAM_STAT_CHECK_CONDITION) {
-                    tcmu_dbg("FBO: Check condition\n");
-                    tcmu_dbg("  Sense: 0x%08llx\n", *(uint64_t *)cmd->sense_buf);
-                }
-		pthread_mutex_lock(&state->completion_mtx);
-		tcmulib_command_complete(h->dev, cmd, result);
-		tcmulib_processing_complete(h->dev);
-		pthread_mutex_unlock(&state->completion_mtx);
-
-		/* notify that we can process more commands */
-		pthread_mutex_lock(&h->mtx);
-		h->commands[h->cmd_tail] = NULL;
-		h->cmd_tail = (h->cmd_tail + 1) % NCOMMANDS;
-		pthread_cond_signal(&h->cond);
-		pthread_mutex_unlock(&h->mtx);
-	}
-
-	return NULL;
-}
-
-static void fbo_handler_init(struct fbo_handler *h, struct tcmu_device *dev,
-			     int num)
-{
-	int i;
-
-	h->dev = dev;
-	h->num = num;
-	pthread_mutex_init(&h->mtx, NULL);
-	pthread_cond_init(&h->cond, NULL);
-
-	pthread_create(&h->thr, NULL, fbo_handler_run, h);
-	h->cmd_head = h->cmd_tail = 0;
-	for (i = 0; i < NCOMMANDS; i++)
-		h->commands[i] = NULL;
-}
-
-static void fbo_handler_destroy(struct fbo_handler *h)
-{
-	if (h->thr) {
-		pthread_kill(h->thr, SIGINT);
-		pthread_join(h->thr, NULL);
-	}
-	pthread_cond_destroy(&h->cond);
-	pthread_mutex_destroy(&h->mtx);
 }
 
 static bool fbo_check_config(const char *cfgstring, char **reason)
@@ -238,7 +158,6 @@ static int fbo_open(struct tcmu_device *dev)
 	int64_t size;
 	char *options;
 	char *path;
-	int i;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
@@ -310,8 +229,6 @@ static int fbo_open(struct tcmu_device *dev)
 
 	pthread_mutex_init(&state->state_mtx, NULL);
 	pthread_mutex_init(&state->completion_mtx, NULL);
-	for (i = 0; i < NHANDLERS; i++)
-		fbo_handler_init(&state->h[i], dev, i);
 
 	/* Record that we've changed our Operational state */
 	fbo_report_op_change(dev, 0x02);
@@ -326,12 +243,6 @@ err:
 static void fbo_close(struct tcmu_device *dev)
 {
 	struct fbo_state *state = tcmu_get_dev_private(dev);
-	int i;
-
-	for (i = 0; i < NHANDLERS; i++)
-		fbo_handler_destroy(&state->h[i]);
-	pthread_mutex_destroy(&state->state_mtx);
-	pthread_mutex_destroy(&state->completion_mtx);
 
 	close(state->fd);
 	free(state);
@@ -340,26 +251,6 @@ static void fbo_close(struct tcmu_device *dev)
 static int set_medium_error(uint8_t *sense, unsigned asc_ascq)
 {
 	return tcmu_set_sense_data(sense, MEDIUM_ERROR, asc_ascq, NULL);
-}
-
-static int fbo_handle_cmd_async(struct tcmu_device *dev,
-				struct tcmulib_cmd *cmd)
-{
-	struct fbo_state *state = tcmu_get_dev_private(dev);
-	struct fbo_handler *h = &state->h[state->curr_handler];
-
-	state->curr_handler = (state->curr_handler + 1) % NHANDLERS;
-
-	/* enqueue command */
-	pthread_mutex_lock(&h->mtx);
-	while ((h->cmd_head + 1) % NCOMMANDS == h->cmd_tail)
-		pthread_cond_wait(&h->cond, &h->mtx);
-	h->commands[h->cmd_head] = cmd;
-	h->cmd_head = (h->cmd_head + 1) % NCOMMANDS;
-	pthread_cond_signal(&h->cond);
-	pthread_mutex_unlock(&h->mtx);
-
-	return TCMU_ASYNC_HANDLED;
 }
 
 static int fbo_emulate_inquiry(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt,
@@ -1773,7 +1664,8 @@ static struct tcmur_handler fbo_handler = {
 	.close = fbo_close,
 	.name = "File-backed optical Handler",
 	.subtype = "fbo",
-	.handle_cmd = fbo_handle_cmd_async,
+	.handle_cmd = fbo_handle_cmd,
+	.nr_threads = 1,
 };
 
 /* Entry point must be named "handler_init". */
