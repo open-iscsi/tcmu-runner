@@ -273,6 +273,9 @@ static int generic_handle_cmd(struct tcmu_device *dev,
 							     block_size,
 							     cdb, iovec,
 							     iov_cnt, sense);
+	case RESERVE:
+	case RELEASE:
+		return tcmu_emulate_reserve_release(sense);
 	case MODE_SENSE:
 	case MODE_SENSE_10:
 		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
