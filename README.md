@@ -85,14 +85,14 @@ handler sees all SCSI commands, there are helper functions provided
 that save each handler from writing boilerplate code for mandatory
 SCSI commands, if desired.
 
-The `qcow` and `file`  handlers are examples of this type.
+The `file_optical` handler is an examples of this type.
 
 With the option 2, tcmu-runner is in charge of the event loop and SCSI command
 handling for your plugin, and your handler's registered functions are called
 repeatedly to handle storage requests as required by the upper SCSI layer, which
 will handle most of the SCSI commands for you.
 
-The `glfs` and `rbd` handlers are examples of this type.
+The `file_example` handler is an example of this type.
 
 ##### tcmulib
 
