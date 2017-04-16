@@ -295,13 +295,13 @@ out:
 
 struct caw_state {
 	off_t off;
-	ssize_t requested;
+	size_t requested;
 	void *read_buf;
 	struct tcmulib_cmd *origcmd;
 };
 
 static struct tcmulib_cmd *
-caw_init_readcmd(struct tcmulib_cmd *origcmd, off_t off, ssize_t length)
+caw_init_readcmd(struct tcmulib_cmd *origcmd, off_t off, size_t length)
 {
 	struct tcmulib_cmd *readcmd;
 	struct caw_state *state;
@@ -408,7 +408,7 @@ static int handle_caw(struct tcmu_device *dev,
 	struct tcmu_call_stub stub;
 	struct tcmulib_cmd *readcmd;
 	uint8_t *sense = cmd->sense_buf;
-	ssize_t half = (tcmu_iovec_length(iovec, iov_cnt)) / 2;
+	size_t half = (tcmu_iovec_length(iovec, iov_cnt)) / 2;
 
 	ret = check_lba_and_length(dev, cmd, cmd->cdb[13] * 2);
 	if (ret)
