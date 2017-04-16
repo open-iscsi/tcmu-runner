@@ -45,8 +45,7 @@ static void aio_command_finish(struct tcmu_device *dev,
 	}
 }
 
-static struct iovec *
-alloc_and_assign_single_iovec(struct tcmulib_cmd *cmd, size_t length)
+static int alloc_iovec(struct tcmulib_cmd *cmd, size_t length)
 {
 	struct iovec *iov;
 
@@ -62,15 +61,15 @@ alloc_and_assign_single_iovec(struct tcmulib_cmd *cmd, size_t length)
 
 	cmd->iovec = iov;
 	cmd->iov_cnt = 1;
-	return iov;
+	return 0;
 
 free_iov:
 	free(iov);
 out:
-	return NULL;
+	return -ENOMEM;
 }
 
-static void free_single_iovec(struct tcmulib_cmd *cmd)
+static void free_iovec(struct tcmulib_cmd *cmd)
 {
 	assert(cmd->iovec);
 	assert(cmd->iovec->iov_base);
@@ -225,7 +224,7 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 	}
 
 done:
-	free_single_iovec(readcmd);
+	free_iovec(readcmd);
 	write_verify_free_readcmd(readcmd);
 	write_verify_free_writecmd(writecmd);
 	aio_command_finish(dev, writecmd, ret, true);
@@ -236,7 +235,6 @@ static int write_verify_do_read(struct tcmu_device *dev,
 				off_t off, size_t length)
 {
 	int ret;
-	struct iovec *iov;
 	struct tcmu_call_stub stub;
 	struct tcmulib_cmd *writecmd = readcmd->cmdstate;
 	uint8_t *sense = writecmd->sense_buf;
@@ -246,15 +244,14 @@ static int write_verify_do_read(struct tcmu_device *dev,
 	ret = errno_to_sam_status(-ENOMEM, sense);
 
 	/* do realloc() ? */
-	iov = alloc_and_assign_single_iovec(readcmd, length);
-	if (!iov)
+	if (alloc_iovec(readcmd, length))
 		goto out;
 
 	stub.sop = TCMU_STORE_OP_READ;
 	stub.callout_cbk = handle_write_verify_read_cbk;
 
 	stub.u.rw.exec = rhandler->read;
-	stub.u.rw.iov = iov;
+	stub.u.rw.iov = readcmd->iovec;
 	stub.u.rw.iov_cnt = 1;
 	stub.u.rw.off = off;
 
@@ -264,7 +261,7 @@ static int write_verify_do_read(struct tcmu_device *dev,
 	return TCMU_ASYNC_HANDLED;
 
 free_iov:
-	free_single_iovec(readcmd);
+	free_iovec(readcmd);
 out:
 	return ret;
 }
@@ -357,7 +354,6 @@ struct tcmu_caw_state {
 static struct tcmulib_cmd *
 caw_init_readcmd(struct tcmulib_cmd *origcmd, off_t off, ssize_t length)
 {
-	struct iovec *iov;
 	struct tcmulib_cmd *readcmd;
 	struct tcmu_caw_state *state;
 
@@ -368,10 +364,7 @@ caw_init_readcmd(struct tcmulib_cmd *origcmd, off_t off, ssize_t length)
 	if (!readcmd)
 		goto free_state;
 
-	readcmd->iov_cnt = 0;
-	readcmd->iovec = NULL;
-	iov = alloc_and_assign_single_iovec(readcmd, length);
-	if (!iov)
+	if (alloc_iovec(readcmd, length))
 		goto free_cmd;
 
 	/* multi-op state maintainance */
@@ -394,7 +387,7 @@ static void caw_free_readcmd(struct tcmulib_cmd *readcmd)
 {
 	struct tcmu_caw_state *state = readcmd->cmdstate;
 
-	free_single_iovec(readcmd);
+	free_iovec(readcmd);
 	free(state);
 	free(readcmd);
 }
