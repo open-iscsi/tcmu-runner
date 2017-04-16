@@ -106,57 +106,36 @@ static int check_lba_and_length(struct tcmu_device *dev,
 
 /* async write verify */
 
-struct tcmu_write_verify_state {
+struct write_verify_state {
 	off_t off;
 	size_t requested;
 	struct iovec *w_iovec;
 	size_t w_iov_cnt;
+	void *read_buf;
 	struct tcmulib_cmd *readcmd;
 };
 
-/*
- * read command state just points to the original command which
- * itself is the write command. no special state maintainance
- * is required here as we retrigger the write after a successful
- * verification in read.
- */
-static struct tcmulib_cmd *
-write_verify_init_readcmd(struct tcmulib_cmd *origcmd)
+static int write_verify_init(struct tcmulib_cmd *origcmd, off_t off,
+			     size_t length)
 {
 	struct tcmulib_cmd *readcmd;
+	struct write_verify_state *state;
+	int i;
 
 	readcmd = calloc(1, sizeof(*readcmd));
 	if (!readcmd)
 		goto out;
-
-	readcmd->iov_cnt = 0;
-	readcmd->iovec = NULL;
 	readcmd->cmdstate = origcmd;
-	return readcmd;
 
-out:
-	return NULL;
-}
-
-static void write_verify_free_readcmd(struct tcmulib_cmd *readcmd)
-{
-	/* no state is allocated - just deallocate cmd */
-	free(readcmd);
-}
-
-static struct tcmulib_cmd *
-write_verify_init_writecmd(struct tcmulib_cmd *origcmd,
-			   struct tcmulib_cmd *readcmd,
-			   off_t off, size_t length)
-{
-	size_t count = 0;
-	struct tcmu_write_verify_state *state;
+	if (alloc_iovec(readcmd, length))
+		goto free_cmd;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
-		goto out;
+		goto free_iov;
 
 	/* use @origcmd as writecmd */
+	state->read_buf = readcmd->iovec->iov_base;
 	state->off = off;
 	state->requested = length;
 	state->readcmd = readcmd;
@@ -166,25 +145,33 @@ write_verify_init_writecmd(struct tcmulib_cmd *origcmd,
 		goto free_state;
 
 	state->w_iov_cnt = origcmd->iov_cnt;
-	for (; count < origcmd->iov_cnt; ++count) {
-		state->w_iovec[count].iov_base = origcmd->iovec[count].iov_base;
-		state->w_iovec[count].iov_len = origcmd->iovec[count].iov_len;
+	for (i = 0; i < origcmd->iov_cnt; i++) {
+		state->w_iovec[i].iov_base = origcmd->iovec[i].iov_base;
+		state->w_iovec[i].iov_len = origcmd->iovec[i].iov_len;
 	}
-
 	origcmd->cmdstate = state;
-	return origcmd;
+
+	return 0;
 
 free_state:
 	free(state);
+free_iov:
+	free_iovec(readcmd);
+free_cmd:
+	free(readcmd);
 out:
-	return NULL;
+	return -ENOMEM;
 }
 
-static void write_verify_free_writecmd(struct tcmulib_cmd *writecmd)
+static void write_verify_free(struct tcmulib_cmd *origcmd)
 {
-	struct tcmu_write_verify_state *state = writecmd->cmdstate;
+	struct write_verify_state *state = origcmd->cmdstate;
+	struct tcmulib_cmd *readcmd = state->readcmd;
 
-	/* writecmd is original cmd - just deallocate its state */
+	/* some handlers update iov_base */
+	readcmd->iovec->iov_base = state->read_buf;
+	free_iovec(readcmd);
+	free(readcmd);
 	free(state->w_iovec);
 	free(state);
 }
@@ -194,28 +181,16 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 {
 	uint32_t cmp_offset;
 	struct tcmulib_cmd *writecmd = readcmd->cmdstate;
-	struct tcmu_write_verify_state *state = writecmd->cmdstate;
+	struct write_verify_state *state = writecmd->cmdstate;
 	uint8_t *sense = writecmd->sense_buf;
-	size_t count = 0;
 
 	/* failed read - bail out */
 	if (ret != SAM_STAT_GOOD)
 		goto done;
 
-	readcmd->iovec->iov_base -= state->requested;
-
-	for(; count < state->w_iov_cnt; ++count) {
-		if (writecmd->iovec[count].iov_len != state->w_iovec[count].iov_len) {
-			writecmd->iovec[count].iov_base = state->w_iovec[count].iov_base;
-			writecmd->iovec[count].iov_len = state->w_iovec[count].iov_len -
-				writecmd->iovec[count].iov_len;
-		}
-	}
-
-	/* verify failed - bail out */
 	ret = SAM_STAT_GOOD;
-	cmp_offset = tcmu_compare_with_iovec(readcmd->iovec->iov_base,
-					     writecmd->iovec, state->requested);
+	cmp_offset = tcmu_compare_with_iovec(state->read_buf, state->w_iovec,
+					     state->requested);
 	if (cmp_offset != -1) {
 		tcmu_err("Verify failed at offset %lu\n", cmp_offset);
 		ret =  tcmu_set_sense_data(sense, MISCOMPARE,
@@ -224,9 +199,7 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 	}
 
 done:
-	free_iovec(readcmd);
-	write_verify_free_readcmd(readcmd);
-	write_verify_free_writecmd(writecmd);
+	write_verify_free(writecmd);
 	aio_command_finish(dev, writecmd, ret, true);
 }
 
@@ -234,18 +207,9 @@ static int write_verify_do_read(struct tcmu_device *dev,
 				struct tcmulib_cmd *readcmd,
 				off_t off, size_t length)
 {
-	int ret;
 	struct tcmu_call_stub stub;
-	struct tcmulib_cmd *writecmd = readcmd->cmdstate;
-	uint8_t *sense = writecmd->sense_buf;
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 	struct tcmur_handler *rhandler = handler->hm_private;
-
-	ret = errno_to_sam_status(-ENOMEM, sense);
-
-	/* do realloc() ? */
-	if (alloc_iovec(readcmd, length))
-		goto out;
 
 	stub.sop = TCMU_STORE_OP_READ;
 	stub.callout_cbk = handle_write_verify_read_cbk;
@@ -255,36 +219,28 @@ static int write_verify_do_read(struct tcmu_device *dev,
 	stub.u.rw.iov_cnt = 1;
 	stub.u.rw.off = off;
 
-	ret = async_call_command(dev, readcmd, &stub);
-	if (ret != TCMU_ASYNC_HANDLED)
-		goto free_iov;
-	return TCMU_ASYNC_HANDLED;
-
-free_iov:
-	free_iovec(readcmd);
-out:
-	return ret;
+	return async_call_command(dev, readcmd, &stub);
 }
 
 static void handle_write_verify_write_cbk(struct tcmu_device *dev,
 					  struct tcmulib_cmd *writecmd,
 					  int ret)
 {
-	struct tcmu_write_verify_state *state = writecmd->cmdstate;
+	struct write_verify_state *state = writecmd->cmdstate;
 
 	/* write error - bail out */
 	if (ret != SAM_STAT_GOOD)
 		goto finish_err;
 
 	/* perform read for verification */
-	ret = write_verify_do_read(dev, state->readcmd, state->off, state->requested);
+	ret = write_verify_do_read(dev, state->readcmd, state->off,
+				   state->requested);
 	if (ret != TCMU_ASYNC_HANDLED)
 		goto finish_err;
 	return;
 
 finish_err:
-	write_verify_free_readcmd(state->readcmd);
-	write_verify_free_writecmd(writecmd);
+	write_verify_free(writecmd);
 	aio_command_finish(dev, writecmd, ret, true);
 }
 
@@ -312,42 +268,35 @@ static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 {
 	int ret;
 	uint8_t *cdb = cmd->cdb;
-	struct tcmulib_cmd *readcmd, *writecmd;
 	uint8_t *sense = cmd->sense_buf;
 	size_t length = tcmu_get_xfer_length(cdb) * tcmu_get_dev_block_size(dev);
 
 	ret = errno_to_sam_status(-ENOMEM, sense);
 
-	readcmd = write_verify_init_readcmd(cmd);
-	if (!readcmd)
+	if (write_verify_init(cmd, off, length))
 		goto out;
-	writecmd = write_verify_init_writecmd(cmd, readcmd, off, length);
-	if (!writecmd)
-		goto free_readcmd;
 
 	aio_command_start(dev);
-	ret = write_verify_do_write(dev, writecmd,
-				    writecmd->iovec, writecmd->iov_cnt, off);
+	ret = write_verify_do_write(dev, cmd, cmd->iovec, cmd->iov_cnt, off);
 	if (ret != TCMU_ASYNC_HANDLED) {
-		aio_command_finish(dev, writecmd, ret, false);
-		goto free_writecmd;
+		aio_command_finish(dev, cmd, ret, false);
+		goto free_write_verify;
 	}
 
 	return TCMU_ASYNC_HANDLED;
 
-free_writecmd:
-	write_verify_free_writecmd(writecmd);
-free_readcmd:
-	write_verify_free_readcmd(readcmd);
+free_write_verify:
+	write_verify_free(cmd);
 out:
 	return ret;
 }
 
 /* async compare_and_write */
 
-struct tcmu_caw_state {
+struct caw_state {
 	off_t off;
 	ssize_t requested;
+	void *read_buf;
 	struct tcmulib_cmd *origcmd;
 };
 
@@ -355,7 +304,7 @@ static struct tcmulib_cmd *
 caw_init_readcmd(struct tcmulib_cmd *origcmd, off_t off, ssize_t length)
 {
 	struct tcmulib_cmd *readcmd;
-	struct tcmu_caw_state *state;
+	struct caw_state *state;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
@@ -368,6 +317,7 @@ caw_init_readcmd(struct tcmulib_cmd *origcmd, off_t off, ssize_t length)
 		goto free_cmd;
 
 	/* multi-op state maintainance */
+	state->read_buf = readcmd->iovec->iov_base;
 	state->off = off;
 	state->requested = length;
 	state->origcmd = origcmd;
@@ -385,8 +335,10 @@ out:
 
 static void caw_free_readcmd(struct tcmulib_cmd *readcmd)
 {
-	struct tcmu_caw_state *state = readcmd->cmdstate;
+	struct caw_state *state = readcmd->cmdstate;
 
+	/* some handlers update iov_base */
+	readcmd->iovec->iov_base = state->read_buf;
 	free_iovec(readcmd);
 	free(state);
 	free(readcmd);
@@ -404,7 +356,7 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 {
 	uint32_t cmp_offset;
 	struct tcmu_call_stub stub;
-	struct tcmu_caw_state *state = readcmd->cmdstate;
+	struct caw_state *state = readcmd->cmdstate;
 	struct tcmulib_cmd *origcmd = state->origcmd;
 	uint8_t *sense = origcmd->sense_buf;
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
@@ -414,12 +366,10 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 	if (ret != SAM_STAT_GOOD)
 		goto finish_err;
 
-	readcmd->iovec->iov_base -= state->requested;
-
-	/* verify failed - bail out */
-	cmp_offset = tcmu_compare_with_iovec(readcmd->iovec->iov_base,
-					     origcmd->iovec, state->requested);
+	cmp_offset = tcmu_compare_with_iovec(state->read_buf, origcmd->iovec,
+					     state->requested);
 	if (cmp_offset != -1) {
+		/* verify failed - bail out */
 		ret = tcmu_set_sense_data(sense, MISCOMPARE,
 					  ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
 					  &cmp_offset);
