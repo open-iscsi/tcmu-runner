@@ -14,8 +14,8 @@
  * under the License.
  */
 
-#ifndef __LIBTCMU_AIO_H
-#define __LIBTCMU_AIO_H
+#ifndef __TCMUR_AIO_H
+#define __TCMUR_AIO_H
 
 struct tcmu_device;
 struct tcmulib_cmd;
@@ -34,4 +34,4 @@ typedef int (*tcmu_work_fn_t)(struct tcmu_device *dev,
 int async_handle_cmd(struct tcmu_device *, struct tcmulib_cmd *,
 		     tcmu_work_fn_t);
 
-#endif /* __LIBTCMU_AIO_H */
+#endif /* __TCMUR_AIO_H */

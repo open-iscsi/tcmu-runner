@@ -31,7 +31,7 @@
 #include "scsi_defs.h"
 #include "darray.h"
 #include "ccan/list/list.h"
-#include "libtcmu_aio.h"
+#include "tcmur_aio.h"
 #include "tcmu-runner.h"
 
 #define KERN_IFACE_VER 2

@@ -39,11 +39,11 @@ add_library(tcmu
   api.c
   libtcmu.c
   tcmur_cmd_handler.c
+  tcmur_aio.c
   libtcmu-register.c
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
-  libtcmu_aio.c
   )
 set_target_properties(tcmu
   PROPERTIES
@@ -66,11 +66,11 @@ add_library(tcmu_static
   api.c
   libtcmu.c
   tcmur_cmd_handler.c
+  tcmur_aio.c
   libtcmu-register.c
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
-  libtcmu_aio.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}

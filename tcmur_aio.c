@@ -22,7 +22,7 @@
 
 #include "libtcmu.h"
 #include "libtcmu_priv.h"
-#include "libtcmu_aio.h"
+#include "tcmur_aio.h"
 #include "tcmu-runner.h"
 
 void track_aio_request_start(struct tcmu_device *dev)
