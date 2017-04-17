@@ -287,7 +287,7 @@ static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 	}
 	sprintf(buf + n, "\n");
 
-	tcmu_dbg(buf);
+	tcmu_dbg_scsi_cmd(buf);
 
 	if (bytes > CDB_FIX_SIZE)
 		free(buf);
@@ -340,7 +340,7 @@ static void *tcmu_cmdproc_thread(void *arg)
 		tcmulib_processing_start(dev);
 
 		while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
-			if (tcmu_get_log_level() == TCMU_LOG_DEBUG)
+			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_cdb_debug_info(cmd);
 
 			if (!rhandler->nr_threads &&

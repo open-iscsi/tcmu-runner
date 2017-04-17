@@ -24,18 +24,23 @@ struct tcmu_config {
 };
 
 /*
- * There are 4 logging levels supported in tcmu.conf:
+ * There are 5 logging levels supported in tcmu.conf:
  *    1: ERROR
  *    2: WARNING
  *    3: INFO
  *    4: DEBUG
+ *    5: DEBUG SCSI CMD
  */
-#define TCMU_CONF_LOG_LEVEL_MIN 1
-#define TCMU_CONF_LOG_LEVEL_MAX 4
-#define TCMU_CONF_LOG_ERROR 1
-#define TCMU_CONF_LOG_WARN 2
-#define TCMU_CONF_LOG_INFO 3
-#define TCMU_CONF_LOG_DEBUG 4
+
+enum {
+	TCMU_CONF_LOG_LEVEL_MIN = 1,
+	TCMU_CONF_LOG_ERROR = 1,
+	TCMU_CONF_LOG_WARN,
+	TCMU_CONF_LOG_INFO,
+	TCMU_CONF_LOG_DEBUG,
+	TCMU_CONF_LOG_DEBUG_SCSI_CMD,
+	TCMU_CONF_LOG_LEVEL_MAX = TCMU_CONF_LOG_DEBUG_SCSI_CMD,
+};
 
 typedef enum {
 	TCMU_OPT_NONE = 0,

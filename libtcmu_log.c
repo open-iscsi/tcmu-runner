@@ -65,6 +65,8 @@ static inline int to_syslog_level(int level)
 			return TCMU_LOG_INFO;
 		case TCMU_CONF_LOG_DEBUG:
 			return TCMU_LOG_DEBUG;
+		case TCMU_CONF_LOG_DEBUG_SCSI_CMD:
+			return TCMU_LOG_DEBUG_SCSI_CMD;
 		default:
 			return TCMU_LOG_WARN;
 	}
@@ -166,6 +168,10 @@ log_internal(int pri,const char *funcname,
 	if (pri > tcmu_log_level)
 		return;
 
+	/* convert tcmu-runner private level to system level */
+	if (pri > TCMU_LOG_DEBUG)
+		pri = TCMU_LOG_DEBUG;
+
 	if (!fmt)
 		return;
 
@@ -224,21 +230,29 @@ void tcmu_dbg_message(const char *funcname, int linenr, const char *fmt, ...)
 	va_end(args);
 }
 
+void tcmu_dbg_scsi_cmd_message(const char *funcname, int linenr, const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	log_internal(TCMU_LOG_DEBUG_SCSI_CMD, funcname, linenr, fmt, args);
+	va_end(args);
+}
+
 static void log_output(int pri, const char *msg)
 {
 	log_to_syslog(pri, msg);
 	/* log to stdout if tcmu_log_level is DEBUG */
-	if (pri <= TCMU_LOG_DEBUG && tcmu_log_level == TCMU_LOG_DEBUG) {
+	if (pri >= TCMU_LOG_DEBUG)
 		fprintf(stdout, "%s", msg);
-	}
 }
 
 static bool log_buf_not_empty_output(struct log_buf *logbuf)
-{	
+{
 	unsigned int tail;
 	uint8_t pri;
 	char *msg, buf[LOG_MSG_LEN];
-	
+
 	if (!logbuf) {
 		return false;
 	}
@@ -257,12 +271,12 @@ static bool log_buf_not_empty_output(struct log_buf *logbuf)
 	pthread_mutex_unlock(&logbuf->lock);
 
 	/*
- 	 * This may block due to rsyslog and syslog-ng, etc.
- 	 * And the log productors could still insert their log
- 	 * messages into the ring buffer without blocking. But
- 	 * the ring buffer may lose some old log rbs if the
- 	 * ring buffer is full.
- 	 */
+	 * This may block due to rsyslog and syslog-ng, etc.
+	 * And the log productors could still insert their log
+	 * messages into the ring buffer without blocking. But
+	 * the ring buffer may lose some old log rbs if the
+	 * ring buffer is full.
+	 */
 	log_output(pri, buf);
 
 	return true;
@@ -355,8 +369,8 @@ static struct log_buf *tcmu_log_initialize(void)
 		pthread_mutex_unlock(&g_mutex);
 		return NULL;
 	}
-	
-	pthread_mutex_lock(&logbuf->lock);	
+
+	pthread_mutex_lock(&logbuf->lock);
 	while (!logbuf->finish_initialize)
 		pthread_cond_wait(&logbuf->cond, &logbuf->lock);
 	pthread_mutex_unlock(&logbuf->lock);
