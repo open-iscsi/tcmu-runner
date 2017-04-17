@@ -56,35 +56,6 @@ void track_aio_request_finish(struct tcmu_device *dev, int *is_idle)
 	pthread_cleanup_pop(0);
 }
 
-static int call_stub_exec(struct tcmu_device *dev,
-			  struct tcmulib_cmd *cmd,
-			  struct tcmu_call_stub *stub)
-{
-	ssize_t requested;
-	int ret;
-
-	switch(stub->sop) {
-	case TCMU_STORE_OP_READ:
-	case TCMU_STORE_OP_WRITE:
-		requested = tcmu_iovec_length(stub->u.rw.iov, stub->u.rw.iov_cnt);
-		ret  = stub->u.rw.exec(dev, cmd, stub->u.rw.iov,
-				       stub->u.rw.iov_cnt, requested,
-				       stub->u.rw.off);
-		break;
-	case TCMU_STORE_OP_FLUSH:
-		ret = stub->u.flush.exec(dev, cmd);
-		break;
-	case TCMU_STORE_OP_HANDLE_CMD:
-		ret = stub->u.handle_cmd.exec(dev, cmd);
-		break;
-	default:
-		tcmu_err("unhandled tcmur operation\n");
-		assert(0 == "unhandled tmcur operation");
-	}
-
-	return ret;
-}
-
 static void _cleanup_io_work(void *arg)
 {
 	free(arg);
@@ -97,7 +68,7 @@ static void *io_work_queue(void *arg)
 	int ret;
 
 	while (1) {
-		struct tcmu_io_entry *io_entry;
+		struct tcmu_work *work;
 		struct tcmulib_cmd *cmd;
 
 		pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
@@ -108,48 +79,47 @@ static void *io_work_queue(void *arg)
 					  &io_wq->io_lock);
 		}
 
-		io_entry = list_first_entry(&io_wq->io_queue,
-					    struct tcmu_io_entry, entry);
-		list_del(&io_entry->entry);
+		work = list_first_entry(&io_wq->io_queue, struct tcmu_work,
+					entry);
+		list_del(&work->entry);
 
 		pthread_mutex_unlock(&io_wq->io_lock);
 		pthread_cleanup_pop(0);
 
 		/* kick start I/O request */
-		cmd = io_entry->cmd;
-		pthread_cleanup_push(_cleanup_io_work, io_entry);
+		cmd = work->cmd;
+		pthread_cleanup_push(_cleanup_io_work, work);
 
-		ret = call_stub_exec(io_entry->dev, cmd, &io_entry->stub);
+		ret = work->fn(work->dev, cmd);
 		if (ret)
 			cmd->done(dev, cmd, ret);
 
-		pthread_cleanup_pop(1); /* cleanup io_entry */
+		pthread_cleanup_pop(1); /* cleanup work */
 	}
 
 	return NULL;
 }
 
-static int aio_schedule(struct tcmu_device *dev,
-			struct tcmulib_cmd *cmd,
-			struct tcmu_call_stub *stub)
+static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			tcmu_work_fn_t fn)
 {
-	struct tcmu_io_entry *io_entry;
+	struct tcmu_work *work;
 	struct tcmu_io_queue *io_wq = &dev->work_queue;
 
-	io_entry = malloc(sizeof(*io_entry));
-	if (!io_entry)
+	work = malloc(sizeof(*work));
+	if (!work)
 		return SAM_STAT_TASK_SET_FULL;
 
-	io_entry->dev = dev;
-	io_entry->cmd = cmd;
-	memcpy(&io_entry->stub, stub, sizeof(*stub));
-	list_node_init(&io_entry->entry);
+	work->fn = fn;
+	work->dev = dev;
+	work->cmd = cmd;
+	list_node_init(&work->entry);
 
 	/* cleanup push/pop not _really_ required here atm */
 	pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
 	pthread_mutex_lock(&io_wq->io_lock);
 
-	list_add_tail(&io_wq->io_queue, &io_entry->entry);
+	list_add_tail(&io_wq->io_queue, &work->entry);
 	pthread_cond_signal(&io_wq->io_cond); // TODO: conditional
 
 	pthread_mutex_unlock(&io_wq->io_lock);
@@ -158,21 +128,19 @@ static int aio_schedule(struct tcmu_device *dev,
 	return TCMU_ASYNC_HANDLED;
 }
 
-/* execute a given call stub asynchronously */
-int async_call_command(struct tcmu_device *dev,
-		       struct tcmulib_cmd *cmd,
-		       struct tcmu_call_stub *stub)
+int async_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		     tcmu_work_fn_t work_fn)
 {
 	int ret;
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 	struct tcmur_handler *rhandler = handler->hm_private;
 
 	if (!rhandler->nr_threads) {
-		ret = call_stub_exec(dev, cmd, stub);
+		ret = work_fn(dev, cmd);
 		if (!ret)
 			ret = TCMU_ASYNC_HANDLED;
 	} else {
-		ret = aio_schedule(dev, cmd, stub);
+		ret = aio_schedule(dev, cmd, work_fn);
 	}
 
 	return ret;

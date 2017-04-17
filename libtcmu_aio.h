@@ -19,7 +19,7 @@
 
 struct tcmu_device;
 struct tcmulib_cmd;
-struct tcmu_call_stub;
+
 
 int setup_io_work_queue(struct tcmu_device *);
 void cleanup_io_work_queue(struct tcmu_device *, bool);
@@ -28,8 +28,10 @@ void cleanup_io_work_queue_threads(struct tcmu_device *);
 int setup_aio_tracking(struct tcmu_device *);
 void cleanup_aio_tracking(struct tcmu_device *);
 
-int async_call_command(struct tcmu_device *,
-		       struct tcmulib_cmd *,
-		       struct tcmu_call_stub *);
+typedef int (*tcmu_work_fn_t)(struct tcmu_device *dev,
+			      struct tcmulib_cmd *cmd);
+
+int async_handle_cmd(struct tcmu_device *, struct tcmulib_cmd *,
+		     tcmu_work_fn_t);
 
 #endif /* __LIBTCMU_AIO_H */

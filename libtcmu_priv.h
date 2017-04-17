@@ -31,6 +31,7 @@
 #include "scsi_defs.h"
 #include "darray.h"
 #include "ccan/list/list.h"
+#include "libtcmu_aio.h"
 #include "tcmu-runner.h"
 
 #define KERN_IFACE_VER 2
@@ -49,37 +50,10 @@ struct tcmulib_context {
 	GDBusConnection *connection;
 };
 
-struct tcmu_call_stub {
-	enum tcmu_store_op sop;  /* r, w, etc.. */
-
-	/*
-	 * basic {exec, in} parameters to handler calls. anything
-	 * more complex than this would required a more generic
-         * mechanism - for now this should suffice.
-	 */
-	union {
-		struct {
-			rw_fn_t exec;
-			struct iovec *iov;
-			size_t iov_cnt;
-			off_t off;
-		} rw; /* read/write */
-		struct {
-			flush_fn_t exec;
-		} flush; /* flush */
-		struct {
-			handle_cmd_fn_t exec;
-		} handle_cmd; /* command passthrough */
-	}u;
-};
-
-struct tcmu_io_entry {
+struct tcmu_work {
 	struct tcmu_device *dev;	 /* device backpointer */
 	struct tcmulib_cmd *cmd;	 /* SCSI command */
-
-	int rc;				 /* return value used to complete command */
-	struct tcmu_call_stub stub;	 /* store command call stub */
-
+	tcmu_work_fn_t fn;
 	struct list_node entry;
 };
 
