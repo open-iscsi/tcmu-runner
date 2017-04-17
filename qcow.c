@@ -1500,8 +1500,17 @@ static int qcow_handle_cmd(
 	uint8_t cmd;
 	ssize_t ret;
 	uint64_t offset = bdev->block_size * tcmu_get_lba(cdb);
+	uint64_t size;
+	uint64_t num_lbas;
 
 	cmd = cdb[0];
+
+	size = tcmu_get_device_size(dev);
+	if (size < 0) {
+		tcmu_err("Could not get device size\n");
+		return TCMU_NOT_HANDLED;
+	}
+	num_lbas = size / bdev->block_size;
 
 	switch (cmd) {
 	case INQUIRY:
@@ -1512,7 +1521,7 @@ static int qcow_handle_cmd(
 		break;
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
-			return tcmu_emulate_read_capacity_16(bdev->num_lbas,
+			return tcmu_emulate_read_capacity_16(num_lbas,
 							     bdev->block_size,
 							     cdb, iovec,
 							     iov_cnt, sense);
@@ -1526,7 +1535,7 @@ static int qcow_handle_cmd(
 						   ASC_INVALID_FIELD_IN_CDB,
 						   NULL);
 		else
-			return tcmu_emulate_read_capacity_10(bdev->num_lbas,
+			return tcmu_emulate_read_capacity_10(num_lbas,
 							     bdev->block_size,
 							     cdb, iovec,
 							     iov_cnt, sense);

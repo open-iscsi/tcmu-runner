@@ -386,14 +386,23 @@ static int file_handle_cmd(
 	int remaining;
 	size_t ret;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	uint64_t num_lbas;
 	bool do_verify = false;
 	uint64_t offset;
 	int length = 0;
 	uint64_t cur_lba = 0;
 	int rc;
+	int64_t size;
 
 	cmd = cdb[0];
+
+	size = tcmu_get_device_size(dev);
+	if (size < 0) {
+		tcmu_err("Could not get device size\n");
+		return TCMU_NOT_HANDLED;
+	}
+	tcmu_set_dev_num_lbas(dev, size / block_size);
+	num_lbas = tcmu_get_dev_num_lbas(dev);
 
 	switch (cmd) {
 	case INQUIRY:
