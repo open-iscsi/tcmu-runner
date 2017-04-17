@@ -337,9 +337,9 @@ static void fbo_close(struct tcmu_device *dev)
 	free(state);
 }
 
-static int set_medium_error(uint8_t *sense)
+static int set_medium_error(uint8_t *sense, unsigned asc_ascq)
 {
-	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
+	return tcmu_set_sense_data(sense, MEDIUM_ERROR, asc_ascq, NULL);
 }
 
 static int fbo_handle_cmd_async(struct tcmu_device *dev,
@@ -1192,7 +1192,7 @@ static int fbo_do_sync(struct fbo_state *state, uint8_t *sense)
 	rc = fsync(state->fd);
 	if (rc) {
 		tcmu_err("sync failed: %m\n");
-		return set_medium_error(sense);
+		return set_medium_error(sense, ASC_WRITE_ERROR);
 	}
 
 	return SAM_STAT_GOOD;
@@ -1270,7 +1270,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
-	void *buf;
+	int remaining;
 	size_t ret;
 	int rc;
 
@@ -1290,46 +1290,45 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		rc = fsync(state->fd);
 		if (rc) {
 			tcmu_err("sync failed: %m\n");
-			return set_medium_error(sense);
+			return set_medium_error(sense, ASC_READ_ERROR);
 		}
 	}
-
-	buf = malloc(length);
-	if (!buf)
-		return set_medium_error(sense);
-	memset(buf, 0, length);
 
 	pthread_mutex_lock(&state->state_mtx);
 	state->cur_lba = cur_lba;
 	state->flags |= FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	ret = pread(state->fd, buf, length, offset);
+	remaining = length;
+
+	while (remaining) {
+		ret = preadv(state->fd, iovec, iov_cnt, offset);
+		if (ret < 0) {
+			tcmu_err("read failed: %m\n");
+			rc = set_medium_error(sense, ASC_READ_ERROR);
+			break;
+		}
+		tcmu_seek_in_iovec(iovec, ret);
+		offset += ret;
+		remaining -= ret;
+	}
 
 	pthread_mutex_lock(&state->state_mtx);
 	state->flags &= ~FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	if (ret == -1) {
-		tcmu_err("read failed: %m\n");
-		free(buf);
-		return set_medium_error(sense);
-	}
-
-	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, length);
-
-	free(buf);
-
 	return SAM_STAT_GOOD;
 }
 
 static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
-			 uint64_t offset, int length, uint8_t *sense)
+			 size_t iov_cnt, uint64_t offset, int length,
+			 uint8_t *sense)
 {
 	size_t ret;
 	uint32_t cmp_offset;
 	void *buf;
 	int rc = SAM_STAT_GOOD;
+	int remaining;
 
 	buf = malloc(length);
 	if (!buf)
@@ -1343,23 +1342,32 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 	state->flags |= FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	ret = pread(state->fd, buf, length, offset);
+	remaining = length;
+
+	while (remaining) {
+		ret = pread(state->fd, buf, remaining, offset);
+		if (ret < 0) {
+			tcmu_err("read failed: %m\n");
+			rc = set_medium_error(sense, ASC_READ_ERROR);
+			break;
+		}
+
+		cmp_offset = tcmu_compare_with_iovec(buf, iovec, ret);
+		if (cmp_offset != -1) {
+			rc = tcmu_set_sense_data(sense, MISCOMPARE,
+					ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
+					&cmp_offset);
+			break;
+		}
+		tcmu_seek_in_iovec(iovec, ret);
+
+		offset += ret;
+		remaining -= ret;
+	}
 
 	pthread_mutex_lock(&state->state_mtx);
 	state->flags &= ~FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
-
-	if (ret == -1) {
-		tcmu_err("read failed: %m\n");
-		free(buf);
-		return set_medium_error(sense);
-	}
-
-	cmp_offset = tcmu_compare_with_iovec(buf, iovec, length);
-	if (cmp_offset != -1)
-		rc = tcmu_set_sense_data(sense, MISCOMPARE,
-					 ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					 &cmp_offset);
 
 	free(buf);
 
@@ -1370,14 +1378,12 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		     size_t iov_cnt, uint8_t *sense, bool do_verify)
 {
 	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct iovec write_iovec[iov_cnt];
 	uint8_t fua = cdb[1] & 0x08;
 	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
 	int remaining;
-	uint64_t cur_off;
-	unsigned int to_copy;
-	int i;
 	size_t ret;
 	int rc = SAM_STAT_GOOD;
 	int rc1;
@@ -1399,31 +1405,27 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	state->flags |= FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	cur_off = offset;
 	remaining = length;
-	i = 0;
 
-	while (remaining && i < iov_cnt) {
-		to_copy = (remaining > iovec[i].iov_len) ?
-			iovec[i].iov_len : remaining;
+	memcpy(write_iovec, iovec, sizeof(write_iovec));
 
-		ret = pwrite(state->fd, iovec[i].iov_base, to_copy, cur_off);
-		if (ret == -1) {
-			tcmu_err("Could not write: %m\n");
-			rc = set_medium_error(sense);
+	while (remaining) {
+		ret = pwritev(state->fd, write_iovec, iov_cnt, offset);
+		if (ret < 0) {
+			tcmu_err("write failed: %m\n");
+			rc = set_medium_error(sense, ASC_WRITE_ERROR);
 			break;
 		}
-
-		remaining -= to_copy;
-		cur_off += to_copy;
-		i++;
+		tcmu_seek_in_iovec(write_iovec, ret);
+		offset += ret;
+		remaining -= ret;
 	}
 
 	if (rc == SAM_STAT_GOOD && (do_verify || fua)) {
 		rc1 = fsync(state->fd);
 		if (rc1) {
 			tcmu_err("sync failed: %m\n");
-			rc = set_medium_error(sense);
+			rc = set_medium_error(sense, ASC_WRITE_ERROR);
 		}
 	}
 
@@ -1434,7 +1436,8 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	if (!do_verify || rc != SAM_STAT_GOOD)
 		return rc;
 
-	return fbo_do_verify(state, iovec, offset, length, sense);
+	offset = state->block_size * cur_lba;
+	return fbo_do_verify(state, iovec, iov_cnt, offset, length, sense);
 }
 
 static int fbo_verify(struct tcmu_device *dev, uint8_t *cdb,
@@ -1463,7 +1466,7 @@ static int fbo_verify(struct tcmu_device *dev, uint8_t *cdb,
 
 	offset = state->block_size * cur_lba;
 
-	return fbo_do_verify(state, iovec, offset, length, sense);
+	return fbo_do_verify(state, iovec, iov_cnt, offset, length, sense);
 }
 
 static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
@@ -1493,7 +1496,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 		ret = pwrite(state->fd, buf, length, offset);
 		if (ret == -1) {
 			tcmu_err("Could not write: %m\n");
-			rc = set_medium_error(sense);
+			rc = set_medium_error(sense, ASC_WRITE_ERROR);
 			break;
 		}
 		done_blocks += length / state->block_size;
