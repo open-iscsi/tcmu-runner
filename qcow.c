@@ -1464,46 +1464,56 @@ static void qcow_close(struct tcmu_device *dev)
 	free(bdev);
 }
 
-static ssize_t qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			 struct iovec *iovec, size_t iov_cnt, size_t length,
-			 off_t offset)
+static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		     struct iovec *iovec, size_t iov_cnt, size_t length,
+		     off_t offset)
 {
 	struct bdev *bdev = tcmu_get_dev_private(dev);
 	size_t remaining = length;
-	int ret;
+	ssize_t ret;
 
 	while (remaining) {
 		ret = bdev->ops->preadv(bdev, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			return -EIO;
+			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+						  ASC_READ_ERROR, NULL);
+			goto done;
 		}
 		tcmu_seek_in_iovec(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	return length;
+	ret = SAM_STAT_GOOD;
+done:
+	cmd->done(dev, cmd, ret);
+	return 0;
 }
 
-static ssize_t qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			  struct iovec *iovec, size_t iov_cnt, size_t length,
-			  off_t offset)
+static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		      struct iovec *iovec, size_t iov_cnt, size_t length,
+		      off_t offset)
 {
 	struct bdev *bdev = tcmu_get_dev_private(dev);
 	size_t remaining = length;
-	int ret;
+	ssize_t ret;
 
 	while (remaining) {
 		ret = bdev->ops->pwritev(bdev, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed: %m\n");
-			return -EIO;
+			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+						  ASC_WRITE_ERROR, NULL);
+			goto done;
 		}
 		tcmu_seek_in_iovec(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	return length;
+	ret = SAM_STAT_GOOD;
+done:
+	cmd->done(dev, cmd, ret);
+	return 0;
 }
 
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";

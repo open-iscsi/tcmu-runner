@@ -38,7 +38,9 @@
 #include <fcntl.h>
 #include <endian.h>
 #include <errno.h>
+#include <scsi/scsi.h>
 
+#include "scsi_defs.h"
 #include "tcmu-runner.h"
 
 struct file_state {
@@ -130,57 +132,72 @@ static void file_close(struct tcmu_device *dev)
 	free(state);
 }
 
-static ssize_t file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			 struct iovec *iov, size_t iov_cnt, size_t length,
-			 off_t offset)
+static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		     struct iovec *iov, size_t iov_cnt, size_t length,
+		     off_t offset)
 {
 	struct file_state *state = tcmu_get_dev_private(dev);
 	size_t remaining = length;
-	int ret;
+	ssize_t ret;
 
 	while (remaining) {
 		ret = preadv(state->fd, iov, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			return -EIO;
+			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+						  ASC_READ_ERROR, NULL);
+			goto done;
 		}
 		tcmu_seek_in_iovec(iov, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	return length;
+	ret = SAM_STAT_GOOD;
+done:
+	cmd->done(dev, cmd, ret);
+	return 0;
 }
 
-static ssize_t file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			  struct iovec *iov, size_t iov_cnt, size_t length,
-			  off_t offset)
+static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		      struct iovec *iov, size_t iov_cnt, size_t length,
+		      off_t offset)
 {
 	struct file_state *state = tcmu_get_dev_private(dev);
 	size_t remaining = length;
-	int ret;
+	ssize_t ret;
 
 	while (remaining) {
 		ret = pwritev(state->fd, iov, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed: %m\n");
-			return -EIO;
+			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+						  ASC_WRITE_ERROR, NULL);
+			goto done;
 		}
 		tcmu_seek_in_iovec(iov, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	return length;
+	ret = SAM_STAT_GOOD;
+done:
+	cmd->done(dev, cmd, ret);
+	return 0;
 }
 
 static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct file_state *state = tcmu_get_dev_private(dev);
+	int ret;
 
 	if (fsync(state->fd)) {
 		tcmu_err("sync failed\n");
-		return -EIO;
+		ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+					  ASC_WRITE_ERROR, NULL);
+		goto done;
 	}
-
+	ret = SAM_STAT_GOOD;
+done:
+	cmd->done(dev, cmd, ret);
 	return 0;
 }
 

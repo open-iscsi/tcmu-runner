@@ -1565,6 +1565,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint8_t *sense = cmd->sense_buf;
 	struct fbo_state *state = tcmu_get_dev_private(dev);
 	bool do_verify = false;
+	int ret;
 
 	/* Check for format in progress */
 	/* Certain commands can be executed even if a format is in progress */
@@ -1572,96 +1573,106 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	    cdb[0] != INQUIRY &&
 	    cdb[0] != REQUEST_SENSE &&
 	    cdb[0] != GET_CONFIGURATION &&
-	    cdb[0] != GPCMD_GET_EVENT_STATUS_NOTIFICATION)
-		return tcmu_set_sense_data(sense, NOT_READY,
-					   ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					   &state->format_progress);
+	    cdb[0] != GPCMD_GET_EVENT_STATUS_NOTIFICATION) {
+		ret = tcmu_set_sense_data(sense, NOT_READY,
+					  ASC_NOT_READY_FORMAT_IN_PROGRESS,
+					  &state->format_progress);
+		cmd->done(dev, cmd, ret);
+		return 0;
+	}
 
 	switch(cdb[0]) {
 	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		ret = tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
 		break;
 	case REQUEST_SENSE:
-		return fbo_emulate_request_sense(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_request_sense(dev, cdb, iovec, iov_cnt, sense);
+		break;
 	case FORMAT_UNIT:
-		return fbo_emulate_format_unit(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_format_unit(dev, cdb, iovec, iov_cnt, sense);
+		break;
 	case READ_6:
 	case READ_10:
 	case READ_12:
-		return fbo_read(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_read(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case WRITE_VERIFY:
 		do_verify = true;
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
-		return fbo_write(dev, cdb, iovec, iov_cnt, sense, do_verify);
+		ret = fbo_write(dev, cdb, iovec, iov_cnt, sense, do_verify);
 		break;
 	case INQUIRY:
-		return fbo_emulate_inquiry(cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_inquiry(cdb, iovec, iov_cnt, sense);
 		break;
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return fbo_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_mode_select(cdb, iovec, iov_cnt, sense);
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
-		return fbo_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
 		break;
 	case START_STOP:
-		return tcmu_emulate_start_stop(dev, cdb, sense);
+		ret = tcmu_emulate_start_stop(dev, cdb, sense);
 		break;
 	case ALLOW_MEDIUM_REMOVAL:
-		return fbo_emulate_allow_medium_removal(dev, cdb, sense);
+		ret = fbo_emulate_allow_medium_removal(dev, cdb, sense);
 		break;
 	case READ_FORMAT_CAPACITIES:
-		return fbo_emulate_read_format_capacities(dev, cdb, iovec,
-							  iov_cnt, sense);
+		ret = fbo_emulate_read_format_capacities(dev, cdb, iovec,
+							 iov_cnt, sense);
+		break;
 	case READ_CAPACITY:
 		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
 			/* Reserved bits for MM logical units */
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB,
-						   NULL);
+			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						  ASC_INVALID_FIELD_IN_CDB,
+						  NULL);
 		else
-			return tcmu_emulate_read_capacity_10(state->num_lbas,
-							     state->block_size,
-							     cdb, iovec,
-							     iov_cnt, sense);
+			ret = tcmu_emulate_read_capacity_10(state->num_lbas,
+							    state->block_size,
+							    cdb, iovec,
+							    iov_cnt, sense);
+		break;
 	case VERIFY:
-		return fbo_verify(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_verify(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case SYNCHRONIZE_CACHE:
-		return fbo_synchronize_cache(dev, cdb, sense);
+		ret = fbo_synchronize_cache(dev, cdb, sense);
 		break;
 	case READ_TOC:
-		return fbo_emulate_read_toc(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_read_toc(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case GET_CONFIGURATION:
-		return fbo_emulate_get_configuration(dev, cdb, iovec, iov_cnt,
-						     sense);
+		ret = fbo_emulate_get_configuration(dev, cdb, iovec, iov_cnt,
+						    sense);
 		break;
 	case GPCMD_GET_EVENT_STATUS_NOTIFICATION:
-		return fbo_emulate_get_event_status_notification(dev, cdb,
-								 iovec, iov_cnt,
-								 sense);
+		ret = fbo_emulate_get_event_status_notification(dev, cdb,
+								iovec, iov_cnt,
+								sense);
 		break;
 	case READ_DISC_INFORMATION:
-		return fbo_emulate_read_disc_information(dev, cdb, iovec,
-							 iov_cnt, sense);
+		ret = fbo_emulate_read_disc_information(dev, cdb, iovec,
+							iov_cnt, sense);
 		break;
 	case READ_DVD_STRUCTURE:
-		return fbo_emulate_read_dvd_structure(dev, cdb, iovec, iov_cnt,
-						      sense);
+		ret = fbo_emulate_read_dvd_structure(dev, cdb, iovec, iov_cnt,
+						     sense);
 		break;
 	case MECHANISM_STATUS:
-		return fbo_emulate_mechanism_status(dev, cdb, iovec, iov_cnt,
-						    sense);
+		ret = fbo_emulate_mechanism_status(dev, cdb, iovec, iov_cnt,
+						   sense);
 		break;
 	default:
 		tcmu_err("unknown command 0x%x\n", cdb[0]);
-		return TCMU_NOT_HANDLED;
+		ret = TCMU_NOT_HANDLED;
 	}
+
+	cmd->done(dev, cmd, ret);
+	return 0;
 }
 
 static const char fbo_cfg_desc[] =

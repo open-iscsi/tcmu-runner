@@ -75,14 +75,37 @@ struct tcmur_handler {
 	int nr_threads;
 
 	/*
-	 * Returns
+	 * Async handle_cmd only handlers return:
+	 *
 	 * - SCSI status if handled (either good/bad)
 	 * - TCMU_NOT_HANDLED if opcode is not handled
-	 * - TCMU_ASYNC_HANDLED if optcode is handled asynchronously
+	 * - TCMU_ASYNC_HANDLED if opcode is handled asynchronously
+	 *
+	 * Handlers that set nr_threads > 0 and async handlers
+	 * that implement handle_cmd and the IO callouts below return:
+	 *
+	 * 0 if the handler has queued the command.
+	 * - TCMU_NOT_HANDLED if the command is not supported.
+	 * - SAM_STAT_TASK_SET_FULL if the handler was not able to allocate
+	 *   resources for the command.
+	 *
+	 * If 0 is returned the handler must call the tcmulib_cmd->done
+	 * function with SAM_STAT_GOOD or a SAM status code and set the
+	 * the sense asc/ascq if needed.
 	 */
 	int (*handle_cmd)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
-	/* Below callbacks are only exected called by generic_handle_cmd */
+	/*
+	 * Below callbacks are only exected called by generic_handle_cmd.
+	 * Returns:
+	 * - 0 if the handler has queued the command.
+	 * - SAM_STAT_TASK_SET_FULL if the handler was not able to allocate
+	 *   resources for the command.
+	 *
+	 * If 0 is returned the handler must call the tcmulib_cmd->done
+	 * function with SAM_STAT_GOOD or a SAM status code and set the
+	 * the sense asc/ascq if needed.
+	 */
 	rw_fn_t write;
 	rw_fn_t read;
 	flush_fn_t flush;

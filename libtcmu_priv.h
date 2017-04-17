@@ -52,8 +52,6 @@ struct tcmulib_context {
 struct tcmu_call_stub {
 	enum tcmu_store_op sop;  /* r, w, etc.. */
 
-	callout_cbk_t callout_cbk;
-
 	/*
 	 * basic {exec, in} parameters to handler calls. anything
 	 * more complex than this would required a more generic

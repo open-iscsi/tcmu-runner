@@ -211,9 +211,9 @@ static int write_verify_do_read(struct tcmu_device *dev,
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 	struct tcmur_handler *rhandler = handler->hm_private;
 
-	stub.sop = TCMU_STORE_OP_READ;
-	stub.callout_cbk = handle_write_verify_read_cbk;
+	readcmd->done = handle_write_verify_read_cbk;
 
+	stub.sop = TCMU_STORE_OP_READ;
 	stub.u.rw.exec = rhandler->read;
 	stub.u.rw.iov = readcmd->iovec;
 	stub.u.rw.iov_cnt = 1;
@@ -252,9 +252,9 @@ static int write_verify_do_write(struct tcmu_device *dev,
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 	struct tcmur_handler *rhandler= handler->hm_private;
 
-	stub.sop = TCMU_STORE_OP_WRITE;
-	stub.callout_cbk = handle_write_verify_write_cbk;
+	writecmd->done = handle_write_verify_write_cbk;
 
+	stub.sop = TCMU_STORE_OP_WRITE;
 	stub.u.rw.exec = rhandler->write;
 	stub.u.rw.iov = iovec;
 	stub.u.rw.iov_cnt = iov_cnt;
@@ -377,10 +377,11 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 	}
 
 	/* perform write */
-	tcmu_seek_in_iovec(origcmd->iovec, state->requested);
-	stub.sop = TCMU_STORE_OP_WRITE;
-	stub.callout_cbk = handle_caw_write_cbk;
+	origcmd->done = handle_caw_write_cbk;
 
+	tcmu_seek_in_iovec(origcmd->iovec, state->requested);
+
+	stub.sop = TCMU_STORE_OP_WRITE;
 	stub.u.rw.exec = rhandler->write;
 	stub.u.rw.iov = origcmd->iovec;
 	stub.u.rw.iov_cnt = origcmd->iov_cnt;
@@ -420,9 +421,9 @@ static int handle_caw(struct tcmu_device *dev,
 	if (!readcmd)
 		goto out;
 
-	stub.sop = TCMU_STORE_OP_READ;
-	stub.callout_cbk = handle_caw_read_cbk;
+	readcmd->done = handle_caw_read_cbk;
 
+	stub.sop = TCMU_STORE_OP_READ;
 	stub.u.rw.exec = rhandler->read;
 	stub.u.rw.iov = readcmd->iovec;
 	stub.u.rw.iov_cnt = readcmd->iov_cnt;
@@ -457,8 +458,9 @@ static int handle_flush(struct tcmu_device *dev,
 	int ret;
 	struct tcmu_call_stub stub;
 
+	cmd->done = handle_flush_cbk;
+
 	stub.sop = TCMU_STORE_OP_FLUSH;
-	stub.callout_cbk = handle_flush_cbk;
 	stub.u.flush.exec = rhandler->flush;
 
 	aio_command_start(dev);
@@ -487,9 +489,9 @@ static int handle_write(struct tcmu_device *dev,
 	if (ret)
 		return ret;
 
-	stub.sop = TCMU_STORE_OP_WRITE;
-	stub.callout_cbk = handle_write_cbk;
+	cmd->done = handle_write_cbk;
 
+	stub.sop = TCMU_STORE_OP_WRITE;
 	stub.u.rw.exec = rhandler->write;
 	stub.u.rw.iov = iovec;
 	stub.u.rw.iov_cnt = iov_cnt;
@@ -521,9 +523,9 @@ static int handle_read(struct tcmu_device *dev,
 	if (ret)
 		return ret;
 
-	stub.sop = TCMU_STORE_OP_READ;
-	stub.callout_cbk = handle_read_cbk;
+	cmd->done = handle_read_cbk;
 
+	stub.sop = TCMU_STORE_OP_READ;
 	stub.u.rw.exec = rhandler->read;
 	stub.u.rw.iov = iovec;
 	stub.u.rw.iov_cnt = iov_cnt;
@@ -552,8 +554,9 @@ static int handle_passthrough(struct tcmu_device *dev,
 	int ret;
 	struct tcmu_call_stub stub;
 
+	cmd->done = handle_passthrough_cbk;
+
 	stub.sop = TCMU_STORE_OP_HANDLE_CMD;
-	stub.callout_cbk = handle_passthrough_cbk;
 	stub.u.handle_cmd.exec = rhandler->handle_cmd;
 
 	aio_command_start(dev);
