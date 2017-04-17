@@ -305,6 +305,7 @@ static bool command_is_generic(struct tcmulib_cmd *tcmulib_cmd)
 	case START_STOP:
 	case MODE_SELECT:
 	case MODE_SELECT_10:
+	case READ_CAPACITY:
 		return true;
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
