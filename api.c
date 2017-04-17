@@ -908,13 +908,8 @@ int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
 
 int tcmu_emulate_write_verify(struct tcmu_device *dev,
 			      struct tcmulib_cmd *tcmulib_cmd,
-			      ssize_t (*read)(struct tcmu_device *,
-					      struct iovec *, size_t, off_t),
-			      ssize_t (*write)(struct tcmu_device *,
-					       struct iovec *, size_t, off_t),
-			      struct iovec *iovec,
-			      size_t iov_cnt,
-			      off_t offset)
+			      store_rw_t read, store_rw_t write,
+			      struct iovec *iovec, size_t iov_cnt, off_t offset)
 {
 	struct iovec iov;
 	uint32_t cmp_offset;
@@ -926,7 +921,7 @@ int tcmu_emulate_write_verify(struct tcmu_device *dev,
 	int ret;
 
 	while (remaining) {
-		ret = write(dev, iovec, iov_cnt, offset);
+		ret = write(dev, tcmulib_cmd, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed\n");
 			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
@@ -943,7 +938,7 @@ int tcmu_emulate_write_verify(struct tcmu_device *dev,
 
 		iov.iov_len = len;
 
-		ret = read(dev, &iov, iov_cnt, offset);
+		ret = read(dev, tcmulib_cmd, &iov, iov_cnt, offset);
 		if (ret != len) {
 			tcmu_err("read failed\n");
 			free(iov.iov_base);
