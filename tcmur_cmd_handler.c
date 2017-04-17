@@ -26,23 +26,15 @@
 #include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
 
-static void aio_command_start(struct tcmu_device *dev)
-{
-	track_aio_request_start(dev);
-}
-
-static void aio_command_finish(struct tcmu_device *dev,
-			       struct tcmulib_cmd *cmd,
-			       int rc, bool complete)
+static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			       int rc)
 {
 	int wakeup;
 
 	track_aio_request_finish(dev, &wakeup);
-	if (complete) {
-		tcmulib_command_complete(dev, cmd, rc);
-		if (wakeup)
-			tcmulib_processing_complete(dev);
-	}
+	tcmulib_command_complete(dev, cmd, rc);
+	if (wakeup)
+		tcmulib_processing_complete(dev);
 }
 
 static int alloc_iovec(struct tcmulib_cmd *cmd, size_t length)
@@ -224,7 +216,7 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 
 done:
 	write_verify_free(writecmd);
-	aio_command_finish(dev, writecmd, ret, true);
+	aio_command_finish(dev, writecmd, ret);
 }
 
 static void handle_write_verify_write_cbk(struct tcmu_device *dev,
@@ -245,7 +237,7 @@ static void handle_write_verify_write_cbk(struct tcmu_device *dev,
 
 finish_err:
 	write_verify_free(writecmd);
-	aio_command_finish(dev, writecmd, ret, true);
+	aio_command_finish(dev, writecmd, ret);
 }
 
 static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -261,12 +253,9 @@ static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		goto out;
 	cmd->done = handle_write_verify_write_cbk;
 
-	aio_command_start(dev);
 	ret = async_handle_cmd(dev, cmd, write_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED) {
-		aio_command_finish(dev, cmd, ret, false);
+	if (ret != TCMU_ASYNC_HANDLED)
 		goto free_write_verify;
-	}
 
 	return TCMU_ASYNC_HANDLED;
 
@@ -332,7 +321,7 @@ static void handle_caw_write_cbk(struct tcmu_device *dev,
 				 struct tcmulib_cmd *cmd, int ret)
 {
 	pthread_mutex_unlock(&dev->caw_lock);
-	aio_command_finish(dev, cmd, ret, true);
+	aio_command_finish(dev, cmd, ret);
 }
 
 static void handle_caw_read_cbk(struct tcmu_device *dev,
@@ -373,7 +362,7 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 
 finish_err:
 	pthread_mutex_unlock(&dev->caw_lock);
-	aio_command_finish(dev, origcmd, ret, true);
+	aio_command_finish(dev, origcmd, ret);
 	caw_free_readcmd(readcmd);
 }
 
@@ -396,7 +385,6 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	readcmd->done = handle_caw_read_cbk;
 
-	aio_command_start(dev);
 	pthread_mutex_lock(&dev->caw_lock);
 
 	ret = async_handle_cmd(dev, readcmd, read_work_fn);
@@ -404,8 +392,6 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return TCMU_ASYNC_HANDLED;
 
 	pthread_mutex_unlock(&dev->caw_lock);
-	aio_command_finish(dev, cmd, ret, false);
-
 	caw_free_readcmd(readcmd);
 out:
 	return ret;
@@ -415,7 +401,7 @@ out:
 static void handle_flush_cbk(struct tcmu_device *dev,
 			     struct tcmulib_cmd *cmd, int ret)
 {
-	aio_command_finish(dev, cmd, ret, true);
+	aio_command_finish(dev, cmd, ret);
 }
 
 static int flush_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -428,22 +414,15 @@ static int flush_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 static int handle_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	int ret;
-
 	cmd->done = handle_flush_cbk;
-
-	aio_command_start(dev);
-	ret = async_handle_cmd(dev, cmd, flush_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
-		aio_command_finish(dev, cmd, ret, false);
-	return ret;
+	return async_handle_cmd(dev, cmd, flush_work_fn);
 }
 
 /* async write */
 static void handle_write_cbk(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			     int ret)
 {
-	aio_command_finish(dev, cmd, ret, true);
+	aio_command_finish(dev, cmd, ret);
 }
 
 static int handle_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -455,18 +434,14 @@ static int handle_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return ret;
 
 	cmd->done = handle_write_cbk;
-	aio_command_start(dev);
-	ret = async_handle_cmd(dev, cmd, write_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
-		aio_command_finish(dev, cmd, ret, false);
-	return ret;
+	return async_handle_cmd(dev, cmd, write_work_fn);
 }
 
 /* async read */
 static void handle_read_cbk(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			    int ret)
 {
-	aio_command_finish(dev, cmd, ret, true);
+	aio_command_finish(dev, cmd, ret);
 }
 
 static int handle_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -478,11 +453,7 @@ static int handle_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return ret;
 
 	cmd->done = handle_read_cbk;
-	aio_command_start(dev);
-	ret = async_handle_cmd(dev, cmd, read_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
-		aio_command_finish(dev, cmd, ret, false);
-	return ret;
+	return async_handle_cmd(dev, cmd, read_work_fn);
 }
 
 /* command passthrough */
@@ -490,8 +461,7 @@ static void
 handle_passthrough_cbk(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		       int ret)
 {
-	aio_command_finish(dev, cmd, ret,
-			    (ret != TCMU_ASYNC_HANDLED) ? true : false);
+	aio_command_finish(dev, cmd, ret);
 }
 
 static int passthrough_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -505,15 +475,8 @@ static int passthrough_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int handle_passthrough(struct tcmu_device *dev,
 			      struct tcmulib_cmd *cmd)
 {
-	int ret;
-
 	cmd->done = handle_passthrough_cbk;
-
-	aio_command_start(dev);
-	ret = async_handle_cmd(dev, cmd, passthrough_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
-		aio_command_finish(dev, cmd, ret, false);
-	return ret;
+	return async_handle_cmd(dev, cmd, passthrough_work_fn);
 }
 
 bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler)
@@ -530,6 +493,9 @@ int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 	struct tcmur_handler *rhandler = handler->hm_private;
 	uint8_t *cdb = cmd->cdb;
+	int wakeup;
+
+	track_aio_request_start(dev);
 
 	if (tcmur_handler_is_passthrough_only(rhandler))
 		goto passthrough;
@@ -539,19 +505,24 @@ int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case READ_10:
 	case READ_12:
 	case READ_16:
-		return handle_read(dev, cmd);
+		ret = handle_read(dev, cmd);
+		goto done;
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
 	case WRITE_16:
-		return handle_write(dev, cmd);
+		ret = handle_write(dev, cmd);
+		goto done;
 	case SYNCHRONIZE_CACHE:
 	case SYNCHRONIZE_CACHE_16:
-		return handle_flush(dev, cmd);
+		ret = handle_flush(dev, cmd);
+		goto done;
 	case COMPARE_AND_WRITE:
-		return handle_caw(dev, cmd);
+		ret = handle_caw(dev, cmd);
+		goto done;
 	case WRITE_VERIFY:
-		return handle_write_verify(dev, cmd);
+		ret = handle_write_verify(dev, cmd);
+		goto done;
 	}
 
 passthrough:
@@ -565,5 +536,8 @@ passthrough:
 	 */
 	if (rhandler->handle_cmd)
 		ret = handle_passthrough(dev, cmd);
+done:
+	if (ret != TCMU_ASYNC_HANDLED)
+		track_aio_request_finish(dev, &wakeup);
 	return ret;
 }
