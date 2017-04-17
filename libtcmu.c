@@ -1045,21 +1045,3 @@ void tcmulib_cleanup_all_cmdproc_threads()
 		cancel_thread(thread->thread_id);
 	}
 }
-
-/*
- * convert errno to closest possible SAM status code.
- * (add more conversions as required)
- */
-int errno_to_sam_status(int rc, uint8_t *sense)
-{
-	if (rc == -ENOMEM) {
-		return SAM_STAT_TASK_SET_FULL;
-	} else if (rc == -EIO) {
-		return tcmu_set_sense_data(sense, MEDIUM_ERROR,
-					   ASC_READ_ERROR, NULL);
-	} else if (rc < 0) {
-		return TCMU_NOT_HANDLED;
-	} else {
-		return SAM_STAT_GOOD;
-	}
-}

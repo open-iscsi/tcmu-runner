@@ -242,13 +242,9 @@ finish_err:
 
 static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	int ret;
+	int ret = SAM_STAT_TASK_SET_FULL;
 	uint8_t *cdb = cmd->cdb;
-	uint8_t *sense = cmd->sense_buf;
 	size_t length = tcmu_get_xfer_length(cdb) * tcmu_get_dev_block_size(dev);
-
-	ret = errno_to_sam_status(-ENOMEM, sense);
-
 	if (write_verify_init(cmd, length))
 		goto out;
 	cmd->done = handle_write_verify_write_cbk;
@@ -370,18 +366,17 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
 	struct tcmulib_cmd *readcmd;
-	uint8_t *sense = cmd->sense_buf;
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 
 	ret = check_lba_and_length(dev, cmd, cmd->cdb[13] * 2);
 	if (ret)
 		return ret;
 
-	ret = errno_to_sam_status(-ENOMEM, sense);
-
 	readcmd = caw_init_readcmd(cmd, half);
-	if (!readcmd)
+	if (!readcmd) {
+		ret = SAM_STAT_TASK_SET_FULL;
 		goto out;
+	}
 
 	readcmd->done = handle_caw_read_cbk;
 

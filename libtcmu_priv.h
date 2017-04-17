@@ -118,9 +118,6 @@ void _cleanup_spin_lock(void *);
 /* cancel (+join) a thread */
 void cancel_thread(pthread_t);
 
-/* errno -> SAM status code */
-int errno_to_sam_status(int, uint8_t *);
-
 /* aio request tracking */
 void track_aio_request_start(struct tcmu_device *);
 void track_aio_request_finish(struct tcmu_device *, int *);
