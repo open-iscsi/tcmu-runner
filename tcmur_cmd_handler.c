@@ -245,8 +245,16 @@ static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	int ret = SAM_STAT_TASK_SET_FULL;
 	uint8_t *cdb = cmd->cdb;
 	size_t length = tcmu_get_xfer_length(cdb) * tcmu_get_dev_block_size(dev);
-	if (write_verify_init(cmd, length))
+
+	ret = check_lba_and_length(dev, cmd, tcmu_get_xfer_length(cmd->cdb));
+	if (ret)
+		return ret;
+
+	if (write_verify_init(cmd, length)) {
+		ret = SAM_STAT_TASK_SET_FULL;
 		goto out;
+	}
+
 	cmd->done = handle_write_verify_write_cbk;
 
 	ret = async_handle_cmd(dev, cmd, write_work_fn);
