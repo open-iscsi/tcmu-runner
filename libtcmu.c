@@ -35,10 +35,10 @@
 #include <libnl3/netlink/genl/ctrl.h>
 
 #include "libtcmu.h"
-#include "libtcmu_aio.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
-#include "libtcmu_store.h"
+#include "tcmur_aio.h"
+#include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
 
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
@@ -184,22 +184,21 @@ static void cmdproc_thread_cleanup(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *r_handler = handler->hm_private;
+	struct tcmur_handler *rhandler = handler->hm_private;
 
-	r_handler->close(dev);
+	rhandler->close(dev);
 }
 
-static int generic_cmd(struct tcmu_device *dev,
-		       struct tcmulib_cmd *tcmulib_cmd, uint8_t cmd)
+static int generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	uint8_t *cdb = tcmulib_cmd->cdb;
-	struct iovec *iovec = tcmulib_cmd->iovec;
-	size_t iov_cnt = tcmulib_cmd->iov_cnt;
-	uint8_t *sense = tcmulib_cmd->sense_buf;
+	uint8_t *cdb = cmd->cdb;
+	struct iovec *iovec = cmd->iovec;
+	size_t iov_cnt = cmd->iov_cnt;
+	uint8_t *sense = cmd->sense_buf;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
 
-	switch (cmd) {
+	switch (cdb[0]) {
 	case INQUIRY:
 		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
 	case TEST_UNIT_READY:
@@ -234,27 +233,6 @@ static int generic_cmd(struct tcmu_device *dev,
 	default:
 		tcmu_err("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
-	}
-}
-
-static bool command_is_store_call(uint8_t cmd)
-{
-	switch(cmd) {
-	case READ_6:
-	case READ_10:
-	case READ_12:
-	case READ_16:
-	case WRITE_6:
-	case WRITE_10:
-	case WRITE_12:
-	case WRITE_16:
-	case SYNCHRONIZE_CACHE:
-	case SYNCHRONIZE_CACHE_16:
-	case COMPARE_AND_WRITE:
-	case WRITE_VERIFY:
-		return true;
-	default:
-		return false;
 	}
 }
 
@@ -315,16 +293,34 @@ static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 		free(buf);
 }
 
-int generic_handle_cmd(struct tcmu_device *dev,
-		       struct tcmulib_cmd *tcmulib_cmd)
+static bool command_is_generic(struct tcmulib_cmd *tcmulib_cmd)
 {
+	uint8_t *cdb = tcmulib_cmd->cdb;
 
-	uint8_t cmd = (tcmulib_cmd->cdb)[0];
+	switch(cdb[0]) {
+	case INQUIRY:
+	case TEST_UNIT_READY:
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+	case START_STOP:
+	case MODE_SELECT:
+	case MODE_SELECT_10:
+		return true;
+	case SERVICE_ACTION_IN_16:
+		if (cdb[1] == READ_CAPACITY_16)
+			return true;
+		/* fall through */
+	default:
+		return false;
+	}
+}
 
-	if (command_is_store_call(cmd))
-		return call_store(dev, tcmulib_cmd, cmd);
+static int generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	if (command_is_generic(cmd))
+		return generic_cmd(dev, cmd);
 	else
-		return generic_cmd(dev, tcmulib_cmd, cmd);
+		return tcmur_cmd_handler(dev, cmd);
 }
 
 static void *tcmu_cmdproc_thread(void *arg)
@@ -332,7 +328,7 @@ static void *tcmu_cmdproc_thread(void *arg)
         int ret;
 	struct tcmu_device *dev = arg;
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *r_handler = handler->hm_private;
+	struct tcmur_handler *rhandler = handler->hm_private;
 	struct pollfd pfd;
 
 	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
@@ -347,17 +343,20 @@ static void *tcmu_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG)
 				tcmu_cdb_debug_info(cmd);
 
-			int (*func)(struct tcmu_device *, struct tcmulib_cmd *) =
-				(r_handler->write || r_handler->read || r_handler->flush) ?
-				generic_handle_cmd : r_handler->handle_cmd;
-			ret = func(dev, cmd);
+			if (!rhandler->nr_threads &&
+			    tcmur_handler_is_passthrough_only(rhandler))
+				ret = rhandler->handle_cmd(dev, cmd);
+			else if (tcmur_handler_is_passthrough_only(rhandler))
+				ret = tcmur_cmd_handler(dev, cmd);
+			else
+				ret = generic_handle_cmd(dev, cmd);
 
 			/*
 			 * command (processing) completion is called in the following
 			 * scenarios:
 			 *   - handle_cmd: synchronous handlers
-			 *   - generic_handle_cmd: non-store calls (see generic_cmd())
-			 *			   and on errors when calling store.
+			 *   - generic_handle_cmd: non tcmur handler calls (see generic_cmd())
+			 *			   and on errors when calling tcmur handler.
 			 */
 			if (ret != TCMU_ASYNC_HANDLED) {
 				completed = 1;
@@ -573,7 +572,6 @@ static void remove_device(struct tcmulib_context *ctx,
 	struct tcmu_device *dev;
 	int i = 0, ret;
 	bool found = false;
-	struct tcmu_io_queue *io_wq;
 
 	darray_foreach(dev_ptr, ctx->devices) {
 		dev = *dev_ptr;
@@ -593,16 +591,14 @@ static void remove_device(struct tcmulib_context *ctx,
 
 	darray_remove(ctx->devices, i);
 
-	io_wq = &dev->work_queue;
-
 	/*
 	 * The order of cleaning up worker threads and calling ->removed()
 	 * is important: for sync handlers, the worker thread needs to be
 	 * terminated before removing the handler (i.e., calling handlers
-	 * ->close() callout) in order to ensure that no store callouts
+	 * ->close() callout) in order to ensure that no handler callouts
 	 * are getting invoked when shutting down the handler.
 	 */
-	cancel_thread(io_wq->io_wq_thread);
+	cleanup_io_work_queue_threads(dev);
 	dev->handler->removed(dev);
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(dev);
@@ -1047,23 +1043,5 @@ void tcmulib_cleanup_all_cmdproc_threads()
 	struct tcmu_thread *thread;
 	darray_foreach(thread, g_threads) {
 		cancel_thread(thread->thread_id);
-	}
-}
-
-/*
- * convert errno to closest possible SAM status code.
- * (add more conversions as required)
- */
-int errno_to_sam_status(int rc, uint8_t *sense)
-{
-	if (rc == -ENOMEM) {
-		return SAM_STAT_TASK_SET_FULL;
-	} else if (rc == -EIO) {
-		return tcmu_set_sense_data(sense, MEDIUM_ERROR,
-					   ASC_READ_ERROR, NULL);
-	} else if (rc < 0) {
-		return TCMU_NOT_HANDLED;
-	} else {
-		return SAM_STAT_GOOD;
 	}
 }

@@ -61,22 +61,6 @@
 #include "tcmu-runner.h"
 #include "libtcmu.h"
 
-#define NHANDLERS 16
-#define NCOMMANDS 16
-
-struct fbo_handler {
-	struct tcmu_device *dev;
-	int num;
-
-	pthread_mutex_t mtx;
-	pthread_cond_t cond;
-
-	pthread_t thr;
-	int cmd_head;
-	int cmd_tail;
-	struct tcmulib_cmd *commands[NCOMMANDS];
-};
-
 struct fbo_state {
 	int fd;
 	uint64_t num_lbas;
@@ -96,7 +80,6 @@ struct fbo_state {
 	pthread_mutex_t state_mtx;
 	pthread_mutex_t completion_mtx;
 	int curr_handler;
-	struct fbo_handler h[NHANDLERS];
 };
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -111,69 +94,6 @@ static void fbo_report_op_change(struct tcmu_device *dev, uint8_t code)
 	if (code > state->event_op_ch_code)
 		state->event_op_ch_code = code;
 	pthread_mutex_unlock(&state->state_mtx);
-}
-
-static void *fbo_handler_run(void *arg)
-{
-	struct fbo_handler *h = (struct fbo_handler *)arg;
-	struct fbo_state *state = tcmu_get_dev_private(h->dev);
-	int result;
-	struct tcmulib_cmd *cmd;
-
-	while (true) {
-		/* get next command */
-		pthread_mutex_lock(&h->mtx);
-		while (h->cmd_tail == h->cmd_head)
-			pthread_cond_wait(&h->cond, &h->mtx);
-		cmd = h->commands[h->cmd_tail];
-		pthread_mutex_unlock(&h->mtx);
-
-		/* process command */
-		result = fbo_handle_cmd(h->dev, cmd);
-                if (result == SAM_STAT_CHECK_CONDITION) {
-                    tcmu_dbg("FBO: Check condition\n");
-                    tcmu_dbg("  Sense: 0x%08llx\n", *(uint64_t *)cmd->sense_buf);
-                }
-		pthread_mutex_lock(&state->completion_mtx);
-		tcmulib_command_complete(h->dev, cmd, result);
-		tcmulib_processing_complete(h->dev);
-		pthread_mutex_unlock(&state->completion_mtx);
-
-		/* notify that we can process more commands */
-		pthread_mutex_lock(&h->mtx);
-		h->commands[h->cmd_tail] = NULL;
-		h->cmd_tail = (h->cmd_tail + 1) % NCOMMANDS;
-		pthread_cond_signal(&h->cond);
-		pthread_mutex_unlock(&h->mtx);
-	}
-
-	return NULL;
-}
-
-static void fbo_handler_init(struct fbo_handler *h, struct tcmu_device *dev,
-			     int num)
-{
-	int i;
-
-	h->dev = dev;
-	h->num = num;
-	pthread_mutex_init(&h->mtx, NULL);
-	pthread_cond_init(&h->cond, NULL);
-
-	pthread_create(&h->thr, NULL, fbo_handler_run, h);
-	h->cmd_head = h->cmd_tail = 0;
-	for (i = 0; i < NCOMMANDS; i++)
-		h->commands[i] = NULL;
-}
-
-static void fbo_handler_destroy(struct fbo_handler *h)
-{
-	if (h->thr) {
-		pthread_kill(h->thr, SIGINT);
-		pthread_join(h->thr, NULL);
-	}
-	pthread_cond_destroy(&h->cond);
-	pthread_mutex_destroy(&h->mtx);
 }
 
 static bool fbo_check_config(const char *cfgstring, char **reason)
@@ -238,7 +158,6 @@ static int fbo_open(struct tcmu_device *dev)
 	int64_t size;
 	char *options;
 	char *path;
-	int i;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
@@ -255,9 +174,11 @@ static int fbo_open(struct tcmu_device *dev)
 		tcmu_err("Could not get device block size\n");
 		goto err;
 	}
+	tcmu_set_dev_block_size(dev, state->block_size);
 #else
 	/* MM logical units use a block size of 2048 */
 	state->block_size = 2048;
+	tcmu_set_dev_block_size(dev, state->block_size);
 #endif
 
 	size = tcmu_get_device_size(dev);
@@ -266,6 +187,7 @@ static int fbo_open(struct tcmu_device *dev)
 		goto err;
 	}
 
+	tcmu_set_dev_num_lbas(dev, size / state->block_size);
 	state->num_lbas = size / state->block_size;
 
 	tcmu_dbg("open: cfgstring %s\n", tcmu_get_dev_cfgstring(dev));
@@ -310,8 +232,6 @@ static int fbo_open(struct tcmu_device *dev)
 
 	pthread_mutex_init(&state->state_mtx, NULL);
 	pthread_mutex_init(&state->completion_mtx, NULL);
-	for (i = 0; i < NHANDLERS; i++)
-		fbo_handler_init(&state->h[i], dev, i);
 
 	/* Record that we've changed our Operational state */
 	fbo_report_op_change(dev, 0x02);
@@ -326,40 +246,14 @@ err:
 static void fbo_close(struct tcmu_device *dev)
 {
 	struct fbo_state *state = tcmu_get_dev_private(dev);
-	int i;
-
-	for (i = 0; i < NHANDLERS; i++)
-		fbo_handler_destroy(&state->h[i]);
-	pthread_mutex_destroy(&state->state_mtx);
-	pthread_mutex_destroy(&state->completion_mtx);
 
 	close(state->fd);
 	free(state);
 }
 
-static int set_medium_error(uint8_t *sense)
+static int set_medium_error(uint8_t *sense, unsigned asc_ascq)
 {
-	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
-}
-
-static int fbo_handle_cmd_async(struct tcmu_device *dev,
-				struct tcmulib_cmd *cmd)
-{
-	struct fbo_state *state = tcmu_get_dev_private(dev);
-	struct fbo_handler *h = &state->h[state->curr_handler];
-
-	state->curr_handler = (state->curr_handler + 1) % NHANDLERS;
-
-	/* enqueue command */
-	pthread_mutex_lock(&h->mtx);
-	while ((h->cmd_head + 1) % NCOMMANDS == h->cmd_tail)
-		pthread_cond_wait(&h->cond, &h->mtx);
-	h->commands[h->cmd_head] = cmd;
-	h->cmd_head = (h->cmd_head + 1) % NCOMMANDS;
-	pthread_cond_signal(&h->cond);
-	pthread_mutex_unlock(&h->mtx);
-
-	return TCMU_ASYNC_HANDLED;
+	return tcmu_set_sense_data(sense, MEDIUM_ERROR, asc_ascq, NULL);
 }
 
 static int fbo_emulate_inquiry(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt,
@@ -1192,7 +1086,7 @@ static int fbo_do_sync(struct fbo_state *state, uint8_t *sense)
 	rc = fsync(state->fd);
 	if (rc) {
 		tcmu_err("sync failed: %m\n");
-		return set_medium_error(sense);
+		return set_medium_error(sense, ASC_WRITE_ERROR);
 	}
 
 	return SAM_STAT_GOOD;
@@ -1270,7 +1164,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
-	void *buf;
+	int remaining;
 	size_t ret;
 	int rc;
 
@@ -1290,52 +1184,57 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		rc = fsync(state->fd);
 		if (rc) {
 			tcmu_err("sync failed: %m\n");
-			return set_medium_error(sense);
+			return set_medium_error(sense, ASC_READ_ERROR);
 		}
 	}
-
-	buf = malloc(length);
-	if (!buf)
-		return set_medium_error(sense);
-	memset(buf, 0, length);
 
 	pthread_mutex_lock(&state->state_mtx);
 	state->cur_lba = cur_lba;
 	state->flags |= FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	ret = pread(state->fd, buf, length, offset);
+	remaining = length;
+
+	while (remaining) {
+		ret = preadv(state->fd, iovec, iov_cnt, offset);
+		if (ret < 0) {
+			tcmu_err("read failed: %m\n");
+			rc = set_medium_error(sense, ASC_READ_ERROR);
+			break;
+		}
+		tcmu_seek_in_iovec(iovec, ret);
+		offset += ret;
+		remaining -= ret;
+	}
 
 	pthread_mutex_lock(&state->state_mtx);
 	state->flags &= ~FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	if (ret == -1) {
-		tcmu_err("read failed: %m\n");
-		free(buf);
-		return set_medium_error(sense);
-	}
-
-	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, length);
-
-	free(buf);
-
 	return SAM_STAT_GOOD;
 }
 
+static void fbo_cleanup_buffer(void *buf)
+{
+	free(buf);
+}
+
 static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
-			 uint64_t offset, int length, uint8_t *sense)
+			 size_t iov_cnt, uint64_t offset, int length,
+			 uint8_t *sense)
 {
 	size_t ret;
 	uint32_t cmp_offset;
 	void *buf;
 	int rc = SAM_STAT_GOOD;
+	int remaining;
 
 	buf = malloc(length);
 	if (!buf)
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 
+	pthread_cleanup_push(fbo_cleanup_buffer, buf);
 	memset(buf, 0, length);
 
 	pthread_mutex_lock(&state->state_mtx);
@@ -1343,25 +1242,35 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 	state->flags |= FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	ret = pread(state->fd, buf, length, offset);
+	remaining = length;
+
+	while (remaining) {
+		ret = pread(state->fd, buf, remaining, offset);
+		if (ret < 0) {
+			tcmu_err("read failed: %m\n");
+			rc = set_medium_error(sense, ASC_READ_ERROR);
+			break;
+		}
+
+		cmp_offset = tcmu_compare_with_iovec(buf, iovec, ret);
+		if (cmp_offset != -1) {
+			rc = tcmu_set_sense_data(sense, MISCOMPARE,
+					ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
+					&cmp_offset);
+			break;
+		}
+		tcmu_seek_in_iovec(iovec, ret);
+
+		offset += ret;
+		remaining -= ret;
+	}
 
 	pthread_mutex_lock(&state->state_mtx);
 	state->flags &= ~FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	if (ret == -1) {
-		tcmu_err("read failed: %m\n");
-		free(buf);
-		return set_medium_error(sense);
-	}
-
-	cmp_offset = tcmu_compare_with_iovec(buf, iovec, length);
-	if (cmp_offset != -1)
-		rc = tcmu_set_sense_data(sense, MISCOMPARE,
-					 ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					 &cmp_offset);
-
 	free(buf);
+	pthread_cleanup_pop(0);
 
 	return rc;
 }
@@ -1370,14 +1279,12 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		     size_t iov_cnt, uint8_t *sense, bool do_verify)
 {
 	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct iovec write_iovec[iov_cnt];
 	uint8_t fua = cdb[1] & 0x08;
 	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
 	int remaining;
-	uint64_t cur_off;
-	unsigned int to_copy;
-	int i;
 	size_t ret;
 	int rc = SAM_STAT_GOOD;
 	int rc1;
@@ -1399,31 +1306,27 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	state->flags |= FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	cur_off = offset;
 	remaining = length;
-	i = 0;
 
-	while (remaining && i < iov_cnt) {
-		to_copy = (remaining > iovec[i].iov_len) ?
-			iovec[i].iov_len : remaining;
+	memcpy(write_iovec, iovec, sizeof(write_iovec));
 
-		ret = pwrite(state->fd, iovec[i].iov_base, to_copy, cur_off);
-		if (ret == -1) {
-			tcmu_err("Could not write: %m\n");
-			rc = set_medium_error(sense);
+	while (remaining) {
+		ret = pwritev(state->fd, write_iovec, iov_cnt, offset);
+		if (ret < 0) {
+			tcmu_err("write failed: %m\n");
+			rc = set_medium_error(sense, ASC_WRITE_ERROR);
 			break;
 		}
-
-		remaining -= to_copy;
-		cur_off += to_copy;
-		i++;
+		tcmu_seek_in_iovec(write_iovec, ret);
+		offset += ret;
+		remaining -= ret;
 	}
 
 	if (rc == SAM_STAT_GOOD && (do_verify || fua)) {
 		rc1 = fsync(state->fd);
 		if (rc1) {
 			tcmu_err("sync failed: %m\n");
-			rc = set_medium_error(sense);
+			rc = set_medium_error(sense, ASC_WRITE_ERROR);
 		}
 	}
 
@@ -1434,7 +1337,8 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	if (!do_verify || rc != SAM_STAT_GOOD)
 		return rc;
 
-	return fbo_do_verify(state, iovec, offset, length, sense);
+	offset = state->block_size * cur_lba;
+	return fbo_do_verify(state, iovec, iov_cnt, offset, length, sense);
 }
 
 static int fbo_verify(struct tcmu_device *dev, uint8_t *cdb,
@@ -1463,7 +1367,7 @@ static int fbo_verify(struct tcmu_device *dev, uint8_t *cdb,
 
 	offset = state->block_size * cur_lba;
 
-	return fbo_do_verify(state, iovec, offset, length, sense);
+	return fbo_do_verify(state, iovec, iov_cnt, offset, length, sense);
 }
 
 static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
@@ -1477,12 +1381,13 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	int rc = SAM_STAT_GOOD;
 
 	buf = malloc(length);
-	if (!buf)
-	{
+	if (!buf) {
 		tcmu_dbg("  malloc failed\n");
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 	}
+
+	pthread_cleanup_push(fbo_cleanup_buffer, buf);
 	memset(buf, 0, length);
 
 	while (done_blocks < state->num_lbas) {
@@ -1493,7 +1398,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 		ret = pwrite(state->fd, buf, length, offset);
 		if (ret == -1) {
 			tcmu_err("Could not write: %m\n");
-			rc = set_medium_error(sense);
+			rc = set_medium_error(sense, ASC_WRITE_ERROR);
 			break;
 		}
 		done_blocks += length / state->block_size;
@@ -1508,6 +1413,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	pthread_mutex_unlock(&state->state_mtx);
 
 	free(buf);
+	pthread_cleanup_pop(0);
 
 	return rc;
 }
@@ -1659,6 +1565,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint8_t *sense = cmd->sense_buf;
 	struct fbo_state *state = tcmu_get_dev_private(dev);
 	bool do_verify = false;
+	int ret;
 
 	/* Check for format in progress */
 	/* Certain commands can be executed even if a format is in progress */
@@ -1666,96 +1573,106 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	    cdb[0] != INQUIRY &&
 	    cdb[0] != REQUEST_SENSE &&
 	    cdb[0] != GET_CONFIGURATION &&
-	    cdb[0] != GPCMD_GET_EVENT_STATUS_NOTIFICATION)
-		return tcmu_set_sense_data(sense, NOT_READY,
-					   ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					   &state->format_progress);
+	    cdb[0] != GPCMD_GET_EVENT_STATUS_NOTIFICATION) {
+		ret = tcmu_set_sense_data(sense, NOT_READY,
+					  ASC_NOT_READY_FORMAT_IN_PROGRESS,
+					  &state->format_progress);
+		cmd->done(dev, cmd, ret);
+		return 0;
+	}
 
 	switch(cdb[0]) {
 	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		ret = tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
 		break;
 	case REQUEST_SENSE:
-		return fbo_emulate_request_sense(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_request_sense(dev, cdb, iovec, iov_cnt, sense);
+		break;
 	case FORMAT_UNIT:
-		return fbo_emulate_format_unit(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_format_unit(dev, cdb, iovec, iov_cnt, sense);
+		break;
 	case READ_6:
 	case READ_10:
 	case READ_12:
-		return fbo_read(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_read(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case WRITE_VERIFY:
 		do_verify = true;
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
-		return fbo_write(dev, cdb, iovec, iov_cnt, sense, do_verify);
+		ret = fbo_write(dev, cdb, iovec, iov_cnt, sense, do_verify);
 		break;
 	case INQUIRY:
-		return fbo_emulate_inquiry(cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_inquiry(cdb, iovec, iov_cnt, sense);
 		break;
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return fbo_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_mode_select(cdb, iovec, iov_cnt, sense);
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
-		return fbo_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
 		break;
 	case START_STOP:
-		return tcmu_emulate_start_stop(dev, cdb, sense);
+		ret = tcmu_emulate_start_stop(dev, cdb, sense);
 		break;
 	case ALLOW_MEDIUM_REMOVAL:
-		return fbo_emulate_allow_medium_removal(dev, cdb, sense);
+		ret = fbo_emulate_allow_medium_removal(dev, cdb, sense);
 		break;
 	case READ_FORMAT_CAPACITIES:
-		return fbo_emulate_read_format_capacities(dev, cdb, iovec,
-							  iov_cnt, sense);
+		ret = fbo_emulate_read_format_capacities(dev, cdb, iovec,
+							 iov_cnt, sense);
+		break;
 	case READ_CAPACITY:
 		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
 			/* Reserved bits for MM logical units */
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB,
-						   NULL);
+			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						  ASC_INVALID_FIELD_IN_CDB,
+						  NULL);
 		else
-			return tcmu_emulate_read_capacity_10(state->num_lbas,
-							     state->block_size,
-							     cdb, iovec,
-							     iov_cnt, sense);
+			ret = tcmu_emulate_read_capacity_10(state->num_lbas,
+							    state->block_size,
+							    cdb, iovec,
+							    iov_cnt, sense);
+		break;
 	case VERIFY:
-		return fbo_verify(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_verify(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case SYNCHRONIZE_CACHE:
-		return fbo_synchronize_cache(dev, cdb, sense);
+		ret = fbo_synchronize_cache(dev, cdb, sense);
 		break;
 	case READ_TOC:
-		return fbo_emulate_read_toc(dev, cdb, iovec, iov_cnt, sense);
+		ret = fbo_emulate_read_toc(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case GET_CONFIGURATION:
-		return fbo_emulate_get_configuration(dev, cdb, iovec, iov_cnt,
-						     sense);
+		ret = fbo_emulate_get_configuration(dev, cdb, iovec, iov_cnt,
+						    sense);
 		break;
 	case GPCMD_GET_EVENT_STATUS_NOTIFICATION:
-		return fbo_emulate_get_event_status_notification(dev, cdb,
-								 iovec, iov_cnt,
-								 sense);
+		ret = fbo_emulate_get_event_status_notification(dev, cdb,
+								iovec, iov_cnt,
+								sense);
 		break;
 	case READ_DISC_INFORMATION:
-		return fbo_emulate_read_disc_information(dev, cdb, iovec,
-							 iov_cnt, sense);
+		ret = fbo_emulate_read_disc_information(dev, cdb, iovec,
+							iov_cnt, sense);
 		break;
 	case READ_DVD_STRUCTURE:
-		return fbo_emulate_read_dvd_structure(dev, cdb, iovec, iov_cnt,
-						      sense);
+		ret = fbo_emulate_read_dvd_structure(dev, cdb, iovec, iov_cnt,
+						     sense);
 		break;
 	case MECHANISM_STATUS:
-		return fbo_emulate_mechanism_status(dev, cdb, iovec, iov_cnt,
-						    sense);
+		ret = fbo_emulate_mechanism_status(dev, cdb, iovec, iov_cnt,
+						   sense);
 		break;
 	default:
 		tcmu_err("unknown command 0x%x\n", cdb[0]);
-		return TCMU_NOT_HANDLED;
+		ret = TCMU_NOT_HANDLED;
 	}
+
+	cmd->done(dev, cmd, ret);
+	return 0;
 }
 
 static const char fbo_cfg_desc[] =
@@ -1770,8 +1687,8 @@ static struct tcmur_handler fbo_handler = {
 	.close = fbo_close,
 	.name = "File-backed optical Handler",
 	.subtype = "fbo",
-	.handle_cmd = fbo_handle_cmd_async,
-	.aio_supported = true,
+	.handle_cmd = fbo_handle_cmd,
+	.nr_threads = 1,
 };
 
 /* Entry point must be named "handler_init". */

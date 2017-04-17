@@ -196,21 +196,20 @@ static void rbd_finish_aio_read(rbd_completion_t completion,
 				       aio_cb->bounce_buffer, aio_cb->length);
 	}
 
-	tcmu_callout_finished(dev, tcmulib_cmd, tcmu_r);
+	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
 
 	free(aio_cb->bounce_buffer);
 	free(aio_cb);
 }
 
-static ssize_t tcmu_rbd_read(struct tcmu_device *dev,
-			     struct tcmulib_cmd *tcmulib_cmd,
-			     struct iovec *iov, size_t iov_cnt, off_t offset)
+static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			     struct iovec *iov, size_t iov_cnt, size_t length,
+			     off_t offset)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	size_t length = tcmu_iovec_length(iov, iov_cnt);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
-	ssize_t ret = -ENOMEM;
+	ssize_t ret;
 
 	aio_cb = calloc(1, sizeof(*aio_cb));
 	if (!aio_cb) {
@@ -220,7 +219,7 @@ static ssize_t tcmu_rbd_read(struct tcmu_device *dev,
 
 	aio_cb->dev = dev;
 	aio_cb->length = length;
-	aio_cb->tcmulib_cmd = tcmulib_cmd;
+	aio_cb->tcmulib_cmd = cmd;
 
 	aio_cb->bounce_buffer = malloc(length);
 	if (!aio_cb->bounce_buffer) {
@@ -240,7 +239,7 @@ static ssize_t tcmu_rbd_read(struct tcmu_device *dev,
 		goto out_remove_tracked_aio;
 	}
 
-	return TCMU_ASYNC_HANDLED;
+	return 0;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
@@ -249,7 +248,7 @@ out_free_bounce_buffer:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return ret;
+	return SAM_STAT_TASK_SET_FULL;
 }
 
 static void rbd_finish_aio_generic(rbd_completion_t completion,
@@ -265,12 +264,13 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 
 	if (ret < 0) {
 		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     MEDIUM_ERROR, ASC_READ_ERROR, NULL);
+					     MEDIUM_ERROR, ASC_WRITE_ERROR,
+					     NULL);
 	} else {
 		tcmu_r = SAM_STAT_GOOD;
 	}
 
-	tcmu_callout_finished(dev, tcmulib_cmd, tcmu_r);
+	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
 
 	if (aio_cb->bounce_buffer) {
 		free(aio_cb->bounce_buffer);
@@ -278,16 +278,15 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	free(aio_cb);
 }
 
-static ssize_t tcmu_rbd_write(struct tcmu_device *dev,
-			      struct tcmulib_cmd *tcmulib_cmd,
-			      struct iovec *iov, size_t iov_cnt, off_t offset)
+static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			  struct iovec *iov, size_t iov_cnt, size_t length,
+			  off_t offset)
 {
 
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	size_t length = tcmu_iovec_length(iov, iov_cnt);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
-	ssize_t ret = -ENOMEM;
+	ssize_t ret;
 
 	aio_cb = calloc(1, sizeof(*aio_cb));
 	if (!aio_cb) {
@@ -297,7 +296,7 @@ static ssize_t tcmu_rbd_write(struct tcmu_device *dev,
 
 	aio_cb->dev = dev;
 	aio_cb->length = length;
-	aio_cb->tcmulib_cmd = tcmulib_cmd;
+	aio_cb->tcmulib_cmd = cmd;
 
 	aio_cb->bounce_buffer = malloc(length);
 	if (!aio_cb->bounce_buffer) {
@@ -319,7 +318,7 @@ static ssize_t tcmu_rbd_write(struct tcmu_device *dev,
 		goto out_remove_tracked_aio;
 	}
 
-	return TCMU_ASYNC_HANDLED;
+	return 0;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
@@ -328,20 +327,10 @@ out_free_bounce_buffer:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return ret;
+	return SAM_STAT_TASK_SET_FULL;
 }
 
-static int rbd_aio_flush_wrapper(rbd_image_t image, rbd_completion_t completion)
-{
-#ifdef LIBRBD_SUPPORTS_AIO_FLUSH
-	return rbd_aio_flush(image, completion);
-#else
-	return -ENOTSUP;
-#endif
-}
-
-static int tcmu_rbd_flush(struct tcmu_device *dev,
-			  struct tcmulib_cmd *tcmulib_cmd)
+static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	struct rbd_aio_cb *aio_cb;
@@ -355,7 +344,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev,
 	}
 
 	aio_cb->dev = dev;
-	aio_cb->tcmulib_cmd = tcmulib_cmd;
+	aio_cb->tcmulib_cmd = cmd;
 	aio_cb->bounce_buffer = NULL;
 
 	ret = rbd_aio_create_completion
@@ -364,19 +353,19 @@ static int tcmu_rbd_flush(struct tcmu_device *dev,
 		goto out_free_aio_cb;
 	}
 
-	ret = rbd_aio_flush_wrapper(state->image, completion);
+	ret = rbd_aio_flush(state->image, completion);
 	if (ret < 0) {
 		goto out_remove_tracked_aio;
 	}
 
-	return TCMU_ASYNC_HANDLED;
+	return 0;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return ret;
+	return SAM_STAT_TASK_SET_FULL;
 }
 
 /*
@@ -403,10 +392,11 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.cfg_desc      = tcmu_rbd_cfg_desc,
 	.open	       = tcmu_rbd_open,
 	.close	       = tcmu_rbd_close,
-	.aio_supported = true,
 	.read	       = tcmu_rbd_read,
 	.write	       = tcmu_rbd_write,
+#ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 	.flush	       = tcmu_rbd_flush,
+#endif
 };
 
 int handler_init(void)

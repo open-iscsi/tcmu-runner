@@ -38,12 +38,12 @@ add_library(tcmu
   SHARED
   api.c
   libtcmu.c
+  tcmur_cmd_handler.c
+  tcmur_aio.c
   libtcmu-register.c
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
-  libtcmu_store.c
-  libtcmu_aio.c
   )
 set_target_properties(tcmu
   PROPERTIES
@@ -65,12 +65,12 @@ install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 add_library(tcmu_static
   api.c
   libtcmu.c
+  tcmur_cmd_handler.c
+  tcmur_aio.c
   libtcmu-register.c
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
-  libtcmu_store.c
-  libtcmu_aio.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
@@ -143,18 +143,6 @@ set_target_properties(handler_file
   PROPERTIES
   PREFIX ""
   )
-
-# Stuff for building the async file handler
-add_library(handler_file_async
-  SHARED
-  file_example.c
-  )
-set_target_properties(handler_file_async
-  PROPERTIES
-  PREFIX ""
-  COMPILE_FLAGS "-DASYNC_FILE_HANDLER"
-  )
-target_link_libraries(handler_file_async ${PTHREAD})
 
 # Stuff for building the file optical handler
 add_library(handler_file_optical

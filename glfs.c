@@ -539,30 +539,54 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 	free(gfsp);
 }
 
-static ssize_t tcmu_glfs_read(struct tcmu_device *dev,
-			      struct tcmulib_cmd *tcmulib_cmd,
-			      struct iovec *iov, size_t iov_cnt, off_t offset)
+static int tcmu_glfs_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			  struct iovec *iov, size_t iov_cnt, size_t length,
+			  off_t offset)
 {
         struct glfs_state *state = tcmu_get_dev_private(dev);
+	ssize_t ret;
 
-        return glfs_preadv(state->gfd, iov, iov_cnt, offset, SEEK_SET);
+        ret = glfs_preadv(state->gfd, iov, iov_cnt, offset, SEEK_SET);
+	if (ret != length) {
+		ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+					   ASC_READ_ERROR, NULL);
+	} else {
+		ret = SAM_STAT_GOOD;
+	}
+
+	cmd->done(dev, cmd, ret);
+	return 0;
 }
 
-static ssize_t tcmu_glfs_write(struct tcmu_device *dev,
-			       struct tcmulib_cmd *tcmulib_cmd,
-			       struct iovec *iov, size_t iov_cnt, off_t offset)
+static int tcmu_glfs_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			   struct iovec *iov, size_t iov_cnt, size_t length,
+			   off_t offset)
 {
 	struct glfs_state *state = tcmu_get_dev_private(dev);
+	ssize_t ret;
 
-        return glfs_pwritev(state->gfd, iov, iov_cnt, offset, ALLOWED_BSOFLAGS);
+	ret = glfs_pwritev(state->gfd, iov, iov_cnt, offset, ALLOWED_BSOFLAGS);
+	if (ret != length) {
+		ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+					   ASC_WRITE_ERROR, NULL);
+	} else {
+		ret = SAM_STAT_GOOD;
+	}
+
+	cmd->done(dev, cmd, ret);
+	return 0;
 }
 
-static int tcmu_glfs_flush(struct tcmu_device *dev,
-			   struct tcmulib_cmd *tcmulib_cmd)
+static int tcmu_glfs_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct glfs_state *state = tcmu_get_dev_private(dev);
+	int ret = SAM_STAT_GOOD;
 
-	return glfs_fdatasync(state->gfd);
+	if (glfs_fdatasync(state->gfd))
+		ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+					   ASC_WRITE_ERROR, NULL);
+	cmd->done(dev, cmd, ret);
+	return 0;
 }
 
 static const char glfs_cfg_desc[] =
@@ -585,6 +609,7 @@ struct tcmur_handler glfs_handler = {
 	.read 		= tcmu_glfs_read,
 	.write		= tcmu_glfs_write,
 	.flush		= tcmu_glfs_flush,
+	.nr_threads	= 1,
 };
 
 /* Entry point must be named "handler_init". */

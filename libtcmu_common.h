@@ -35,13 +35,12 @@ struct tcmulib_cmd;
 
 #define SENSE_BUFFERSIZE 96
 
-typedef ssize_t (*store_rw_t)(struct tcmu_device *,
-			      struct tcmulib_cmd *,
-			      struct iovec *, size_t, off_t);
-typedef int (*store_flush_t)(struct tcmu_device *, struct tcmulib_cmd *);
-typedef int (*store_handle_cmd_t)(struct tcmu_device *, struct tcmulib_cmd *);
+typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
+		       struct iovec *, size_t, size_t, off_t);
+typedef int (*flush_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
+typedef int (*handle_cmd_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
 
-typedef void (*callout_cbk_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
+typedef void (*cmd_done_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
 
 struct tcmulib_cmd {
 	uint16_t cmd_id;
@@ -57,7 +56,7 @@ struct tcmulib_cmd {
 	void *cmdstate;
 
 	/* callback to finish/continue command processing */
-	callout_cbk_t callout_cbk;
+	cmd_done_t done;
 };
 
 /* Set/Get methods for the opaque tcmu_device */
@@ -94,12 +93,6 @@ int tcmu_emulate_read_capacity_16(uint64_t num_lbas, uint32_t block_size, uint8_
 				  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_mode_select(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
-int tcmu_emulate_write_verify(struct tcmu_device *, struct tcmulib_cmd *,
-			      store_rw_t read, store_rw_t write,
-			      struct iovec *, size_t, off_t);
-
-void tcmu_callout_finished(struct tcmu_device *dev,
-			   struct tcmulib_cmd *cmd, int ret);
 
 #ifdef __cplusplus
 }

@@ -12,17 +12,26 @@
  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
  * License for the specific language governing permissions and limitations
  * under the License.
-*/
+ */
 
-#ifndef __LIBTCMU_STORE_H
-#define __LIBTCMU_STORE_H
-
-#include <stdint.h>
+#ifndef __TCMUR_AIO_H
+#define __TCMUR_AIO_H
 
 struct tcmu_device;
 struct tcmulib_cmd;
 
-int call_store(struct tcmu_device *dev,
-	       struct tcmulib_cmd *tcmulib_cmd, uint8_t cmd);
 
-#endif /* __LIBTCMU_STORE_H */
+int setup_io_work_queue(struct tcmu_device *);
+void cleanup_io_work_queue(struct tcmu_device *, bool);
+void cleanup_io_work_queue_threads(struct tcmu_device *);
+
+int setup_aio_tracking(struct tcmu_device *);
+void cleanup_aio_tracking(struct tcmu_device *);
+
+typedef int (*tcmu_work_fn_t)(struct tcmu_device *dev,
+			      struct tcmulib_cmd *cmd);
+
+int async_handle_cmd(struct tcmu_device *, struct tcmulib_cmd *,
+		     tcmu_work_fn_t);
+
+#endif /* __TCMUR_AIO_H */
