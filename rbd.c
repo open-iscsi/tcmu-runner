@@ -330,15 +330,6 @@ out:
 	return SAM_STAT_TASK_SET_FULL;
 }
 
-static int rbd_aio_flush_wrapper(rbd_image_t image, rbd_completion_t completion)
-{
-#ifdef LIBRBD_SUPPORTS_AIO_FLUSH
-	return rbd_aio_flush(image, completion);
-#else
-	return -ENOTSUP;
-#endif
-}
-
 static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
@@ -362,7 +353,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		goto out_free_aio_cb;
 	}
 
-	ret = rbd_aio_flush_wrapper(state->image, completion);
+	ret = rbd_aio_flush(state->image, completion);
 	if (ret < 0) {
 		goto out_remove_tracked_aio;
 	}
@@ -403,7 +394,9 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.close	       = tcmu_rbd_close,
 	.read	       = tcmu_rbd_read,
 	.write	       = tcmu_rbd_write,
+#ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 	.flush	       = tcmu_rbd_flush,
+#endif
 };
 
 int handler_init(void)

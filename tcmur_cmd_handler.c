@@ -515,6 +515,8 @@ int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		goto done;
 	case SYNCHRONIZE_CACHE:
 	case SYNCHRONIZE_CACHE_16:
+		if (!rhandler->flush)
+			goto done;
 		ret = handle_flush(dev, cmd);
 		goto done;
 	case COMPARE_AND_WRITE:
