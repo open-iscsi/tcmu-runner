@@ -490,6 +490,42 @@ bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler)
 	return true;
 }
 
+int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
+				  struct tcmulib_cmd *cmd)
+{
+	int ret;
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+	struct tcmur_handler *rhandler = handler->hm_private;
+	int wakeup;
+
+	/*
+	 * TCMU_NOT_HANDLED is returned when a tcmur passthrough handler
+	 * does not handle any command.
+	 */
+	if (!rhandler->handle_cmd);
+		return TCMU_NOT_HANDLED;
+
+	/*
+	 * This could be omitting here, but with it could speed up the
+	 * passthrough cmds handling without the aio pop/push routines.
+	 */
+	if (!rhandler->nr_threads)
+		return rhandler->handle_cmd(dev, cmd);
+	/*
+	 * Since we call ->handle_cmd via async_handle_cmd(), ->handle_cmd
+	 * can finish in the callers context(asynchronous handler) or work
+	 * queue context (synchronous handlers), thus we'd need to check if
+	 * ->handle_cmd handled the passthough command here as well as in
+	 * handle_passthrough_cbk().
+	 */
+	track_aio_request_start(dev);
+	ret = handle_passthrough(dev, cmd);
+	if (ret != TCMU_ASYNC_HANDLED)
+		track_aio_request_finish(dev, &wakeup);
+
+	return ret;
+}
+
 int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret = TCMU_NOT_HANDLED;
@@ -499,48 +535,36 @@ int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	track_aio_request_start(dev);
 
-	if (tcmur_handler_is_passthrough_only(rhandler))
-		goto passthrough;
-
 	switch(cdb[0]) {
 	case READ_6:
 	case READ_10:
 	case READ_12:
 	case READ_16:
 		ret = handle_read(dev, cmd);
-		goto done;
+		break;
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
 	case WRITE_16:
 		ret = handle_write(dev, cmd);
-		goto done;
+		break;
 	case SYNCHRONIZE_CACHE:
 	case SYNCHRONIZE_CACHE_16:
-		if (!rhandler->flush)
-			goto done;
-		ret = handle_flush(dev, cmd);
-		goto done;
+		if (rhandler->flush)
+			ret = handle_flush(dev, cmd);
+		break;
 	case COMPARE_AND_WRITE:
 		ret = handle_caw(dev, cmd);
-		goto done;
+		break;
 	case WRITE_VERIFY:
 		ret = handle_write_verify(dev, cmd);
-		goto done;
+		break;
+	default:
+		/* Try to passthrough the default cmds */
+		if (rhandler->handle_cmd)
+			ret = handle_passthrough(dev, cmd);
 	}
 
-passthrough:
-	/*
-	 * note that TCMU_NOT_HANDLED is returned when a tcmur handler does not
-	 * handle a passthrough command, but since we call ->handle_cmd via
-	 * async_handle_cmd(), ->handle_cmd can finish in the callers context
-	 * (asynchronous handler) or work queue context (synchronous handlers),
-	 * thus we'd need to check if ->handle_cmd handled the passthough
-	 * command here as well as in handle_passthrough_cbk().
-	 */
-	if (rhandler->handle_cmd)
-		ret = handle_passthrough(dev, cmd);
-done:
 	if (ret != TCMU_ASYNC_HANDLED)
 		track_aio_request_finish(dev, NULL);
 	return ret;
