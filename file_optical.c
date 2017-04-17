@@ -1211,6 +1211,11 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	return SAM_STAT_GOOD;
 }
 
+static void fbo_cleanup_buffer(void *buf)
+{
+	free(buf);
+}
+
 static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 			 size_t iov_cnt, uint64_t offset, int length,
 			 uint8_t *sense)
@@ -1226,6 +1231,7 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 
+	pthread_cleanup_push(fbo_cleanup_buffer, buf);
 	memset(buf, 0, length);
 
 	pthread_mutex_lock(&state->state_mtx);
@@ -1261,6 +1267,7 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 	pthread_mutex_unlock(&state->state_mtx);
 
 	free(buf);
+	pthread_cleanup_pop(0);
 
 	return rc;
 }
@@ -1371,12 +1378,13 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	int rc = SAM_STAT_GOOD;
 
 	buf = malloc(length);
-	if (!buf)
-	{
+	if (!buf) {
 		tcmu_dbg("  malloc failed\n");
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 	}
+
+	pthread_cleanup_push(fbo_cleanup_buffer, buf);
 	memset(buf, 0, length);
 
 	while (done_blocks < state->num_lbas) {
@@ -1402,6 +1410,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	pthread_mutex_unlock(&state->state_mtx);
 
 	free(buf);
+	pthread_cleanup_pop(0);
 
 	return rc;
 }
