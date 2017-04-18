@@ -502,8 +502,8 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 		return TCMU_NOT_HANDLED;
 
 	/*
-	 * This could be omitting here, but with it could speed up the
-	 * passthrough cmds handling without the aio pop/push routines.
+	 * Support handlers that implement their own threading/AIO
+	 * and only use runner's main event loop.
 	 */
 	if (!rhandler->nr_threads)
 		return rhandler->handle_cmd(dev, cmd);
