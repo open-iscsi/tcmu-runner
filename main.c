@@ -480,9 +480,8 @@ int load_our_module(void) {
 
 static int dev_added(struct tcmu_device *dev)
 {
+	struct tcmur_handler *r_handler = tcmu_get_runner_handler(dev);
 	int ret;
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *r_handler = handler->hm_private;
 
 	ret = r_handler->open(dev);
 	if (ret)
