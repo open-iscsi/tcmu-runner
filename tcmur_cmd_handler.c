@@ -552,6 +552,7 @@ int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = handle_caw(dev, cmd);
 		break;
 	case WRITE_VERIFY:
+	case WRITE_VERIFY_16:
 		ret = handle_write_verify(dev, cmd);
 		break;
 	default:
