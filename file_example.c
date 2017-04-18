@@ -148,6 +148,13 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 						  ASC_READ_ERROR, NULL);
 			goto done;
 		}
+
+		if (ret == 0) {
+			/* EOF, then zeros the iovecs left */
+			tcmu_zero_iovec(iov, iov_cnt);
+			break;
+		}
+
 		tcmu_seek_in_iovec(iov, ret);
 		offset += ret;
 		remaining -= ret;

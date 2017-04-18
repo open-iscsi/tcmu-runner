@@ -320,6 +320,18 @@ int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq,
 }
 
 /*
+ * Zero iovec.
+ */
+void tcmu_zero_iovec(struct iovec *iovec, size_t iov_cnt)
+{
+	while (iov_cnt) {
+		bzero(iovec->iov_base, iovec->iov_len);
+
+		iovec++;
+		iov_cnt--;
+	}
+}
+/*
  * Copy data into an iovec, and consume the space in the iovec.
  *
  * Will truncate instead of overrunning the iovec.
