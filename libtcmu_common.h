@@ -69,6 +69,7 @@ uint64_t tcmu_get_dev_num_lbas(struct tcmu_device *dev);
 void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size);
 uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
+struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev);
 
 /* Helper routines for processing commands */
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);

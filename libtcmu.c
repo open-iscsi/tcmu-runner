@@ -183,8 +183,7 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 static void cmdproc_thread_cleanup(void *arg)
 {
 	struct tcmu_device *dev = arg;
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *rhandler = handler->hm_private;
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 
 	rhandler->close(dev);
 }
@@ -328,8 +327,7 @@ static void *tcmu_cmdproc_thread(void *arg)
 {
         int ret;
 	struct tcmu_device *dev = arg;
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *rhandler = handler->hm_private;
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct pollfd pfd;
 
 	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
@@ -809,6 +807,13 @@ char *tcmu_get_dev_cfgstring(struct tcmu_device *dev)
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)
 {
 	return dev->handler;
+}
+
+struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
+{
+	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+
+	return (struct tcmur_handler *)handler->hm_private;
 }
 
 static inline struct tcmu_cmd_entry *

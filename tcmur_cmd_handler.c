@@ -98,8 +98,7 @@ static int check_lba_and_length(struct tcmu_device *dev,
 
 static int read_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *rhandler = handler->hm_private;
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 
 	return rhandler->read(dev, cmd, cmd->iovec, cmd->iov_cnt,
@@ -110,8 +109,7 @@ static int read_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int write_work_fn(struct tcmu_device *dev,
 				struct tcmulib_cmd *cmd)
 {
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *rhandler = handler->hm_private;
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 
 	return rhandler->write(dev, cmd, cmd->iovec, cmd->iov_cnt,
@@ -409,8 +407,7 @@ static void handle_flush_cbk(struct tcmu_device *dev,
 
 static int flush_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *rhandler = handler->hm_private;
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 
 	return rhandler->flush(dev, cmd);
 }
@@ -469,8 +466,7 @@ handle_passthrough_cbk(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 static int passthrough_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *rhandler = handler->hm_private;
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 
 	return rhandler->handle_cmd(dev, cmd);
 }
@@ -529,8 +525,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret = TCMU_NOT_HANDLED;
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *rhandler = handler->hm_private;
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint8_t *cdb = cmd->cdb;
 
 	track_aio_request_start(dev);
