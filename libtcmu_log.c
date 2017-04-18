@@ -1,5 +1,5 @@
 /*
- * Copyright 2016, China Mobile, Inc.
+ * Copyright 2016,2017 China Mobile, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -22,14 +22,20 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <errno.h>
 
+#include "darray.h"
 #include "libtcmu_log.h"
 #include "libtcmu_config.h"
+#include "libtcmu_time.h"
 
 /* tcmu ring buffer for log */
 #define LOG_ENTRY_LEN 256 /* rb[0] is reserved for pri */
 #define LOG_MSG_LEN (LOG_ENTRY_LEN - 1) /* the length of the log message */
 #define LOG_ENTRYS (1024 * 32)
+
+/* tcmu log filepath */
+#define LOG_FILE_PATH "/var/log/tcmu-runner.log"
 
 pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -44,7 +50,17 @@ struct log_buf {
 	unsigned int head;
 	unsigned int tail;
 	char buf[LOG_ENTRYS][LOG_ENTRY_LEN];
+	darray(struct log_output) outputs;
 	pthread_t thread_id;
+};
+
+struct log_output {
+	log_output_fn_t output_fn;
+	log_close_fn_t close_fn;
+	int priority;
+	char *name;
+	void *data;
+	tcmu_log_destination dest;
 };
 
 static int tcmu_log_level = TCMU_LOG_WARN;
@@ -107,16 +123,6 @@ static void open_syslog(const char *ident, int option, int facility)
 	openlog(id, option, facility);
 }
 
-static void close_syslog(void)
-{
-	closelog();
-}
-
-static inline void log_to_syslog(int pri, const char *logbuf)
-{
-	syslog(pri, "%s", logbuf);
-}
-
 static inline uint8_t rb_get_pri(struct log_buf *logbuf, unsigned int cur)
 {
 	return logbuf->buf[cur][0];
@@ -167,10 +173,6 @@ log_internal(int pri,const char *funcname,
 
 	if (pri > tcmu_log_level)
 		return;
-
-	/* convert tcmu-runner private level to system level */
-	if (pri > TCMU_LOG_DEBUG)
-		pri = TCMU_LOG_DEBUG;
 
 	if (!fmt)
 		return;
@@ -239,12 +241,167 @@ void tcmu_dbg_scsi_cmd_message(const char *funcname, int linenr, const char *fmt
 	va_end(args);
 }
 
+static int append_output(log_output_fn_t output_fn, log_close_fn_t close_fn, void *data,
+                         int pri, int dest, const char *name)
+{
+	char *ndup = NULL;
+	struct log_output output;
+
+	if (output_fn == NULL)
+	    return -1;
+
+	if (dest == TCMU_LOG_TO_FILE) {
+		if (name == NULL)
+			return -1;
+		ndup = strdup(name);
+		if (ndup == NULL)
+			return -1;
+	}
+
+	output.output_fn = output_fn;
+	output.close_fn = close_fn;
+	output.data = data;
+	output.priority = pri;
+	output.dest = dest;
+	output.name = ndup;
+
+	darray_append(logbuf->outputs, output);
+
+	return 0;
+}
+
+static int output_to_syslog(int pri, const char *timestamp,
+                            const char *str, void *data)
+{
+	/* convert tcmu-runner private level to system level */
+	if (pri > TCMU_LOG_DEBUG)
+		pri = TCMU_LOG_DEBUG;
+	syslog(pri, "%s", str);
+	return strlen(str);
+}
+
+static void close_syslog(void *data)
+{
+	closelog();
+}
+
+static void close_fd(void *data)
+{
+	int fd = (intptr_t) data;
+	close(fd);
+}
+
+static int create_syslog_output(int pri, const char *ident)
+{
+	open_syslog(ident, 0 ,0);
+	if (append_output(output_to_syslog, close_syslog, NULL,
+			  pri, TCMU_LOG_TO_SYSLOG, ident) < 0) {
+		closelog();
+		return -1;
+	}
+	return 0;
+}
+
+static const char *loglevel_string(int priority)
+{
+	switch (priority) {
+	case TCMU_LOG_ERROR:
+		return "ERROR";
+	case TCMU_LOG_WARN:
+		return "WARN";
+	case TCMU_LOG_INFO:
+		return "INFO";
+	case TCMU_LOG_DEBUG:
+		return "DEBUG";
+	case TCMU_LOG_DEBUG_SCSI_CMD:
+		return "DEBUG_SCSI_CMD";
+	}
+	return "UNKONWN";
+}
+
+static int output_to_fd(int pri, const char *timestamp,
+                        const char *str,void *data)
+{
+	int fd = (intptr_t) data;
+	char *buf, *msg;
+	int count, ret, written, r, pid = 0;
+
+	if (fd < 0)
+		return -1;
+
+	pid = getpid();
+	if (pid <= 0)
+		return -1;
+
+	/*
+	 * format: timestamp pid [loglevel] msg
+	 */
+	ret = asprintf(&msg, "%s %d [%s] %s", timestamp, pid, loglevel_string(pri), str);
+	if (ret < 0)
+		return -1;
+
+	buf = msg;
+
+	/* safe write */
+	count = strlen(buf);
+	while (count > 0) {
+		r = write(fd, buf, count);
+		if (r < 0 && errno == EINTR)
+			continue;
+		if (r < 0) {
+			written = r;
+			goto out;
+		}
+		if (r == 0)
+			break;
+		buf = (char *) buf + r;
+		count -= r;
+		written += r;
+	}
+out:
+	free(msg);
+	return written;
+}
+
+static int create_stdout_output(int pri)
+{
+	if (append_output(output_to_fd, close_fd, (void *)2L,
+			  pri, TCMU_LOG_TO_STDOUT, NULL) < 0)
+		return -1;
+
+	return 0;
+}
+
+static int create_file_output(int pri, const char *filename)
+{
+	int fd;
+
+	fd = open(filename, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
+	if (fd < 0)
+		return  -1;
+
+	if (append_output(output_to_fd, close_fd, (void *)(intptr_t) fd,
+			  pri, TCMU_LOG_TO_FILE, filename) < 0)
+		return -1;
+
+        return 0;
+}
+
 static void log_output(int pri, const char *msg)
 {
-	log_to_syslog(pri, msg);
-	/* log to stdout if tcmu_log_level is DEBUG */
-	if (pri >= TCMU_LOG_DEBUG)
-		fprintf(stdout, "%s", msg);
+	struct log_output *output;
+	char timestamp[TCMU_TIME_STRING_BUFLEN] = {0, };
+	int ret;
+
+	ret = time_string_now(timestamp);
+	if (ret < 0)
+		return;
+
+	darray_foreach (output, logbuf->outputs) {
+		if (pri <= output->priority) {
+			output->output_fn(pri, timestamp, msg, output->data);
+		}
+	}
 }
 
 static bool log_buf_not_empty_output(struct log_buf *logbuf)
@@ -303,12 +460,21 @@ void tcmu_cancel_log_thread(void)
 static void log_thread_cleanup(void *arg)
 {
 	struct log_buf *logbuf = arg;
+	struct log_output *output;
 
 	pthread_cond_destroy(&logbuf->cond);
 	pthread_mutex_destroy(&logbuf->lock);
-	free(logbuf);
 
-	close_syslog();
+	darray_foreach (output, logbuf->outputs) {
+		if (output->close_fn != NULL)
+			output->close_fn(output->data);
+		if (output->name != NULL)
+			free(output->name);
+        }
+
+	darray_free(logbuf->outputs);
+
+	free(logbuf);
 }
 
 static void *log_thread_start(void *arg)
@@ -316,8 +482,6 @@ static void *log_thread_start(void *arg)
 	struct log_buf *logbuf = arg;
 
 	pthread_cleanup_push(log_thread_cleanup, arg);
-
-	open_syslog(NULL, 0, 0);
 
 	pthread_mutex_lock(&logbuf->lock);
 	if(!logbuf->finish_initialize){
@@ -362,6 +526,20 @@ static struct log_buf *tcmu_log_initialize(void)
 	logbuf->tail = 0;
 	pthread_cond_init(&logbuf->cond, NULL);
 	pthread_mutex_init(&logbuf->lock, NULL);
+
+	darray_init(logbuf->outputs);
+
+	ret = create_syslog_output(TCMU_LOG_INFO, NULL);
+	if (ret < 0)
+		fprintf(stderr, "create syslog output error \n");
+
+	ret = create_stdout_output(TCMU_LOG_DEBUG_SCSI_CMD);
+	if (ret < 0)
+		fprintf(stderr, "create stdout output error \n");
+
+	ret = create_file_output(TCMU_LOG_DEBUG, LOG_FILE_PATH);
+	if (ret < 0)
+		fprintf(stderr, "create file output error \n");
 
 	ret = pthread_create(&logbuf->thread_id, NULL, log_thread_start, logbuf);
 	if (ret) {

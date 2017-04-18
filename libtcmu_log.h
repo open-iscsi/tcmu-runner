@@ -1,5 +1,5 @@
 /*
- * Copyright 2016, China Mobile, Inc.
+ * Copyright 2016,2017 China Mobile, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -32,6 +32,15 @@
 #define TCMU_LOG_INFO	LOG_INFO	/* informational */
 #define TCMU_LOG_DEBUG	LOG_DEBUG	/* debug-level messages */
 #define TCMU_LOG_DEBUG_SCSI_CMD	(LOG_DEBUG + 1)	/* scsi cmd debug-level messages */
+
+typedef enum {
+        TCMU_LOG_TO_STDOUT,
+        TCMU_LOG_TO_SYSLOG,
+        TCMU_LOG_TO_FILE,
+} tcmu_log_destination;
+
+typedef int (*log_output_fn_t) (int priority, const char *timestamp, const char *str, void *data);
+typedef void (*log_close_fn_t) (void *data);
 
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
