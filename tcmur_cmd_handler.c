@@ -489,10 +489,8 @@ bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler)
 int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 				  struct tcmulib_cmd *cmd)
 {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-	struct tcmur_handler *rhandler = handler->hm_private;
-	int wakeup;
 
 	/*
 	 * TCMU_NOT_HANDLED is returned when a tcmur passthrough handler
@@ -517,7 +515,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	track_aio_request_start(dev);
 	ret = handle_passthrough(dev, cmd);
 	if (ret != TCMU_ASYNC_HANDLED)
-		track_aio_request_finish(dev, &wakeup);
+		track_aio_request_finish(dev, NULL);
 
 	return ret;
 }
