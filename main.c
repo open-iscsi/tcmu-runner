@@ -582,9 +582,13 @@ static int dev_added(struct tcmu_device *dev)
 	if (ret < 0)
 		goto cleanup_dev_lock;
 
-	ret = setup_io_work_queue(dev);
+	ret = pthread_mutex_init(&rdev->format_lock, NULL);
 	if (ret < 0)
 		goto cleanup_caw_lock;
+
+	ret = setup_io_work_queue(dev);
+	if (ret < 0)
+		goto cleanup_format_lock;
 
 	ret = setup_aio_tracking(rdev);
 	if (ret < 0)
@@ -606,6 +610,8 @@ cleanup_aio_tracking:
 	cleanup_aio_tracking(rdev);
 cleanup_io_work_queue:
 	cleanup_io_work_queue(dev, true);
+cleanup_format_lock:
+	pthread_mutex_destroy(&rdev->format_lock);
 cleanup_caw_lock:
 	pthread_mutex_destroy(&rdev->caw_lock);
 cleanup_dev_lock:
@@ -632,6 +638,10 @@ static void dev_removed(struct tcmu_device *dev)
 
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(rdev);
+
+	ret = pthread_mutex_destroy(&rdev->format_lock);
+	if (ret < 0)
+		tcmu_err("could not cleanup format lock %d\n", ret);
 
 	ret = pthread_mutex_destroy(&rdev->caw_lock);
 	if (ret < 0)

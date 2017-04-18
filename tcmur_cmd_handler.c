@@ -481,6 +481,161 @@ static int handle_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return async_handle_cmd(dev, cmd, read_work_fn);
 }
 
+/* FORMAT UNIT */
+struct format_unit_state {
+	size_t length;
+	off_t offset;
+	void *write_buf;
+	struct tcmulib_cmd *origcmd;
+	uint32_t done_blocks;
+};
+
+static int format_unit_work_fn(struct tcmu_device *dev,
+			       struct tcmulib_cmd *writecmd) {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_cmd *origcmd = writecmd->cmdstate;
+	struct format_unit_state *state = origcmd->cmdstate;
+
+	return rhandler->write(dev, writecmd, writecmd->iovec,
+			       writecmd->iov_cnt, state->length, state->offset);
+}
+
+static void handle_format_unit_cbk(struct tcmu_device *dev,
+				   struct tcmulib_cmd *writecmd, int ret) {
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmulib_cmd *origcmd = writecmd->cmdstate;
+	struct format_unit_state *state = origcmd->cmdstate;
+	uint8_t *sense = origcmd->sense_buf;
+	int rc;
+
+	writecmd->iovec->iov_base = state->write_buf;
+	state->offset += state->length;
+	state->done_blocks += state->length / dev->block_size;
+	if (state->done_blocks < dev->num_lbas)
+		rdev->format_progress = (0x10000 * state->done_blocks) /
+				       dev->num_lbas;
+
+	/* Check for last commmand */
+	if (state->done_blocks == dev->num_lbas) {
+		tcmu_dbg("last format cmd, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
+			 state->done_blocks, dev->num_lbas, dev->block_size);
+		goto free_iovec;
+	}
+
+	if (state->done_blocks < dev->num_lbas) {
+		/* free iovec on every write, because seek in handlers consume
+		 * the iovec, thus we can't re-use.
+		 */
+		free_iovec(writecmd);
+		if ((dev->num_lbas - state->done_blocks) * dev->block_size < state->length)
+		    state->length = (dev->num_lbas - state->done_blocks) * dev->block_size;
+		if (alloc_iovec(writecmd, state->length)) {
+			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						  ASC_INTERNAL_TARGET_FAILURE,
+						  NULL);
+			goto free_cmd;
+		}
+
+		/* copy incase handler changes it */
+		state->write_buf = writecmd->iovec->iov_base;
+
+		writecmd->done = handle_format_unit_cbk;
+
+		tcmu_dbg("next format cmd, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
+			 state->done_blocks, dev->num_lbas, dev->block_size);
+
+		rc = async_handle_cmd(dev, writecmd, format_unit_work_fn);
+		if (rc != TCMU_ASYNC_HANDLED) {
+			tcmu_err(" async handle cmd failure");
+			ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						  ASC_WRITE_ERROR,
+						  NULL);
+			goto free_iovec;
+		}
+	}
+
+	return;
+
+free_iovec:
+	free_iovec(writecmd);
+free_cmd:
+	free(writecmd);
+	free(state);
+	pthread_mutex_lock(&rdev->format_lock);
+	rdev->flags &= ~TCMUR_DEV_FORMATTING;
+	pthread_mutex_unlock(&rdev->format_lock);
+	aio_command_finish(dev, origcmd, ret);
+}
+
+static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) {
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmulib_cmd *writecmd;
+	struct format_unit_state *state;
+	size_t length = 1024 * 1024;
+	uint8_t *sense = cmd->sense_buf;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	int ret;
+
+	pthread_mutex_lock(&rdev->format_lock);
+	if (rdev->flags & TCMUR_DEV_FORMATTING) {
+		pthread_mutex_unlock(&rdev->format_lock);
+		return tcmu_set_sense_data(sense, NOT_READY,
+					  ASC_NOT_READY_FORMAT_IN_PROGRESS,
+					  &rdev->format_progress);
+	}
+	rdev->format_progress = 0;
+	rdev->flags |= TCMUR_DEV_FORMATTING;
+	pthread_mutex_unlock(&rdev->format_lock);
+
+	writecmd = calloc(1, sizeof(*writecmd));
+	if (!writecmd)
+		goto clear_format;
+	writecmd->done = handle_format_unit_cbk;
+	writecmd->cmdstate = cmd;
+
+	state = calloc(1, sizeof(*state));
+	if (!state)
+		goto free_cmd;
+
+	cmd->cmdstate = state;
+	state->done_blocks = 0;
+	state->length = length;
+
+	/* Check length on first write to make sure its not less than 1MB */
+	if ((num_lbas - state->done_blocks) * block_size < length)
+		state->length = (num_lbas - state->done_blocks) * block_size;
+
+	if (alloc_iovec(writecmd, state->length)) {
+		free(state);
+		goto free_state;
+	}
+
+	tcmu_dbg("start emulate format, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
+		 state->done_blocks, num_lbas, block_size);
+
+	/* copy incase handler changes it */
+	state->write_buf = writecmd->iovec->iov_base;
+
+	ret = async_handle_cmd(dev, writecmd, format_unit_work_fn);
+	if (ret != TCMU_ASYNC_HANDLED)
+		goto free_iov;
+
+	return TCMU_ASYNC_HANDLED;
+
+free_iov:
+	free_iovec(writecmd);
+free_state:
+	free(state);
+free_cmd:
+	free(writecmd);
+clear_format:
+	pthread_mutex_lock(&rdev->format_lock);
+	rdev->flags &= ~TCMUR_DEV_FORMATTING;
+	pthread_mutex_unlock(&rdev->format_lock);
+	return SAM_STAT_TASK_SET_FULL;
+}
+
 /* ALUA */
 static int handle_stpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
@@ -615,6 +770,9 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case WRITE_VERIFY_16:
 		ret = handle_write_verify(dev, cmd);
 		break;
+	case FORMAT_UNIT:
+		ret = handle_format_unit(dev, cmd);
+		break;
 	case MAINTENANCE_IN:
 		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS) {
 			ret = handle_rtpg(dev, cmd);
@@ -740,6 +898,13 @@ static bool command_is_generic(struct tcmulib_cmd *cmd)
 
 int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+	if (rdev->flags & TCMUR_DEV_FORMATTING && cmd->cdb[0] != INQUIRY)
+		return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
+					   ASC_NOT_READY_FORMAT_IN_PROGRESS,
+					   &rdev->format_progress);
+
 	if (command_is_generic(cmd))
 		return handle_generic_cmd(dev, cmd);
 	else
