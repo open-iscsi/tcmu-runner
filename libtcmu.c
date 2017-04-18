@@ -344,11 +344,8 @@ static void *tcmu_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_cdb_debug_info(cmd);
 
-			if (!rhandler->nr_threads &&
-			    tcmur_handler_is_passthrough_only(rhandler))
-				ret = rhandler->handle_cmd(dev, cmd);
-			else if (tcmur_handler_is_passthrough_only(rhandler))
-				ret = tcmur_cmd_handler(dev, cmd);
+			if (tcmur_handler_is_passthrough_only(rhandler))
+				ret = tcmur_cmd_passthrough_handler(dev, cmd);
 			else
 				ret = generic_handle_cmd(dev, cmd);
 
