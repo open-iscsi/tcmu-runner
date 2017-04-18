@@ -33,6 +33,20 @@
  */
 #define READ_CAPACITY_16		0x10
 
+/* SCSI protocols; these are taken from SPC-3 section 7.5 */
+enum scsi_protocol {
+	SCSI_PROTOCOL_FCP = 0,	/* Fibre Channel */
+	SCSI_PROTOCOL_SPI = 1,	/* parallel SCSI */
+	SCSI_PROTOCOL_SSA = 2,	/* Serial Storage Architecture - Obsolete */
+	SCSI_PROTOCOL_SBP = 3,	/* firewire */
+	SCSI_PROTOCOL_SRP = 4,	/* Infiniband RDMA */
+	SCSI_PROTOCOL_ISCSI = 5,
+	SCSI_PROTOCOL_SAS = 6,
+	SCSI_PROTOCOL_ADT = 7,	/* Media Changers */
+	SCSI_PROTOCOL_ATA = 8,
+	SCSI_PROTOCOL_UNSPEC = 0xf, /* No specific protocol */
+};
+
 /*
  *  SCSI Architecture Model (SAM) Status codes. Taken from SAM-3 draft
  *  T10/1561-D Revision 4 Draft dated 7th November 2002.
@@ -63,5 +77,29 @@
 #define ASC_CANT_WRITE_INCOMPATIBLE_FORMAT      0x3005
 #define ASC_SAVING_PARAMETERS_NOT_SUPPORTED     0x3900
 #define ASC_INTERNAL_TARGET_FAILURE             0x4400
+
+#define ALUA_ACCESS_STATE_OPTIMIZED		0x0
+#define ALUA_ACCESS_STATE_NON_OPTIMIZED		0x1
+#define ALUA_ACCESS_STATE_STANDBY		0x2
+#define ALUA_ACCESS_STATE_UNAVAILABLE		0x3
+#define ALUA_ACCESS_STATE_LBA_DEPENDENT		0x4
+#define ALUA_ACCESS_STATE_OFFLINE		0xe
+#define ALUA_ACCESS_STATE_TRANSITIONING		0xf
+
+#define ALUA_SUP_OPTIMIZED	0x01
+#define ALUA_SUP_NON_OPTIMIZED	0x02
+#define ALUA_SUP_STANDBY	0x04
+#define ALUA_SUP_UNAVAILABLE	0x08
+#define ALUA_SUP_LBA_DEPENDENT	0x10
+#define ALUA_SUP_OFFLINE	0x40
+#define ALUA_SUP_TRANSITIONING	0x80
+
+#define TPGS_ALUA_NONE		0x00
+#define TPGS_ALUA_IMPLICIT	0x10
+#define TPGS_ALUA_EXPLICIT	0x20
+
+#define ALUA_STAT_NONE				0x00
+#define ALUA_STAT_ALTERED_BY_EXPLICIT_STPG	0x01
+#define ALUA_STAT_ALTERED_BY_IMPLICIT_ALUA	0x02
 
 #endif
