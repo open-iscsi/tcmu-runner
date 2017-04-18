@@ -496,7 +496,6 @@ int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 	struct tcmur_handler *rhandler = handler->hm_private;
 	uint8_t *cdb = cmd->cdb;
-	int wakeup;
 
 	track_aio_request_start(dev);
 
@@ -543,6 +542,6 @@ passthrough:
 		ret = handle_passthrough(dev, cmd);
 done:
 	if (ret != TCMU_ASYNC_HANDLED)
-		track_aio_request_finish(dev, &wakeup);
+		track_aio_request_finish(dev, NULL);
 	return ret;
 }
