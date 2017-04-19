@@ -256,7 +256,7 @@ static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 		break;
 	case 3: /*011b Reserved ? */
 		if (cmd->cdb[0] == 0x7f) {
-			bytes = 7 + cmd->cdb[7];
+			bytes = 8 + cmd->cdb[7];
 			if (bytes > CDB_FIX_SIZE) {
 				buf = malloc(CDB_TO_BUF_SIZE(bytes));
 				if (!buf) {
