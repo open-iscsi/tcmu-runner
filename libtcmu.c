@@ -242,43 +242,16 @@ static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
 {
 	int i, n, bytes;
 	char fix[CDB_FIX_SIZE], *buf;
-	uint8_t group_code = cmd->cdb[0] >> 5;
 
 	buf = fix;
 
-	switch (group_code) {
-	case 0: /*000b for 6 bytes commands */
-		bytes = 6;
-		break;
-	case 1: /*001b for 10 bytes commands */
-	case 2: /*010b for 10 bytes commands */
-		bytes = 10;
-		break;
-	case 3: /*011b Reserved ? */
-		if (cmd->cdb[0] == 0x7f) {
-			bytes = 7 + cmd->cdb[7];
-			if (bytes > CDB_FIX_SIZE) {
-				buf = malloc(CDB_TO_BUF_SIZE(bytes));
-				if (!buf) {
-					tcmu_err("out of memory\n");
-					return;
-				}
-			}
-		} else {
-			bytes = 6;
+	bytes = tcmu_get_cdb_length(cmd->cdb);
+	if (bytes > CDB_FIX_SIZE) {
+		buf = malloc(CDB_TO_BUF_SIZE(bytes));
+		if (!buf) {
+			tcmu_err("out of memory\n");
+			return;
 		}
-		break;
-	case 4: /*100b for 16 bytes commands */
-		bytes = 16;
-		break;
-	case 5: /*101b for 12 bytes commands */
-		bytes = 12;
-		break;
-	case 6: /*110b Vendor Specific */
-	case 7: /*111b Vendor Specific */
-	default:
-		/* TODO: */
-		bytes = 6;
 	}
 
 	for (i = 0, n = 0; i < bytes; i++) {
