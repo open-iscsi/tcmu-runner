@@ -164,22 +164,29 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 
 int tcmu_get_cdb_length(uint8_t *cdb)
 {
-	uint8_t opcode = cdb[0];
+	uint8_t group_code = cdb[0] >> 5;
 
-	// See spc-4 4.2.5.1 operation code
-	//
-	if (opcode <= 0x1f)
+	/* See spc-4 4.2.5.1 operation code */
+	switch (group_code) {
+	case 0: /*000b for 6 bytes commands */
 		return 6;
-	else if (opcode <= 0x5f)
+	case 1: /*001b for 10 bytes commands */
+	case 2: /*010b for 10 bytes commands */
 		return 10;
-	else if (opcode == 0x7f)
-		return cdb[7] + 8;
-	else if (opcode >= 0x80 && opcode <= 0x9f)
-		return 16;
-	else if (opcode >= 0xa0 && opcode <= 0xbf)
-		return 12;
-	else
+	case 3: /*011b Reserved ? */
+		if (cdb[0] == 0x7f)
+			return 8 + cdb[7];
 		return -EINVAL;
+	case 4: /*100b for 16 bytes commands */
+		return 16;
+	case 5: /*101b for 12 bytes commands */
+		return 12;
+	case 6: /*110b Vendor Specific */
+	case 7: /*111b Vendor Specific */
+	default:
+		/* TODO: */
+		return -EINVAL;
+	}
 }
 
 uint64_t tcmu_get_lba(uint8_t *cdb)
