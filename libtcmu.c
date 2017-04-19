@@ -786,7 +786,7 @@ struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
 {
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 
-	return (struct tcmur_handler *)handler->hm_private;
+	return handler->hm_private;
 }
 
 static inline struct tcmu_cmd_entry *
