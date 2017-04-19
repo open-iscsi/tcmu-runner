@@ -492,11 +492,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
-	/*
-	 * TCMU_NOT_HANDLED is returned when a tcmur passthrough handler
-	 * does not handle any command.
-	 */
-	if (!rhandler->handle_cmd);
+	if (!rhandler->handle_cmd)
 		return TCMU_NOT_HANDLED;
 
 	/*
