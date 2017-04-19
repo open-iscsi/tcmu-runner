@@ -184,12 +184,12 @@ int tcmu_get_cdb_length(uint8_t *cdb)
 
 uint64_t tcmu_get_lba(uint8_t *cdb)
 {
-	uint8_t val6;
+	uint16_t val;
 
 	switch (tcmu_get_cdb_length(cdb)) {
 	case 6:
-		val6 = be16toh(*((uint16_t *)&cdb[2]));
-		return val6 ? val6 : 256;
+		val = be16toh(*((uint16_t *)&cdb[2]));
+		return ((cdb[1] & 0x1f) << 16) | val;
 	case 10:
 		return be32toh(*((u_int32_t *)&cdb[2]));
 	case 12:
