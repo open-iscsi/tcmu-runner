@@ -65,8 +65,6 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	tcmu_set_dev_private(dev, state);
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
-	tcmu_dbg("tcmu_rbd_open config %s\n", config);
-
 	if (!config) {
 		tcmu_err("no configuration found in cfgstring\n");
 		ret = -EINVAL;
@@ -133,7 +131,6 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		tcmu_err("error get rbd_size %s\n", name);
 		goto rados_destroy;
 	}
-	tcmu_dbg("rbd size %lld\n", rbd_size);
 
 	if(size != rbd_size) {
 		tcmu_err("device size and backing size disagree: "
@@ -143,6 +140,9 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		ret = -EIO;
 		goto rbd_close;
 	}
+
+	tcmu_dbg("config %s, size %lld\n", tcmu_get_dev_cfgstring(dev),
+		 rbd_size);
 
 	return 0;
 

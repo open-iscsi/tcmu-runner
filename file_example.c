@@ -117,6 +117,8 @@ static int file_open(struct tcmu_device *dev)
 		goto err;
 	}
 
+	tcmu_dbg("config %s, size %lld\n", tcmu_get_dev_cfgstring(dev), size);
+
 	return 0;
 
 err:
