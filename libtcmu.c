@@ -211,8 +211,8 @@ static int generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		else
 			return TCMU_NOT_HANDLED;
 	case READ_CAPACITY:
-		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
-			/* Reserved bits for MM logical units */
+		if ((cdb[1] & 0x01) || (!(cdb[8] & 0x01) &&
+					!!(cdb[2] | cdb[3] | cdb[4] | cdb[5]))
 			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						   ASC_INVALID_FIELD_IN_CDB,
 						   NULL);
