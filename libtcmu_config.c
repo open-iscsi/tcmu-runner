@@ -1,5 +1,5 @@
 /*
- * Copyright 2016, China Mobile, Inc.
+ * Copyright 2016-2017 China Mobile, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -28,6 +28,58 @@
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
 
+/*
+ * System config for TCMU, for now there are only 3 option types supported:
+ * 1, The "int type" option, for example:
+ *	log_level = 2
+ *
+ * 2, The "string type" option, for example:
+ *	tcmu_str = "Tom"  --> Tom
+ *    or
+ *	tcmu_str = 'Tom'  --> Tom
+ *    or
+ *	tcmu_str = 'Tom is a "boy"' ---> Tom is a "boy"
+ *    or
+ *	tcmu_str = "'T' is short for Tom" --> 'T' is short for Tom
+ *
+ * 3, The "boolean type" option, for example:
+ *	tcmu_bool
+ *
+ * ========================
+ * How to add new options ?
+ *
+ * Using "log_level" as an example:
+ * Firstly, add log_level member in:
+ *	struct tcmu_config {
+ *		int log_level;
+ *	};
+ *
+ * Secondly, add the following in "tcmu_conf_option tcmu_options[] = {}":
+ *	{
+ *		.key = "log_level",   // from struct tcmu_config {}
+ *		.type = TCMU_OPT_INT, // int type
+ *		{
+ *			.opt_int = 2, // default value is 2
+ *		},
+ *	},
+ *
+ * Thirdly, add the following option in "tcmu.conf" file as default value,
+ * and this default value will overwrite the value in '.opt_int' above:
+ *	log_level = 2
+ *
+ * Then the new options could be configured through /etc/tcmu/tcmu.conf.
+ *
+ * The last, you should add your own set method in:
+ *	static void tcmu_conf_set_options(struct tcmu_config *cfg)
+ *	{
+ *		TCMU_PARSE_CFG_INT(cfg, log_level);
+ *		TCMU_CONF_CHECK_LOG_LEVEL(log_level);
+ *	}
+ *
+ * Note: For now, if the options have been changed in config file, the
+ * tcmu-runner, consumer and tcmu-synthesizer daemons should be restarted.
+ * And the dynamic reloading feature will be added later.
+ */
 static struct tcmu_conf_option tcmu_options[] = {
 	{
 		.key = "log_level",
@@ -98,8 +150,10 @@ do { \
 
 static void tcmu_conf_set_options(struct tcmu_config *cfg)
 {
+	/* set log_level option */
 	TCMU_PARSE_CFG_INT(cfg, log_level);
 	TCMU_CONF_CHECK_LOG_LEVEL(log_level);
+
 	/* add your new config options */
 }
 
@@ -179,9 +233,10 @@ static void tcmu_parse_option(char **cur, const char *end)
 	*q = '\0';
 	*cur = q + 1;
 
+	/* parse the boolean type option */
 	s = r = strchr(p, '=');
 	if (!r) {
-		/* one boolean type option at file end or line end */
+		/* boolean type option at file end or line end */
 		r = p;
 		while (!isblank(*r) && r < q)
 			r++;
@@ -203,62 +258,61 @@ static void tcmu_parse_option(char **cur, const char *end)
 	if (ind < 0)
 		return;
 
+	/* parse the int/string type options */
 	switch (tcmu_options[ind].type) {
-		/* one int type option */
-		case TCMU_OPT_INT:
-			while (!isdigit(*s))
-				s++;
-			r = s;
-			while (isdigit(*r))
-				r++;
-			*r= '\0';
-			tcmu_options[ind].opt_int = atoi(s);
-			break;
-		/* one string type option */
-		case TCMU_OPT_STR:
+	case TCMU_OPT_INT:
+		while (!isdigit(*s))
 			s++;
-			while (isblank(*s))
-				s++;
-			/* skip first " or ' if exist */
-			if (*s == '"' || *s == '\'')
-				s++;
-			r = q - 1;
-			while (isblank(*r))
-				r--;
-			/* skip last " or ' if exist */
-			if (*r == '"' || *r == '\'')
-				*r = '\0';
+		r = s;
+		while (isdigit(*r))
+			r++;
+		*r= '\0';
+		tcmu_options[ind].opt_int = atoi(s);
+		break;
+	case TCMU_OPT_STR:
+		s++;
+		while (isblank(*s))
+			s++;
+		/* skip first " or ' if exist */
+		if (*s == '"' || *s == '\'')
+			s++;
+		r = q - 1;
+		while (isblank(*r))
+			r--;
+		/* skip last " or ' if exist */
+		if (*r == '"' || *r == '\'')
+			*r = '\0';
 
-			tcmu_options[ind].opt_str = strdup(s);
-			break;
-		default:
-			break;
+		tcmu_options[ind].opt_str = strdup(s);
+		break;
+	default:
+		break;
 	}
 }
 
 static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 {
-    char *cur = buf, *end = buf + len;
+	char *cur = buf, *end = buf + len;
 
-    while (cur < end) {
-	    /* skip blanks lines */
-	    TCMU_SKIP_BLANK_LINES(cur, end);
+	while (cur < end) {
+		/* skip blanks lines */
+		TCMU_SKIP_BLANK_LINES(cur, end);
 
-	    /* skip comments with '#' */
-	    TCMU_SKIP_COMMENT_LINES(cur, end);
+		/* skip comments with '#' */
+		TCMU_SKIP_COMMENT_LINES(cur, end);
 
-	    if (cur >= end)
-		    break;
+		if (cur >= end)
+			break;
 
-	    if (!isalpha(*cur))
-		    continue;
+		if (!isalpha(*cur))
+			continue;
 
-	    /* parse the options from config file to tcmu_options[] */
-	    tcmu_parse_option(&cur, end);
-    }
+		/* parse the options from config file to tcmu_options[] */
+		tcmu_parse_option(&cur, end);
+	}
 
-    /* parse the options from tcmu_options[] to struct tcmu_config */
-    tcmu_conf_set_options(cfg);
+	/* parse the options from tcmu_options[] to struct tcmu_config */
+	tcmu_conf_set_options(cfg);
 
 }
 
