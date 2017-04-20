@@ -89,9 +89,12 @@ static int check_lba_and_length(struct tcmu_device *dev,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 	}
 
-	if (lba >= num_lbas || lba + sectors > num_lbas)
+	if (lba + sectors > num_lbas || lba + sectors < lba) {
+		tcmu_err("cmd exceeds last lba %"PRIu64" (lba %"PRIu64", xfer len %"PRIu32")\n",
+			 num_lbas, lba, sectors);
 		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE, NULL);
+	}
 
 	return SAM_STAT_GOOD;
 }
