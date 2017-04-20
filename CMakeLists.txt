@@ -36,6 +36,7 @@ find_library(DL dl)
 # Stuff for building the shared library
 add_library(tcmu
   SHARED
+  configfs.c
   api.c
   libtcmu.c
   tcmur_cmd_handler.c
@@ -63,6 +64,7 @@ install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Stuff for building the static library
 add_library(tcmu_static
+  configfs.c
   api.c
   libtcmu.c
   tcmur_cmd_handler.c
