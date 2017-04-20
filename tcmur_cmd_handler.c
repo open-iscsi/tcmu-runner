@@ -626,7 +626,6 @@ static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case MODE_SELECT_10:
 		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
 	default:
-		tcmu_err("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
 }

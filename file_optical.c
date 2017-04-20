@@ -1665,7 +1665,6 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 						   sense);
 		break;
 	default:
-		tcmu_err("unknown command 0x%x\n", cdb[0]);
 		ret = TCMU_NOT_HANDLED;
 	}
 
