@@ -100,6 +100,7 @@ struct tcmu_device {
 	struct tcmulib_handler *handler;
 	struct tcmulib_context *ctx;
 
+	void *d_private; /* private ptr for the daemon */
 	void *hm_private; /* private ptr for handler module */
 };
 
