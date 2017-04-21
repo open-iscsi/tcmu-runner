@@ -291,12 +291,6 @@ static int add_device(struct tcmulib_context *ctx,
 		goto err_munmap;
 	}
 
-	ret = pthread_spin_init(&dev->lock, 0);
-	if (ret < 0) {
-		tcmu_err("failed to initialize mailbox lock\n");
-		goto err_munmap;
-	}
-
 	dev->cmd_tail = mb->cmd_tail;
 
 	dev->ctx = ctx;
@@ -368,11 +362,6 @@ static void remove_device(struct tcmulib_context *ctx,
 	ret = munmap(dev->map, dev->map_len);
 	if (ret != 0) {
 		tcmu_err("could not unmap device %s: %d\n", dev_name, errno);
-	}
-
-	ret = pthread_spin_destroy(&dev->lock);
-	if (ret < 0) {
-		tcmu_err("could not cleanup mailbox lock %s: %d\n", dev_name, errno);
 	}
 
 	free(dev);
@@ -668,9 +657,6 @@ void tcmulib_command_complete(
 	int result)
 {
 	struct tcmu_mailbox *mb = dev->map;
-
-	pthread_cleanup_push(_cleanup_spin_lock, (void *)&dev->lock);
-	pthread_spin_lock(&dev->lock);
 	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 
 	/* current command could be PAD in async case */
@@ -706,9 +692,6 @@ void tcmulib_command_complete(
 	}
 
 	TCMU_UPDATE_RB_TAIL(mb, ent);
-	pthread_spin_unlock(&dev->lock);
-	pthread_cleanup_pop(0);
-
 	free(cmd);
 }
 

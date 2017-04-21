@@ -28,6 +28,7 @@ struct tcmur_device {
         struct tcmu_io_queue work_queue;
         struct tcmu_track_aio track_queue;
 
+	pthread_spinlock_t lock; /* protects concurrent updates to mailbox */
 	pthread_mutex_t caw_lock; /* for atomic CAW operation */
 };
 
