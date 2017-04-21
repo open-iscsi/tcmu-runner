@@ -97,6 +97,8 @@ int tcmu_emulate_read_capacity_16(uint64_t num_lbas, uint32_t block_size, uint8_
 				  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_mode_select(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+/* SCSI helpers */
+void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd);
 
 #ifdef __cplusplus
 }
