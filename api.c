@@ -43,125 +43,6 @@
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
-{
-	int fd;
-	char path[256];
-	char buf[16];
-	ssize_t ret;
-	unsigned int val;
-
-	snprintf(path, sizeof(path), "/sys/kernel/config/target/core/%s/%s/attrib/%s",
-		 dev->tcm_hba_name, dev->tcm_dev_name, name);
-
-	fd = open(path, O_RDONLY);
-	if (fd == -1) {
-		tcmu_err("Could not open configfs to read attribute %s\n", name);
-		return -EINVAL;
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-	close(fd);
-	if (ret == -1) {
-		tcmu_err("Could not read configfs to read attribute %s\n", name);
-		return -EINVAL;
-	}
-
-	val = strtoul(buf, NULL, 0);
-	if (val == ULONG_MAX) {
-		tcmu_err("could not convert string to value\n");
-		return -EINVAL;
-	}
-
-	return val;
-}
-
-
-/*
- * Return a string that contains the device's WWN, or NULL.
- *
- * Callers must free the result with free().
- */
-static char *tcmu_get_wwn(struct tcmu_device *dev)
-{
-	int fd;
-	char path[256];
-	char buf[256];
-	char *ret_buf;
-	int ret;
-
-	snprintf(path, sizeof(path),
-		 "/sys/kernel/config/target/core/%s/%s/wwn/vpd_unit_serial",
-		 dev->tcm_hba_name, dev->tcm_dev_name);
-
-	fd = open(path, O_RDONLY);
-	if (fd == -1) {
-		tcmu_err("Could not open configfs to read unit serial\n");
-		return NULL;
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-	close(fd);
-	if (ret == -1) {
-		tcmu_err("Could not read configfs to read unit serial\n");
-		return NULL;
-	}
-
-	/* Kill the trailing '\n' */
-	buf[ret-1] = '\0';
-
-	/* Skip to the good stuff */
-	ret = asprintf(&ret_buf, "%s", &buf[28]);
-	if (ret == -1) {
-		tcmu_err("could not convert string to value\n");
-		return NULL;
-	}
-
-	return ret_buf;
-}
-
-long long tcmu_get_device_size(struct tcmu_device *dev)
-{
-	int fd;
-	char path[256];
-	char buf[4096];
-	ssize_t ret;
-	char *rover;
-	unsigned long long size;
-
-	snprintf(path, sizeof(path), "/sys/kernel/config/target/core/%s/%s/info",
-		 dev->tcm_hba_name, dev->tcm_dev_name);
-
-	fd = open(path, O_RDONLY);
-	if (fd == -1) {
-		tcmu_err("Could not open configfs to read dev info\n");
-		return -EINVAL;
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-	close(fd);
-	if (ret == -1) {
-		tcmu_err("Could not read configfs to read dev info\n");
-		return -EINVAL;
-	}
-	buf[sizeof(buf)-1] = '\0'; /* paranoid? Ensure null terminated */
-
-	rover = strstr(buf, " Size: ");
-	if (!rover) {
-		tcmu_err("Could not find \" Size: \" in %s\n", path);
-		return -EINVAL;
-	}
-	rover += 7; /* get to the value */
-
-	size = strtoull(rover, NULL, 0);
-	if (size == ULLONG_MAX) {
-		tcmu_err("Could not get size\n");
-		return -EINVAL;
-	}
-
-	return size;
-}
-
 int tcmu_get_cdb_length(uint8_t *cdb)
 {
 	uint8_t group_code = cdb[0] >> 5;
@@ -407,7 +288,6 @@ int tcmu_emulate_std_inquiry(
 	uint8_t *sense)
 {
 	uint8_t buf[36];
-	size_t copied;
 
 	memset(buf, 0, sizeof(buf));
 
@@ -421,12 +301,7 @@ int tcmu_emulate_std_inquiry(
 	memcpy(&buf[32], "0002", 4);
 	buf[4] = 31; /* Set additional length to 31 */
 
-	copied = tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
-	if (copied != sizeof(buf)) {
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
-	}
-
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 	return SAM_STAT_GOOD;
 }
 
@@ -455,8 +330,6 @@ int tcmu_emulate_evpd_inquiry(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
-	size_t copied;
-
 	switch (cdb[2]) {
 	case 0x0: /* Supported VPD pages */
 	{
@@ -471,14 +344,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		data[3] = 3;
 
-		copied = tcmu_memcpy_into_iovec(iovec, iov_cnt, data,
-						sizeof(data));
-		if (copied != sizeof(data)) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
-		}
-
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 		return SAM_STAT_GOOD;
 	}
 	break;
@@ -567,13 +433,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		*tot_len = htobe16(used);
 
-		copied = tcmu_memcpy_into_iovec(iovec, iov_cnt, data,
-						used + 4);
-		if (copied != used + 4) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
-		}
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, used + 4);
 
 		free(wwn);
 		wwn = NULL;
@@ -618,13 +478,7 @@ int tcmu_emulate_evpd_inquiry(
 		/* Optimal xfer length */
 		memcpy(&data[12], &val32, 4);
 
-		copied = tcmu_memcpy_into_iovec(iovec, iov_cnt, data,
-						sizeof(data));
-		if (copied != sizeof(data)) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
-		}
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 
 		return SAM_STAT_GOOD;
 	}
