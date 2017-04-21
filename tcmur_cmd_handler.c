@@ -525,7 +525,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	return ret;
 }
 
-int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret = TCMU_NOT_HANDLED;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -568,4 +568,82 @@ int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (ret != TCMU_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 	return ret;
+}
+
+static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	uint8_t *cdb = cmd->cdb;
+	struct iovec *iovec = cmd->iovec;
+	size_t iov_cnt = cmd->iov_cnt;
+	uint8_t *sense = cmd->sense_buf;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+
+	switch (cdb[0]) {
+	case INQUIRY:
+		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
+	case TEST_UNIT_READY:
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+	case SERVICE_ACTION_IN_16:
+		if (cdb[1] == READ_CAPACITY_16)
+			return tcmu_emulate_read_capacity_16(num_lbas,
+							     block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
+		else
+			return TCMU_NOT_HANDLED;
+	case READ_CAPACITY:
+		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
+			/* Reserved bits for MM logical units */
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_INVALID_FIELD_IN_CDB,
+						   NULL);
+		else
+			return tcmu_emulate_read_capacity_10(num_lbas,
+							     block_size,
+							     cdb, iovec,
+							     iov_cnt, sense);
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+	case START_STOP:
+		return tcmu_emulate_start_stop(dev, cdb, sense);
+	case MODE_SELECT:
+	case MODE_SELECT_10:
+		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+	default:
+		tcmu_err("unknown command %x\n", cdb[0]);
+		return TCMU_NOT_HANDLED;
+	}
+}
+
+static bool command_is_generic(struct tcmulib_cmd *cmd)
+{
+	uint8_t *cdb = cmd->cdb;
+
+	switch(cdb[0]) {
+	case INQUIRY:
+	case TEST_UNIT_READY:
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+	case START_STOP:
+	case MODE_SELECT:
+	case MODE_SELECT_10:
+	case READ_CAPACITY:
+		return true;
+	case SERVICE_ACTION_IN_16:
+		if (cdb[1] == READ_CAPACITY_16)
+			return true;
+		/* fall through */
+	default:
+		return false;
+	}
+}
+
+int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	if (command_is_generic(cmd))
+		return handle_generic_cmd(dev, cmd);
+	else
+		return tcmur_cmd_handler(dev, cmd);
 }

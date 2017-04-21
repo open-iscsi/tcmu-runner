@@ -778,3 +778,33 @@ int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
 
 	return SAM_STAT_GOOD;
 }
+
+#define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)
+#define CDB_FIX_BYTES 64 /* 64 bytes for default */
+#define CDB_FIX_SIZE CDB_TO_BUF_SIZE(CDB_FIX_BYTES)
+void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
+{
+	int i, n, bytes;
+	char fix[CDB_FIX_SIZE], *buf;
+
+	buf = fix;
+
+	bytes = tcmu_get_cdb_length(cmd->cdb);
+	if (bytes > CDB_FIX_SIZE) {
+		buf = malloc(CDB_TO_BUF_SIZE(bytes));
+		if (!buf) {
+			tcmu_err("out of memory\n");
+			return;
+		}
+	}
+
+	for (i = 0, n = 0; i < bytes; i++) {
+		n += sprintf(buf + n, "%x ", cmd->cdb[i]);
+	}
+	sprintf(buf + n, "\n");
+
+	tcmu_dbg_scsi_cmd(buf);
+
+	if (bytes > CDB_FIX_SIZE)
+		free(buf);
+}

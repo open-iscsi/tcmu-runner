@@ -178,183 +178,6 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 	return NULL;
 }
 
-
-
-static void cmdproc_thread_cleanup(void *arg)
-{
-	struct tcmu_device *dev = arg;
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-
-	rhandler->close(dev);
-}
-
-static int generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
-{
-	uint8_t *cdb = cmd->cdb;
-	struct iovec *iovec = cmd->iovec;
-	size_t iov_cnt = cmd->iov_cnt;
-	uint8_t *sense = cmd->sense_buf;
-	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
-
-	switch (cdb[0]) {
-	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
-	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
-	case SERVICE_ACTION_IN_16:
-		if (cdb[1] == READ_CAPACITY_16)
-			return tcmu_emulate_read_capacity_16(num_lbas,
-							     block_size,
-							     cdb, iovec,
-							     iov_cnt, sense);
-		else
-			return TCMU_NOT_HANDLED;
-	case READ_CAPACITY:
-		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
-			/* Reserved bits for MM logical units */
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB,
-						   NULL);
-		else
-			return tcmu_emulate_read_capacity_10(num_lbas,
-							     block_size,
-							     cdb, iovec,
-							     iov_cnt, sense);
-	case MODE_SENSE:
-	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
-	case START_STOP:
-		return tcmu_emulate_start_stop(dev, cdb, sense);
-	case MODE_SELECT:
-	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
-	default:
-		tcmu_err("unknown command %x\n", cdb[0]);
-		return TCMU_NOT_HANDLED;
-	}
-}
-
-#define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)
-#define CDB_FIX_BYTES 64 /* 64 bytes for default */
-#define CDB_FIX_SIZE CDB_TO_BUF_SIZE(CDB_FIX_BYTES)
-static void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd)
-{
-	int i, n, bytes;
-	char fix[CDB_FIX_SIZE], *buf;
-
-	buf = fix;
-
-	bytes = tcmu_get_cdb_length(cmd->cdb);
-	if (bytes > CDB_FIX_SIZE) {
-		buf = malloc(CDB_TO_BUF_SIZE(bytes));
-		if (!buf) {
-			tcmu_err("out of memory\n");
-			return;
-		}
-	}
-
-	for (i = 0, n = 0; i < bytes; i++) {
-		n += sprintf(buf + n, "%x ", cmd->cdb[i]);
-	}
-	sprintf(buf + n, "\n");
-
-	tcmu_dbg_scsi_cmd(buf);
-
-	if (bytes > CDB_FIX_SIZE)
-		free(buf);
-}
-
-static bool command_is_generic(struct tcmulib_cmd *tcmulib_cmd)
-{
-	uint8_t *cdb = tcmulib_cmd->cdb;
-
-	switch(cdb[0]) {
-	case INQUIRY:
-	case TEST_UNIT_READY:
-	case MODE_SENSE:
-	case MODE_SENSE_10:
-	case START_STOP:
-	case MODE_SELECT:
-	case MODE_SELECT_10:
-	case READ_CAPACITY:
-		return true;
-	case SERVICE_ACTION_IN_16:
-		if (cdb[1] == READ_CAPACITY_16)
-			return true;
-		/* fall through */
-	default:
-		return false;
-	}
-}
-
-static int generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
-{
-	if (command_is_generic(cmd))
-		return generic_cmd(dev, cmd);
-	else
-		return tcmur_cmd_handler(dev, cmd);
-}
-
-static void *tcmu_cmdproc_thread(void *arg)
-{
-        int ret;
-	struct tcmu_device *dev = arg;
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct pollfd pfd;
-
-	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
-
-	while (1) {
-                int completed = 0;
-		struct tcmulib_cmd *cmd;
-
-		tcmulib_processing_start(dev);
-
-		while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
-			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
-				tcmu_cdb_debug_info(cmd);
-
-			if (tcmur_handler_is_passthrough_only(rhandler))
-				ret = tcmur_cmd_passthrough_handler(dev, cmd);
-			else
-				ret = generic_handle_cmd(dev, cmd);
-
-			/*
-			 * command (processing) completion is called in the following
-			 * scenarios:
-			 *   - handle_cmd: synchronous handlers
-			 *   - generic_handle_cmd: non tcmur handler calls (see generic_cmd())
-			 *			   and on errors when calling tcmur handler.
-			 */
-			if (ret != TCMU_ASYNC_HANDLED) {
-				completed = 1;
-				tcmulib_command_complete(dev, cmd, ret);
-			}
-		}
-
-		if (completed)
-			tcmulib_processing_complete(dev);
-
-		pfd.fd = tcmu_get_dev_fd(dev);
-		pfd.events = POLLIN;
-		pfd.revents = 0;
-
-		poll(&pfd, 1, -1);
-
-		if (pfd.revents != POLLIN) {
-			tcmu_err("poll received unexpected revent: 0x%x\n", pfd.revents);
-			break;
-		}
-	}
-
-	tcmu_err("thread terminating, should never happen\n");
-
-	pthread_cleanup_pop(1);
-
-	return NULL;
-}
-
 static int add_device(struct tcmulib_context *ctx,
 		      char *dev_name, char *cfgstring)
 {
@@ -915,14 +738,15 @@ void tcmulib_processing_complete(struct tcmu_device *dev)
 		perror("write");
 }
 
-int tcmulib_start_cmdproc_thread(struct tcmu_device *dev)
+int tcmulib_start_cmdproc_thread(struct tcmu_device *dev,
+				 void *(*thread_fn)(void *))
 {
 	int ret;
 	struct tcmu_thread thread;
 
 	thread.dev = dev;
 
-	ret = pthread_create(&thread.thread_id, NULL, tcmu_cmdproc_thread, dev);
+	ret = pthread_create(&thread.thread_id, NULL, thread_fn, dev);
 	if (ret) {
 		return -1;
 	}

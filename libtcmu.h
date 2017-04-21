@@ -115,7 +115,8 @@ void tcmulib_processing_complete(struct tcmu_device *dev);
 void tcmulib_close(struct tcmulib_context *ctx);
 
 /* kick start command processing thread */
-int tcmulib_start_cmdproc_thread(struct tcmu_device *dev);
+int tcmulib_start_cmdproc_thread(struct tcmu_device *dev,
+				 void *(*thread_fn)(void *));
 
 /* cleanup command processing thread for a given device */
 void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev);

@@ -39,8 +39,6 @@ add_library(tcmu
   configfs.c
   api.c
   libtcmu.c
-  tcmur_cmd_handler.c
-  tcmur_aio.c
   libtcmu-register.c
   tcmuhandler-generated.c
   libtcmu_log.c
@@ -67,8 +65,6 @@ add_library(tcmu_static
   configfs.c
   api.c
   libtcmu.c
-  tcmur_cmd_handler.c
-  tcmur_aio.c
   libtcmu-register.c
   tcmuhandler-generated.c
   libtcmu_log.c
@@ -85,6 +81,8 @@ target_link_libraries(tcmu_static
 
 # Stuff for building the main binary
 add_executable(tcmu-runner
+  tcmur_cmd_handler.c
+  tcmur_aio.c
   main.c
   tcmuhandler-generated.c
   )
