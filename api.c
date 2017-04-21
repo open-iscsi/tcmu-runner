@@ -750,6 +750,16 @@ static struct {
 };
 
 /*
+ * Handle RESERVE and RELEASE.
+ */
+int tcmu_emulate_reserve_release(uint8_t *sense)
+{
+	tcmu_set_sense_data(sense, NO_SENSE, 0, NULL);
+
+	return SAM_STAT_GOOD;
+}
+
+/*
  * Handle MODE_SENSE(6) and MODE_SENSE(10).
  *
  * For TYPE_DISK only.
