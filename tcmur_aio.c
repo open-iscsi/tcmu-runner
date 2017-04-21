@@ -20,14 +20,24 @@
 #include <stdint.h>
 #include <pthread.h>
 
+#include "ccan/list/list.h"
+
 #include "libtcmu.h"
 #include "libtcmu_priv.h"
+#include "tcmur_device.h"
 #include "tcmur_aio.h"
 #include "tcmu-runner.h"
 
-void track_aio_request_start(struct tcmu_device *dev)
+struct tcmu_work {
+	struct tcmu_device *dev;
+	struct tcmulib_cmd *cmd;
+	tcmu_work_fn_t fn;
+	struct list_node entry;
+};
+
+void track_aio_request_start(struct tcmur_device *rdev)
 {
-	struct tcmu_track_aio *aio_track = &dev->track_queue;
+	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 
 	pthread_cleanup_push(_cleanup_spin_lock, (void *)&aio_track->track_lock);
 	pthread_spin_lock(&aio_track->track_lock);
@@ -38,9 +48,9 @@ void track_aio_request_start(struct tcmu_device *dev)
 	pthread_cleanup_pop(0);
 }
 
-void track_aio_request_finish(struct tcmu_device *dev, int *is_idle)
+void track_aio_request_finish(struct tcmur_device *rdev, int *is_idle)
 {
-	struct tcmu_track_aio *aio_track = &dev->track_queue;
+	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 
 	pthread_cleanup_push(_cleanup_spin_lock, (void *)&aio_track->track_lock);
 	pthread_spin_lock(&aio_track->track_lock);
@@ -64,7 +74,8 @@ static void _cleanup_io_work(void *arg)
 static void *io_work_queue(void *arg)
 {
 	struct tcmu_device *dev = arg;
-	struct tcmu_io_queue *io_wq = &dev->work_queue;
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int ret;
 
 	while (1) {
@@ -104,7 +115,8 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			tcmu_work_fn_t fn)
 {
 	struct tcmu_work *work;
-	struct tcmu_io_queue *io_wq = &dev->work_queue;
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 
 	work = malloc(sizeof(*work));
 	if (!work)
@@ -145,10 +157,10 @@ int async_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	return ret;
 }
 
-int setup_aio_tracking(struct tcmu_device *dev)
+int setup_aio_tracking(struct tcmur_device *rdev)
 {
 	int ret;
-	struct tcmu_track_aio *aio_track = &dev->track_queue;
+	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 
 	aio_track->tracked_aio_ops = 0;
 	ret = pthread_spin_init(&aio_track->track_lock, 0);
@@ -159,10 +171,10 @@ int setup_aio_tracking(struct tcmu_device *dev)
 	return 0;
 }
 
-void cleanup_aio_tracking(struct tcmu_device *dev)
+void cleanup_aio_tracking(struct tcmur_device *rdev)
 {
 	int ret;
-	struct tcmu_track_aio *aio_track = &dev->track_queue;
+	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 
 	assert(aio_track->tracked_aio_ops == 0);
 
@@ -175,7 +187,8 @@ void cleanup_aio_tracking(struct tcmu_device *dev)
 void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 {
 	struct tcmur_handler *r_handler = tcmu_get_runner_handler(dev);
-	struct tcmu_io_queue *io_wq = &dev->work_queue;
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int i, nr_threads = r_handler->nr_threads;
 
 	if (!io_wq->io_wq_threads) {
@@ -192,7 +205,8 @@ void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 int setup_io_work_queue(struct tcmu_device *dev)
 {
 	struct tcmur_handler *r_handler = tcmu_get_runner_handler(dev);
-	struct tcmu_io_queue *io_wq = &dev->work_queue;
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int ret, i, nr_threads = r_handler->nr_threads;
 
 	if (!nr_threads)
@@ -237,7 +251,8 @@ out:
 
 void cleanup_io_work_queue(struct tcmu_device *dev, bool cancel)
 {
-	struct tcmu_io_queue *io_wq = &dev->work_queue;
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int ret;
 
 	if (!io_wq->io_wq_threads) {

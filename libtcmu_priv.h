@@ -50,42 +50,12 @@ struct tcmulib_context {
 	GDBusConnection *connection;
 };
 
-struct tcmu_work {
-	struct tcmu_device *dev;	 /* device backpointer */
-	struct tcmulib_cmd *cmd;	 /* SCSI command */
-	tcmu_work_fn_t fn;
-	struct list_node entry;
-};
-
-struct tcmu_track_aio {
-	unsigned int tracked_aio_ops;
-	pthread_spinlock_t track_lock;
-};
-
-struct tcmu_io_queue {
-	pthread_mutex_t io_lock;
-	pthread_cond_t io_cond;
-
-	pthread_t *io_wq_threads;
-	struct list_head io_queue;
-};
-
 struct tcmu_device {
 	int fd;
 
 	struct tcmu_mailbox *map;
 	size_t map_len;
 	pthread_spinlock_t lock; /* protects concurrent updation of mailbox */
-
-	/*
-	 * lock order:
-	 *  work_queue->aio_lock
-	 *    track_queue->track_lock
-	 */
-	struct tcmu_io_queue work_queue;
-	struct tcmu_track_aio track_queue;
-
-	pthread_mutex_t caw_lock; /* for atomic CAW operation */
 
 	uint32_t cmd_tail;
 
@@ -118,9 +88,5 @@ void _cleanup_spin_lock(void *);
 
 /* cancel (+join) a thread */
 void cancel_thread(pthread_t);
-
-/* aio request tracking */
-void track_aio_request_start(struct tcmu_device *);
-void track_aio_request_finish(struct tcmu_device *, int *);
 
 #endif
