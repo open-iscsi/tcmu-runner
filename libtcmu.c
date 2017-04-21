@@ -474,22 +474,6 @@ static int add_device(struct tcmulib_context *ctx,
 		goto err_munmap;
 	}
 
-	ret = pthread_mutex_init(&dev->caw_lock, NULL);
-	if (ret < 0) {
-		tcmu_err("failed to initialize caw lock\n");
-		goto cleanup_lock;
-	}
-
-	ret = setup_io_work_queue(dev);
-	if (ret < 0) {
-		goto cleanup_caw_lock;
-	}
-
-	ret = setup_aio_tracking(dev);
-	if (ret < 0) {
-		goto cleanup_io_work_queue;
-	}
-
 	dev->cmd_tail = mb->cmd_tail;
 
 	dev->ctx = ctx;
@@ -499,19 +483,11 @@ static int add_device(struct tcmulib_context *ctx,
 	ret = dev->handler->added(dev);
 	if (ret < 0) {
 		tcmu_err("handler open failed for %s\n", dev->dev_name);
-		goto cleanup_aio_tracking;
+		goto err_munmap;
 	}
 
 	return 0;
 
-cleanup_aio_tracking:
-	cleanup_aio_tracking(dev);
-cleanup_io_work_queue:
-	cleanup_io_work_queue(dev, true);
-cleanup_caw_lock:
-	pthread_mutex_destroy(&dev->caw_lock);
-cleanup_lock:
-	pthread_spin_destroy(&dev->lock);
 err_munmap:
 	munmap(dev->map, dev->map_len);
 err_fd_close:
@@ -560,17 +536,7 @@ static void remove_device(struct tcmulib_context *ctx,
 
 	darray_remove(ctx->devices, i);
 
-	/*
-	 * The order of cleaning up worker threads and calling ->removed()
-	 * is important: for sync handlers, the worker thread needs to be
-	 * terminated before removing the handler (i.e., calling handlers
-	 * ->close() callout) in order to ensure that no handler callouts
-	 * are getting invoked when shutting down the handler.
-	 */
-	cleanup_io_work_queue_threads(dev);
 	dev->handler->removed(dev);
-	cleanup_io_work_queue(dev, false);
-	cleanup_aio_tracking(dev);
 
 	ret = close(dev->fd);
 	if (ret != 0) {
@@ -585,10 +551,6 @@ static void remove_device(struct tcmulib_context *ctx,
 	if (ret < 0) {
 		tcmu_err("could not cleanup mailbox lock %s: %d\n", dev_name, errno);
 	}
-
-	ret = pthread_mutex_destroy(&dev->caw_lock);
-	if (ret < 0)
-		tcmu_err("could not cleanup caw lock %s: %d\n", dev_name, errno);
 
 	free(dev);
 }

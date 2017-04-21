@@ -42,6 +42,8 @@
 #include <linux/target_core_user.h>
 #include "darray.h"
 #include "tcmu-runner.h"
+#include "tcmur_aio.h"
+#include "tcmur_device.h"
 #include "libtcmu.h"
 #include "tcmuhandler-generated.h"
 #include "version.h"
@@ -480,25 +482,73 @@ int load_our_module(void) {
 
 static int dev_added(struct tcmu_device *dev)
 {
-	struct tcmur_handler *r_handler = tcmu_get_runner_handler(dev);
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev;
 	int ret;
 
-	ret = r_handler->open(dev);
+	rdev = calloc(1, sizeof(*rdev));
+	if (!rdev)
+		return -ENOMEM;
+	tcmu_set_daemon_dev_private(dev, rdev);
+
+	ret = pthread_mutex_init(&rdev->caw_lock, NULL);
+	if (ret < 0)
+		goto free_rdev;
+
+	ret = setup_io_work_queue(dev);
+	if (ret < 0)
+		goto cleanup_caw_lock;
+
+	ret = setup_aio_tracking(rdev);
+	if (ret < 0)
+		goto cleanup_io_work_queue;
+
+	ret = rhandler->open(dev);
 	if (ret)
-		return ret;
+		goto cleanup_aio_tracking;
 
 	ret = tcmulib_start_cmdproc_thread(dev);
-	if (ret < 0) {
-		r_handler->close(dev);
-		return ret;
-	}
+	if (ret < 0)
+		goto close_dev;
 
 	return 0;
+
+close_dev:
+	rhandler->close(dev);
+cleanup_aio_tracking:
+	cleanup_aio_tracking(rdev);
+cleanup_io_work_queue:
+	cleanup_io_work_queue(dev, true);
+cleanup_caw_lock:
+	pthread_mutex_destroy(&rdev->caw_lock);
+free_rdev:
+	free(rdev);
+	return ret;
 }
 
 static void dev_removed(struct tcmu_device *dev)
 {
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	int ret;
+
+	/*
+	 * The order of cleaning up worker threads and calling ->removed()
+	 * is important: for sync handlers, the worker thread needs to be
+	 * terminated before removing the handler (i.e., calling handlers
+	 * ->close() callout) in order to ensure that no handler callouts
+	 * are getting invoked when shutting down the handler.
+	 */
+	cleanup_io_work_queue_threads(dev);
 	tcmulib_cleanup_cmdproc_thread(dev);
+
+	cleanup_io_work_queue(dev, false);
+	cleanup_aio_tracking(rdev);
+
+	ret = pthread_mutex_destroy(&rdev->caw_lock);
+	if (ret < 0)
+		tcmu_err("could not cleanup caw lock %d\n", ret);
+
+	free(rdev);
 }
 
 static void usage(void) {

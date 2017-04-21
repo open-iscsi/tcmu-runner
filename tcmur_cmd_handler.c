@@ -23,6 +23,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
 #include "tcmur_aio.h"
+#include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
 
@@ -31,7 +32,7 @@ static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 {
 	int wakeup;
 
-	track_aio_request_finish(dev, &wakeup);
+	track_aio_request_finish(tcmu_get_daemon_dev_private(dev), &wakeup);
 	tcmulib_command_complete(dev, cmd, rc);
 	if (wakeup)
 		tcmulib_processing_complete(dev);
@@ -325,13 +326,16 @@ static void caw_free_readcmd(struct tcmulib_cmd *readcmd)
 static void handle_caw_write_cbk(struct tcmu_device *dev,
 				 struct tcmulib_cmd *cmd, int ret)
 {
-	pthread_mutex_unlock(&dev->caw_lock);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+	pthread_mutex_unlock(&rdev->caw_lock);
 	aio_command_finish(dev, cmd, ret);
 }
 
 static void handle_caw_read_cbk(struct tcmu_device *dev,
 				struct tcmulib_cmd *readcmd, int ret)
 {
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	uint32_t cmp_offset;
 	struct caw_state *state = readcmd->cmdstate;
 	struct tcmulib_cmd *origcmd = state->origcmd;
@@ -366,7 +370,7 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 	return;
 
 finish_err:
-	pthread_mutex_unlock(&dev->caw_lock);
+	pthread_mutex_unlock(&rdev->caw_lock);
 	aio_command_finish(dev, origcmd, ret);
 	caw_free_readcmd(readcmd);
 }
@@ -376,6 +380,7 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	int ret;
 	struct tcmulib_cmd *readcmd;
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 
 	ret = check_lba_and_length(dev, cmd, cmd->cdb[13] * 2);
 	if (ret)
@@ -389,13 +394,13 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	readcmd->done = handle_caw_read_cbk;
 
-	pthread_mutex_lock(&dev->caw_lock);
+	pthread_mutex_lock(&rdev->caw_lock);
 
 	ret = async_handle_cmd(dev, readcmd, read_work_fn);
 	if (ret == TCMU_ASYNC_HANDLED)
 		return TCMU_ASYNC_HANDLED;
 
-	pthread_mutex_unlock(&dev->caw_lock);
+	pthread_mutex_unlock(&rdev->caw_lock);
 	caw_free_readcmd(readcmd);
 out:
 	return ret;
@@ -493,6 +498,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 				  struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
 
 	if (!rhandler->handle_cmd)
@@ -511,10 +517,10 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	 * ->handle_cmd handled the passthough command here as well as in
 	 * handle_passthrough_cbk().
 	 */
-	track_aio_request_start(dev);
+	track_aio_request_start(rdev);
 	ret = handle_passthrough(dev, cmd);
 	if (ret != TCMU_ASYNC_HANDLED)
-		track_aio_request_finish(dev, NULL);
+		track_aio_request_finish(rdev, NULL);
 
 	return ret;
 }
@@ -523,9 +529,10 @@ int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret = TCMU_NOT_HANDLED;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	uint8_t *cdb = cmd->cdb;
 
-	track_aio_request_start(dev);
+	track_aio_request_start(rdev);
 
 	switch(cdb[0]) {
 	case READ_6:
@@ -559,6 +566,6 @@ int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	if (ret != TCMU_ASYNC_HANDLED)
-		track_aio_request_finish(dev, NULL);
+		track_aio_request_finish(rdev, NULL);
 	return ret;
 }
