@@ -522,7 +522,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			 */
 			if (ret != TCMU_ASYNC_HANDLED) {
 				completed = 1;
-				tcmulib_command_complete(dev, cmd, ret);
+				tcmur_command_complete(dev, cmd, ret);
 			}
 		}
 
@@ -559,9 +559,13 @@ static int dev_added(struct tcmu_device *dev)
 		return -ENOMEM;
 	tcmu_set_daemon_dev_private(dev, rdev);
 
-	ret = pthread_mutex_init(&rdev->caw_lock, NULL);
+	ret = pthread_spin_init(&rdev->lock, 0);
 	if (ret < 0)
 		goto free_rdev;
+
+	ret = pthread_mutex_init(&rdev->caw_lock, NULL);
+	if (ret < 0)
+		goto cleanup_dev_lock;
 
 	ret = setup_io_work_queue(dev);
 	if (ret < 0)
@@ -589,6 +593,8 @@ cleanup_io_work_queue:
 	cleanup_io_work_queue(dev, true);
 cleanup_caw_lock:
 	pthread_mutex_destroy(&rdev->caw_lock);
+cleanup_dev_lock:
+	pthread_spin_destroy(&rdev->lock);
 free_rdev:
 	free(rdev);
 	return ret;
@@ -615,6 +621,10 @@ static void dev_removed(struct tcmu_device *dev)
 	ret = pthread_mutex_destroy(&rdev->caw_lock);
 	if (ret < 0)
 		tcmu_err("could not cleanup caw lock %d\n", ret);
+
+	ret = pthread_spin_destroy(&rdev->lock);
+	if (ret < 0)
+		tcmu_err("could not cleanup mailbox lock %d\n", ret);
 
 	free(rdev);
 }
