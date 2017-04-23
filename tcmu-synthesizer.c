@@ -56,7 +56,8 @@ static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
 
 	switch (cmd) {
 	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_inquiry(dev, NULL, cdb, iovec, iov_cnt,
+					    sense);
 		break;
 	case TEST_UNIT_READY:
 		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);

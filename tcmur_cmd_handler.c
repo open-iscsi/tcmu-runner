@@ -595,7 +595,8 @@ static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	switch (cdb[0]) {
 	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_inquiry(dev, NULL, cdb, iovec, iov_cnt,
+					    sense);
 	case TEST_UNIT_READY:
 		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
 	case SERVICE_ACTION_IN_16:

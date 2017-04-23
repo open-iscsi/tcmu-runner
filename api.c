@@ -33,6 +33,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
+#include "alua.h"
 
 #define SECTOR_SIZE 512
 
@@ -282,6 +283,7 @@ size_t tcmu_memcpy_from_iovec(
 }
 
 int tcmu_emulate_std_inquiry(
+	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -300,6 +302,9 @@ int tcmu_emulate_std_inquiry(
 	memcpy(&buf[16], "TCMU device", 11);
 	memcpy(&buf[32], "0002", 4);
 	buf[4] = 31; /* Set additional length to 31 */
+
+	if (port)
+		buf[5] = port->grp->tpgs;
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 	return SAM_STAT_GOOD;
@@ -494,6 +499,7 @@ int tcmu_emulate_evpd_inquiry(
  */
 int tcmu_emulate_inquiry(
 	struct tcmu_device *dev,
+	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -501,7 +507,8 @@ int tcmu_emulate_inquiry(
 {
 	if (!(cdb[1] & 0x01)) {
 		if (!cdb[2])
-			return tcmu_emulate_std_inquiry(cdb, iovec, iov_cnt, sense);
+			return tcmu_emulate_std_inquiry(port, cdb, iovec,
+							iov_cnt, sense);
 		else
 			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						   ASC_INVALID_FIELD_IN_CDB, NULL);
