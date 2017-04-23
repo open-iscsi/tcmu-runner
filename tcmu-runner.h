@@ -33,6 +33,11 @@ extern "C" {
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 
+typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
+		       struct iovec *, size_t, size_t, off_t);
+typedef int (*flush_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
+typedef int (*handle_cmd_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
+
 struct tcmur_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */
@@ -86,7 +91,7 @@ struct tcmur_handler {
 	 * function with SAM_STAT_GOOD or a SAM status code and set the
 	 * the sense asc/ascq if needed.
 	 */
-	int (*handle_cmd)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
+	handle_cmd_fn_t handle_cmd;
 
 	/*
 	 * Below callbacks are only exected called by generic_handle_cmd.
