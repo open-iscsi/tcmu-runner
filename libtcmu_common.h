@@ -35,6 +35,9 @@ struct tcmulib_cmd;
 
 #define SENSE_BUFFERSIZE 96
 
+#define CFGFS_ROOT "/sys/kernel/config/target"
+#define CFGFS_CORE CFGFS_ROOT"/core"
+
 typedef void (*cmd_done_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
 
 struct tcmulib_cmd {

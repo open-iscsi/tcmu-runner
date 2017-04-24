@@ -26,7 +26,6 @@
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
 
-#define CFGFS_CORE "/sys/kernel/config/target/core"
 #define CFGFS_BUF_SIZE 4096
 
 int tcmu_get_cfgfs_int(const char *path)
