@@ -29,7 +29,7 @@
 #define CFGFS_CORE "/sys/kernel/config/target/core"
 #define CFGFS_BUF_SIZE 4096
 
-static int tcmu_get_cfgfs_int(const char *path)
+int tcmu_get_cfgfs_int(const char *path)
 {
 	int fd;
 	char buf[16];
@@ -153,4 +153,72 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 	}
 
 	return size;
+}
+
+char *tcmu_get_cfgfs_str(const char *path)
+{
+	int fd;
+	char buf[CFGFS_BUF_SIZE];
+	ssize_t ret;
+	char *val;
+
+	fd = open(path, O_RDONLY);
+	if (fd == -1) {
+		tcmu_err("Could not open configfs to read attribute %s: %s\n",
+			  path, strerror(errno));
+		return NULL;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	close(fd);
+	if (ret == -1) {
+		tcmu_err("Could not read configfs to read attribute %s: %s\n",
+		         path, strerror(errno));
+		return NULL;
+	}
+
+	if (ret == 0)
+		return NULL;
+
+	if (buf[ret - 1] == '\n')
+		buf[ret - 1] = '\0';
+
+	val = strdup(buf);
+	if (!val) {
+		tcmu_err("could not copy buffer %s\n", buf);
+		return NULL;
+	}
+
+	return val;
+}
+
+int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len)
+{
+	int fd;
+	ssize_t ret;
+
+	fd = open(path, O_WRONLY);
+	if (fd == -1) {
+		tcmu_err("Could not open configfs to write attribute %s: %s\n",
+			 path, strerror(errno));
+		return -errno;
+	}
+
+	ret = write(fd, val, val_len);
+	close(fd);
+	if (ret == -1) {
+		tcmu_err("Could not write configfs to write attribute %s: %s\n",
+			 path, strerror(errno));
+		return -errno;
+	}
+
+	return 0;
+}
+
+int tcmu_set_cfgfs_ul(const char *path, unsigned long val)
+{
+	char buf[20];
+
+	sprintf(buf, "%lu", val);
+	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
 }

@@ -69,6 +69,10 @@ struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
 struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev);
 
 /* Helper routines for processing commands */
+char *tcmu_get_cfgfs_str(const char *path);
+int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len);
+int tcmu_get_cfgfs_int(const char *path);
+int tcmu_set_cfgfs_ul(const char *path, unsigned long val);
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
 long long tcmu_get_device_size(struct tcmu_device *dev);
 char *tcmu_get_wwn(struct tcmu_device *dev);
