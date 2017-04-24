@@ -38,6 +38,7 @@ add_library(tcmu
   SHARED
   configfs.c
   api.c
+  alua.c
   libtcmu.c
   libtcmu-register.c
   tcmuhandler-generated.c
@@ -65,6 +66,7 @@ install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 add_library(tcmu_static
   configfs.c
   api.c
+  alua.c
   libtcmu.c
   libtcmu-register.c
   tcmuhandler-generated.c
