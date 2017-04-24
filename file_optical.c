@@ -78,7 +78,6 @@ struct fbo_state {
 	uint8_t event_op_ch_code;
 	uint8_t async_cache_count;
 	pthread_mutex_t state_mtx;
-	pthread_mutex_t completion_mtx;
 	int curr_handler;
 };
 
@@ -231,7 +230,6 @@ static int fbo_open(struct tcmu_device *dev)
 	tcmu_dbg("FBO Open: fd %d\n", state->fd);
 
 	pthread_mutex_init(&state->state_mtx, NULL);
-	pthread_mutex_init(&state->completion_mtx, NULL);
 
 	/* Record that we've changed our Operational state */
 	fbo_report_op_change(dev, 0x02);
