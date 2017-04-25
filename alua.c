@@ -407,3 +407,240 @@ struct tgt_port *tcmu_get_enabled_port(struct list_head *group_list)
 
 	return NULL;
 }
+
+static bool alua_check_sup_state(uint8_t state, uint8_t sup)
+{
+	switch (state) {
+	case ALUA_ACCESS_STATE_OPTIMIZED:
+		if (sup & ALUA_SUP_OPTIMIZED)
+			return true;
+		return false;
+	case ALUA_ACCESS_STATE_NON_OPTIMIZED:
+		if (sup & ALUA_SUP_NON_OPTIMIZED)
+			return true;
+		return false;
+	case ALUA_ACCESS_STATE_STANDBY:
+		if (sup & ALUA_SUP_STANDBY)
+			return true;
+		return false;
+	case ALUA_ACCESS_STATE_UNAVAILABLE:
+		if (sup & ALUA_SUP_UNAVAILABLE)
+			return true;
+		return false;
+	case ALUA_ACCESS_STATE_OFFLINE:
+		/*
+		 * TODO: support secondary states
+		 */
+		return false;
+	}
+
+	return false;
+}
+
+int tcmu_transition_tgt_port_grp(struct tgt_port_grp *group, uint8_t new_state,
+				 uint8_t alua_status, uint8_t *sense,
+				 tcmu_transition_state_fn_t *transition_fn)
+{
+	struct tcmu_device *dev = group->dev;
+	int ret;
+
+	tcmu_dbg("transition group %u new state %u old state %u sup 0x%x\n",
+		 group->id, new_state, group->state, group->supported_states);
+
+	if (!alua_check_sup_state(new_state, group->supported_states)) {
+		if (sense)
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					ASC_INVALID_FIELD_IN_PARAMETER_LIST,
+					NULL);
+		else
+			return SAM_STAT_CHECK_CONDITION;
+	}
+
+	if (transition_fn) {
+		ret = transition_fn(dev, group, new_state, sense);
+		if (ret != SAM_STAT_GOOD)
+			return ret;
+	}
+
+	ret = tcmu_set_alua_int_setting(group, "alua_access_state", new_state);
+	if (ret) {
+		tcmu_err("Could not change kernel state to %u\n", new_state);
+		if (sense)
+			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						   ASC_STPG_CMD_FAILED, NULL);
+		else
+			return SAM_STAT_CHECK_CONDITION;
+	}
+
+	ret = tcmu_set_alua_int_setting(group, "alua_access_status",
+					ALUA_STAT_ALTERED_BY_EXPLICIT_STPG);
+	if (ret)
+		tcmu_err("Could not set alua_access_status for group %s:%d\n",
+			 group->name, group->id);
+
+	group->state = new_state;
+	group->status = alua_status;
+	return SAM_STAT_GOOD;
+}
+
+int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
+				      struct list_head *group_list,
+				      struct tcmulib_cmd *cmd,
+				      tcmu_report_state_fn_t *report_fn)
+{
+	struct tgt_port_grp *group;
+	struct tgt_port *port;
+	int ext_hdr = cmd->cdb[1] & 0x20;
+	uint32_t off = 4, ret_data_len = 0, ret32;
+	uint32_t alloc_len = tcmu_get_xfer_length(cmd->cdb);
+	uint8_t *buf, state;
+
+	if (alloc_len < 4)
+		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	buf = calloc(1, alloc_len);
+	if (!buf)
+		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	if (ext_hdr && alloc_len > 5 && !list_empty(group_list)) {
+		buf[4] = 0x10;
+		/*
+		 * assume all groups will have the same value for now.
+		 */
+		group = list_first_entry(group_list, struct tgt_port_grp,
+					 entry);
+		if (group)
+			buf[5] = group->implicit_trans_secs;
+		off = 8;
+	}
+
+	list_for_each(group_list, group, entry) {
+		int next_off = off + 8 + (group->num_tgt_ports * 4);
+
+		if (next_off > alloc_len) {
+			ret_data_len += next_off;
+			continue;
+		}
+
+		if (group->pref)
+			buf[off] = 0x80;
+
+		if (report_fn) {
+			state = report_fn(dev, group);
+			/*
+			 * Some handlers are not able to async update state,
+			 * so check it now and update.
+			 */
+			if (state != group->state) {
+				if (tcmu_transition_tgt_port_grp(group, state,
+							TPGS_ALUA_IMPLICIT,
+							NULL, NULL))
+					tcmu_err("Could not perform implicit state change for group %u\n", group->id);
+			}
+		} else {
+			state = group->state;
+		}
+
+		buf[off++] |= state;
+		buf[off++] |= group->supported_states;
+		buf[off++] = (group->id >> 8) & 0xff;
+		buf[off++] = group->id & 0xff;
+		/* reserved */
+		off++;
+		buf[off++] = group->status;
+		/* vendor specific */
+		off++;
+		buf[off++] = group->num_tgt_ports;
+
+		ret_data_len += 8;
+
+		list_for_each(&group->tgt_ports, port, entry) {
+			/* reserved */
+			off += 2;
+			buf[off++] = (port->rel_port_id >> 8) & 0xff;
+			buf[off++] = port->rel_port_id & 0xff;
+
+			ret_data_len += 4;
+		}
+
+	}
+	ret32 = htobe32(ret_data_len);
+	memcpy(&buf[0], &ret32, 4);
+
+	tcmu_memcpy_into_iovec(cmd->iovec, cmd->iov_cnt, buf, alloc_len);
+	free(buf);
+	return SAM_STAT_GOOD;
+}
+
+int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
+				   struct list_head *group_list,
+				   struct tcmulib_cmd *cmd,
+				   tcmu_transition_state_fn_t *transition_fn)
+{
+	struct tgt_port_grp *group;
+	uint32_t off = 4, param_list_len = tcmu_get_xfer_length(cmd->cdb);
+	uint16_t id, tmp_id;
+	char *buf, new_state;
+	int found, ret = SAM_STAT_GOOD;
+
+	if (!param_list_len)
+		return SAM_STAT_GOOD;
+
+	buf = calloc(1, param_list_len);
+	if (!buf)
+		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	if (tcmu_memcpy_from_iovec(buf, param_list_len, cmd->iovec,
+				   cmd->iov_cnt) != param_list_len) {
+		ret = tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+					  ASC_PARAMETER_LIST_LENGTH_ERROR,
+					  NULL);
+		goto free_buf;
+	}
+
+	while (off < param_list_len) {
+		new_state = buf[off++] & 0x0f;
+		/* reserved */
+		off++;
+		memcpy(&tmp_id, &buf[off], sizeof(tmp_id));
+		id = be16toh(tmp_id);
+		off += 2;
+
+		found = 0;
+		list_for_each(group_list, group, entry) {
+			if (group->id != id)
+				continue;
+
+			tcmu_dbg("Got STPG for group %u\n", id);
+			ret = tcmu_transition_tgt_port_grp(group, new_state,
+							   TPGS_ALUA_EXPLICIT,
+							   cmd->sense_buf,
+							   transition_fn);
+			if (ret) {
+				tcmu_err("Failing STPG for group %d\n", id);
+				goto free_buf;
+			}
+			found = 1;
+			break;
+		}
+
+		if (!found) {
+			/*
+			 * Could not find what error code to return in
+			 * SCSI spec.
+			 */
+			tcmu_err("Could not find group for %u for STPG\n", id);
+			ret = tcmu_set_sense_data(cmd->sense_buf,
+					HARDWARE_ERROR,
+					ASC_STPG_CMD_FAILED, NULL);
+			break;
+		}
+	}
+
+free_buf:
+	free(buf);
+	return ret;
+}

@@ -27,6 +27,10 @@
 #define SERVICE_ACTION_IN_16            0x9e
 #define READ_DVD_STRUCTURE              0xad
 #define MECHANISM_STATUS                0xbd
+#define MAINTENANCE_IN			0xa3
+#define MAINTENANCE_OUT			0xa4
+#define MI_REPORT_TARGET_PGS		0x0a
+#define MO_SET_TARGET_PGS		0x0a
 
 /*
  * Service action opcodes
@@ -77,6 +81,7 @@ enum scsi_protocol {
 #define ASC_CANT_WRITE_INCOMPATIBLE_FORMAT      0x3005
 #define ASC_SAVING_PARAMETERS_NOT_SUPPORTED     0x3900
 #define ASC_INTERNAL_TARGET_FAILURE             0x4400
+#define ASC_STPG_CMD_FAILED			0x670A
 
 #define ALUA_ACCESS_STATE_OPTIMIZED		0x0
 #define ALUA_ACCESS_STATE_NON_OPTIMIZED		0x1
