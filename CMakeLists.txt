@@ -43,6 +43,7 @@ add_library(tcmu
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
+  libtcmu_time.c
   )
 set_target_properties(tcmu
   PROPERTIES
