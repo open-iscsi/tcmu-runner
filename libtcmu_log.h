@@ -42,19 +42,28 @@ typedef enum {
 typedef int (*log_output_fn_t) (int priority, const char *timestamp, const char *str, void *data);
 typedef void (*log_close_fn_t) (void *data);
 
+struct tcmu_device;
+
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
 void tcmu_cancel_log_thread(void);
 
-void tcmu_err_message(const char *funcname, int linenr, const char *fmt, ...);
-void tcmu_warn_message(const char *funcname, int linenr, const char *fmt, ...);
-void tcmu_info_message(const char *funcname, int linenr, const char *fmt, ...);
-void tcmu_dbg_message(const char *funcname, int linenr, const char *fmt, ...);
-void tcmu_dbg_scsi_cmd_message(const char *funcname, int linenr, const char *fmt, ...);
+void tcmu_err_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+void tcmu_warn_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+void tcmu_info_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+void tcmu_dbg_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 
-#define tcmu_err(...)  {tcmu_err_message(__func__, __LINE__, __VA_ARGS__);}
-#define tcmu_warn(...) {tcmu_warn_message(__func__, __LINE__, __VA_ARGS__);}
-#define tcmu_info(...) {tcmu_info_message(__func__, __LINE__, __VA_ARGS__);}
-#define tcmu_dbg(...)  {tcmu_dbg_message(__func__, __LINE__, __VA_ARGS__);}
-#define tcmu_dbg_scsi_cmd(...)  {tcmu_dbg_scsi_cmd_message(__func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dev_err(dev, ...)  {tcmu_err_message(dev, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dev_warn(dev, ...) {tcmu_warn_message(dev, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dev_info(dev, ...) {tcmu_info_message(dev, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dev_dbg(dev, ...)  {tcmu_dbg_message(dev, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dev_dbg_scsi_cmd(dev, ...)  {tcmu_dbg_scsi_cmd_message(dev, __func__, __LINE__, __VA_ARGS__);}
+
+
+#define tcmu_err(...)  {tcmu_err_message(NULL, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_warn(...) {tcmu_warn_message(NULL, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_info(...) {tcmu_info_message(NULL, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dbg(...)  {tcmu_dbg_message(NULL, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dbg_scsi_cmd(...)  {tcmu_dbg_scsi_cmd_message(NULL, __func__, __LINE__, __VA_ARGS__);}
 #endif /* __TCMU_LOG_H */

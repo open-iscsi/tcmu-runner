@@ -28,6 +28,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_config.h"
 #include "libtcmu_time.h"
+#include "libtcmu_priv.h"
 
 /* tcmu ring buffer for log */
 #define LOG_ENTRY_LEN 256 /* rb[0] is reserved for pri */
@@ -163,9 +164,8 @@ static inline void rb_update_head(struct log_buf *logbuf)
 }
 
 static void
-log_internal(int pri,const char *funcname,
-		int linenr,const char *fmt,
-		va_list args)
+log_internal(int pri, struct tcmu_device *dev, const char *funcname,
+	     int linenr, const char *fmt, va_list args)
 {
 	unsigned int head;
 	char *msg;
@@ -185,7 +185,8 @@ log_internal(int pri,const char *funcname,
 	head = logbuf->head;
 	rb_set_pri(logbuf, head, pri);
 	msg = rb_get_msg(logbuf, head);
-	n = sprintf(msg, "%s:%d : ", funcname, linenr);
+	n = sprintf(msg, "%s:%d %s: ", funcname, linenr,
+		    dev ? dev->tcm_dev_name: "");
 	vsnprintf(msg + n, LOG_MSG_LEN - n, fmt, args);
 
 	rb_update_head(logbuf);
@@ -196,48 +197,54 @@ log_internal(int pri,const char *funcname,
 	pthread_mutex_unlock(&logbuf->lock);
 }
 
-void tcmu_err_message(const char *funcname, int linenr, const char *fmt, ...)
+void tcmu_err_message(struct tcmu_device *dev, const char *funcname,
+		      int linenr, const char *fmt, ...)
 {
 	va_list args;
 
 	va_start(args, fmt);
-	log_internal(TCMU_LOG_ERROR, funcname, linenr, fmt, args);
+	log_internal(TCMU_LOG_ERROR, dev, funcname, linenr, fmt, args);
 	va_end(args);
 }
 
-void tcmu_warn_message(const char *funcname, int linenr, const char *fmt, ...)
+void tcmu_warn_message(struct tcmu_device *dev, const char *funcname,
+		       int linenr, const char *fmt, ...)
 {
 	va_list args;
 
 	va_start(args, fmt);
-	log_internal(TCMU_LOG_WARN, funcname, linenr, fmt, args);
+	log_internal(TCMU_LOG_WARN, dev, funcname, linenr, fmt, args);
 	va_end(args);
 }
 
-void tcmu_info_message(const char *funcname, int linenr, const char *fmt, ...)
+void tcmu_info_message(struct tcmu_device *dev, const char *funcname,
+		       int linenr, const char *fmt, ...)
 {
 	va_list args;
 
 	va_start(args, fmt);
-	log_internal(TCMU_LOG_INFO, funcname, linenr, fmt, args);
+	log_internal(TCMU_LOG_INFO, dev, funcname, linenr, fmt, args);
 	va_end(args);
 }
 
-void tcmu_dbg_message(const char *funcname, int linenr, const char *fmt, ...)
+void tcmu_dbg_message(struct tcmu_device *dev, const char *funcname,
+		      int linenr, const char *fmt, ...)
 {
 	va_list args;
 
 	va_start(args, fmt);
-	log_internal(TCMU_LOG_DEBUG, funcname, linenr, fmt, args);
+	log_internal(TCMU_LOG_DEBUG, dev, funcname, linenr, fmt, args);
 	va_end(args);
 }
 
-void tcmu_dbg_scsi_cmd_message(const char *funcname, int linenr, const char *fmt, ...)
+void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname,
+			       int linenr, const char *fmt, ...)
 {
 	va_list args;
 
 	va_start(args, fmt);
-	log_internal(TCMU_LOG_DEBUG_SCSI_CMD, funcname, linenr, fmt, args);
+	log_internal(TCMU_LOG_DEBUG_SCSI_CMD, dev, funcname, linenr, fmt,
+		     args);
 	va_end(args);
 }
 
