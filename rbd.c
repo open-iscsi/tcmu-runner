@@ -547,7 +547,7 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	aio_cb = calloc(1, sizeof(*aio_cb));
 	if (!aio_cb) {
-		tcmu_err("could not allocated aio_cb\n");
+		tcmu_dev_err(dev, "Could not allocate aio_cb.\n");
 		goto out;
 	}
 
@@ -557,7 +557,7 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	aio_cb->bounce_buffer = malloc(length);
 	if (!aio_cb->bounce_buffer) {
-		tcmu_err("could not allocate bounce buffer\n");
+		tcmu_dev_err(dev, "Could not allocate bounce buffer.\n");
 		goto out_free_aio_cb;
 	}
 
@@ -628,7 +628,7 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	aio_cb = calloc(1, sizeof(*aio_cb));
 	if (!aio_cb) {
-		tcmu_err("could not allocated aio_cb\n");
+		tcmu_dev_err(dev, "Could not allocate aio_cb.\n");
 		goto out;
 	}
 
@@ -638,7 +638,7 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	aio_cb->bounce_buffer = malloc(length);
 	if (!aio_cb->bounce_buffer) {
-		tcmu_err("failed to allocate bounce buffer\n");
+		tcmu_dev_err(dev, "Failed to allocate bounce buffer.\n");
 		goto out_free_aio_cb;
 	}
 
@@ -677,7 +677,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	aio_cb = calloc(1, sizeof(*aio_cb));
 	if (!aio_cb) {
-		tcmu_err("could not allocated aio_cb\n");
+		tcmu_dev_err(dev, "Could not allocate aio_cb.\n");
 		goto out;
 	}
 
