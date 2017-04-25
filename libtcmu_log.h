@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <stdbool.h>
 
 #define TCMU_IDENT "tcmu"
 #define TCMU_RUNNER "tcmu-runner"
@@ -36,6 +37,7 @@
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
 void tcmu_cancel_log_thread(void);
+void tcmu_reset_log_thread(void);
 
 void tcmu_err_message(const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_warn_message(const char *funcname, int linenr, const char *fmt, ...);

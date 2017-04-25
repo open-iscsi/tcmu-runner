@@ -52,6 +52,7 @@ static struct log_buf *tcmu_log_initialize(void);
 
 static struct log_buf *logbuf = NULL;
 static int initialized = false;
+static int reset_log_thread = false;
 
 /* covert log level from tcmu config to syslog */
 static inline int to_syslog_level(int level)
@@ -308,7 +309,14 @@ static void log_thread_cleanup(void *arg)
 	pthread_mutex_destroy(&logbuf->lock);
 	free(logbuf);
 
+	initialized = false;
 	close_syslog();
+}
+
+void tcmu_reset_log_thread(void)
+{
+	reset_log_thread = true;
+	initialized = false;
 }
 
 static void *log_thread_start(void *arg)
@@ -345,6 +353,11 @@ static struct log_buf *tcmu_log_initialize(void)
 	int ret;
 	pthread_mutex_lock(&g_mutex);
 
+	if(reset_log_thread) {
+		reset_log_thread = false;
+		goto restart;
+	}
+
 	if (initialized && logbuf != NULL) {
 		pthread_mutex_unlock(&g_mutex);
 		return logbuf;
@@ -356,13 +369,14 @@ static struct log_buf *tcmu_log_initialize(void)
 		return NULL;
 	}
 
-	logbuf->thread_active = false;
-	logbuf->finish_initialize = false;
 	logbuf->head = 0;
 	logbuf->tail = 0;
 	pthread_cond_init(&logbuf->cond, NULL);
 	pthread_mutex_init(&logbuf->lock, NULL);
 
+restart:
+	logbuf->thread_active = false;
+	logbuf->finish_initialize = false;
 	ret = pthread_create(&logbuf->thread_id, NULL, log_thread_start, logbuf);
 	if (ret) {
 		free(logbuf);

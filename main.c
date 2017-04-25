@@ -54,6 +54,7 @@
 #define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
+static bool daemonize = false;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
@@ -641,6 +642,47 @@ static void dev_removed(struct tcmu_device *dev)
 	free(rdev);
 }
 
+static int daemon_to_background(void)
+{
+	int fd;
+	pid_t pid;
+
+	pid = fork();
+	if (pid < 0) {
+		tcmu_err("Starting daemon failed\n");
+		tcmu_cancel_log_thread();
+		exit(1);
+	} else if (pid) {
+		tcmu_cancel_log_thread();
+		exit(0);
+	}
+
+	tcmu_info("tcmu-runner daemon with pid=%d started!\n", getpid());
+
+	tcmu_reset_log_thread();
+
+	fd = open("/dev/null", O_RDWR);
+	if (fd == -1) {
+		tcmu_err("Open \"/dev/null\" failed\n");
+		return -1;
+	}
+
+	if (dup2(fd, STDIN_FILENO) != STDIN_FILENO)
+		goto cleanup;
+	if (dup2(fd, STDOUT_FILENO) != STDOUT_FILENO)
+		goto cleanup;
+	if (dup2(fd, STDERR_FILENO) != STDERR_FILENO)
+		goto cleanup;
+	if (setsid() < 0)
+		goto cleanup;
+
+	close(fd);
+	return 0;
+cleanup:
+	close(fd);
+	return -1;
+}
+
 static void usage(void) {
 	printf("\nusage:\n");
 	printf("\ttcmu-runner [options]\n");
@@ -648,6 +690,7 @@ static void usage(void) {
 	printf("\t-h, --help: print this message and exit\n");
 	printf("\t-V, --version: print version and exit\n");
 	printf("\t-d, --debug: enable debug messages\n");
+	printf("\t-D, --daemon: make the program run as a daemon in background\n");
 	printf("\t--handler-path: set path to search for handler modules\n");
 	printf("\t\tdefault is %s\n", DEFAULT_HANDLER_PATH);
 	printf("\n");
@@ -655,6 +698,7 @@ static void usage(void) {
 
 static struct option long_options[] = {
 	{"debug", no_argument, 0, 'd'},
+	{"daemon", no_argument, 0, 'D'},
 	{"handler-path", required_argument, 0, 0},
 	{"help", no_argument, 0, 'h'},
 	{"version", no_argument, 0, 'V'},
@@ -680,7 +724,7 @@ int main(int argc, char **argv)
 	while (1) {
 		int option_index = 0;
 
-		c = getopt_long(argc, argv, "dhV",
+		c = getopt_long(argc, argv, "dDhV",
 				long_options, &option_index);
 		if (c == -1)
 			break;
@@ -692,6 +736,9 @@ int main(int argc, char **argv)
 			break;
 		case 'd':
 			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG_SCSI_CMD);
+			break;
+		case 'D':
+			daemonize = true;
 			break;
 		case 'V':
 			printf("tcmu-runner %s\n", TCMUR_VERSION);
@@ -709,6 +756,17 @@ int main(int argc, char **argv)
 	if (ret < 0) {
 		tcmu_err("couldn't load module\n");
 		exit(1);
+	}
+
+	if (daemonize) {
+		if (chdir("/") < 0)
+			tcmu_warn("unable to chdir to root directory\n");
+
+		ret = daemon_to_background();
+		if (ret < 0) {
+			tcmu_err("failed to fork a daemon\n");
+			exit(1);
+		}
 	}
 
 	ret = open_handlers();
