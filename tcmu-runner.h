@@ -32,6 +32,7 @@ extern "C" {
 #include "scsi_defs.h"
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
+#include "alua.h"
 
 typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
 		       struct iovec *, size_t, size_t, off_t);
@@ -71,6 +72,15 @@ struct tcmur_handler {
 	 * completion context for compound commands.
 	 */
 	int nr_threads;
+
+	/*
+	 * Synchronously change the state to new_state.
+	 * Returns
+	 * - SAM_STAT_GOOD on success.
+	 * - SCSI status with sense set if needed on failure.
+	 */
+	tcmu_transition_state_fn_t *transition_state;
+	tcmu_report_state_fn_t *report_state;
 
 	/*
 	 * Async handle_cmd only handlers return:

@@ -19,6 +19,8 @@
 #include <errno.h>
 #include <inttypes.h>
 
+#include "ccan/list/list.h"
+
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
@@ -26,6 +28,7 @@
 #include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
+#include "alua.h"
 
 void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			    int rc)
@@ -478,6 +481,45 @@ static int handle_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return async_handle_cmd(dev, cmd, read_work_fn);
 }
 
+/* ALUA */
+static int handle_stpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct list_head group_list;
+	int ret;
+
+	list_head_init(&group_list);
+
+	ret = tcmu_get_tgt_port_grps(dev, &group_list);
+	if (ret)
+		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	ret = tcmu_emulate_set_tgt_port_grps(dev, &group_list, cmd,
+					     rhandler->transition_state);
+	tcmu_release_tgt_port_grps(&group_list);
+	return ret;
+}
+
+static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct list_head group_list;
+	int ret;
+
+	list_head_init(&group_list);
+
+	ret = tcmu_get_tgt_port_grps(dev, &group_list);
+	if (ret)
+		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	ret = tcmu_emulate_report_tgt_port_grps(dev, &group_list, cmd,
+						rhandler->report_state);
+	tcmu_release_tgt_port_grps(&group_list);
+	return ret;
+}
+
 /* command passthrough */
 static void
 handle_passthrough_cbk(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -573,7 +615,20 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case WRITE_VERIFY_16:
 		ret = handle_write_verify(dev, cmd);
 		break;
+	case MAINTENANCE_IN:
+		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS) {
+			ret = handle_rtpg(dev, cmd);
+			break;
+		}
+		goto passthrough;
+	case MAINTENANCE_OUT:
+		if (cdb[1] == MO_SET_TARGET_PGS) {
+			ret = handle_stpg(dev, cmd);
+			break;
+		}
+		goto passthrough;
 	default:
+passthrough:
 		/* Try to passthrough the default cmds */
 		if (rhandler->handle_cmd)
 			ret = handle_passthrough(dev, cmd);
@@ -581,6 +636,36 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	if (ret != TCMU_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
+	return ret;
+}
+
+static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct list_head group_list;
+	struct tgt_port *port;
+	int ret;
+
+	list_head_init(&group_list);
+
+	ret = tcmu_get_tgt_port_grps(dev, &group_list);
+	if (ret)
+		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	/*
+	 * Detect if the user did not setup ALUA or the kernel did not fully
+	 * support it. ALUA tcmu support was added in 4.11. Before that and
+	 * in the unsetup case, we will end up with at least the default ALUA
+	 * group and a empty members (groups are not set to any LUNs) file. For
+	 * these cases we just return tpgs=0.
+	 */
+	port = tcmu_get_enabled_port(&group_list);
+	if (!port)
+		tcmu_dbg("no enabled ports found. Skipping ALUA support\n");
+
+	ret = tcmu_emulate_inquiry(dev, port, cmd->cdb, cmd->iovec,
+				   cmd->iov_cnt, cmd->sense_buf);
+	tcmu_release_tgt_port_grps(&group_list);
 	return ret;
 }
 
@@ -595,7 +680,7 @@ static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	switch (cdb[0]) {
 	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
+		return handle_inquiry(dev, cmd);
 	case TEST_UNIT_READY:
 		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
 	case SERVICE_ACTION_IN_16:

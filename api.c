@@ -33,6 +33,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
+#include "alua.h"
 
 #define SECTOR_SIZE 512
 
@@ -282,6 +283,7 @@ size_t tcmu_memcpy_from_iovec(
 }
 
 int tcmu_emulate_std_inquiry(
+	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -300,6 +302,9 @@ int tcmu_emulate_std_inquiry(
 	memcpy(&buf[16], "TCMU device", 11);
 	memcpy(&buf[32], "0002", 4);
 	buf[4] = 31; /* Set additional length to 31 */
+
+	if (port)
+		buf[5] = port->grp->tpgs;
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 	return SAM_STAT_GOOD;
@@ -325,6 +330,7 @@ static bool char_to_hex(unsigned char *val, char c)
 
 int tcmu_emulate_evpd_inquiry(
 	struct tcmu_device *dev,
+	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -369,7 +375,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		ptr = &data[4];
 
-		/* 1/3: T10 Vendor id */
+		/* 1/5: T10 Vendor id */
 		ptr[0] = 2; /* code set: ASCII */
 		ptr[1] = 1; /* identifier: T10 vendor id */
 		memcpy(&ptr[4], "LIO-ORG ", 8);
@@ -379,7 +385,7 @@ int tcmu_emulate_evpd_inquiry(
 		used += (uint8_t)ptr[3] + 4;
 		ptr += used;
 
-		/* 2/3: NAA binary */
+		/* 2/5: NAA binary */
 		ptr[0] = 1; /* code set: binary */
 		ptr[1] = 3; /* identifier: NAA */
 		ptr[3] = 16; /* body length for naa registered extended format */
@@ -420,7 +426,7 @@ int tcmu_emulate_evpd_inquiry(
 		used += 20;
 		ptr += 20;
 
-		/* 3/3: Vendor specific */
+		/* 3/6: Vendor specific */
 		ptr[0] = 2; /* code set: ASCII */
 		ptr[1] = 0; /* identifier: vendor-specific */
 
@@ -428,7 +434,37 @@ int tcmu_emulate_evpd_inquiry(
 		ptr[3] = len + 1;
 
 		used += (uint8_t)ptr[3] + 4;
+		ptr += (uint8_t)ptr[3] + 4;
 
+		if (!port)
+			goto finish_page83;
+
+		/* 4/5: Relative target port ID */
+		ptr[0] = port->proto_id << 4; /* proto id */
+		ptr[0] |= 0x1; /* Code set: binary */
+		ptr[1] = 0x80; /* PIV set */
+		ptr[1] |= 0x10; /* Association: 1b assoc with target port */
+		ptr[1] |= 0x4; /* Designator type: Relative target port ID */
+		ptr[3] = 4;
+		/* rel tgt port ID */
+		ptr[6] = (port->rel_port_id >> 8) & 0xff;
+		ptr[7] = port->rel_port_id & 0xff;
+		used += 8;
+		ptr += 8;
+
+		/* 5/5: Target port group */
+		ptr[0] = port->proto_id << 4; /* proto id */
+		ptr[0] |= 0x1; /* Code set: binary */
+		ptr[1] = 0x80; /* PIV set */
+		ptr[1] |= 0x10; /* Association: 1b assoc with target port */
+		ptr[1] |= 0x5; /* Designator type: target port group */
+		ptr[3] = 4;
+		/* tpg id */
+		ptr[6] = (port->grp->id >> 8) & 0xff;
+		ptr[7] = port->grp->id & 0xff;
+		used += 8;
+
+finish_page83:
 		/* Done with descriptor list */
 
 		*tot_len = htobe16(used);
@@ -494,6 +530,7 @@ int tcmu_emulate_evpd_inquiry(
  */
 int tcmu_emulate_inquiry(
 	struct tcmu_device *dev,
+	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -501,13 +538,14 @@ int tcmu_emulate_inquiry(
 {
 	if (!(cdb[1] & 0x01)) {
 		if (!cdb[2])
-			return tcmu_emulate_std_inquiry(cdb, iovec, iov_cnt, sense);
+			return tcmu_emulate_std_inquiry(port, cdb, iovec,
+							iov_cnt, sense);
 		else
 			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						   ASC_INVALID_FIELD_IN_CDB, NULL);
-	}
-	else {
-		return tcmu_emulate_evpd_inquiry(dev, cdb, iovec, iov_cnt, sense);
+	} else {
+		return tcmu_emulate_evpd_inquiry(dev, port, cdb, iovec, iov_cnt,
+						 sense);
 	}
 }
 

@@ -28,12 +28,16 @@ extern "C" {
 #endif
 
 struct tcmu_device;
+struct tgt_port;
 struct tcmulib_cmd;
 
 #define TCMU_NOT_HANDLED -1
 #define TCMU_ASYNC_HANDLED -2
 
 #define SENSE_BUFFERSIZE 96
+
+#define CFGFS_ROOT "/sys/kernel/config/target"
+#define CFGFS_CORE CFGFS_ROOT"/core"
 
 typedef void (*cmd_done_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
 
@@ -69,6 +73,10 @@ struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
 struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev);
 
 /* Helper routines for processing commands */
+char *tcmu_get_cfgfs_str(const char *path);
+int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len);
+int tcmu_get_cfgfs_int(const char *path);
+int tcmu_set_cfgfs_ul(const char *path, unsigned long val);
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
 long long tcmu_get_device_size(struct tcmu_device *dev);
 char *tcmu_get_wwn(struct tcmu_device *dev);
@@ -84,7 +92,7 @@ size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
 
 /* Basic implementations of mandatory SCSI commands */
 int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info);
-int tcmu_emulate_inquiry(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+int tcmu_emulate_inquiry(struct tcmu_device *dev, struct tgt_port *port, uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb, uint8_t *sense);
 int tcmu_emulate_test_unit_ready(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_read_capacity_10(uint64_t num_lbas, uint32_t block_size, uint8_t *cdb,

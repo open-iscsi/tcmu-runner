@@ -38,6 +38,7 @@ add_library(tcmu
   SHARED
   configfs.c
   api.c
+  alua.c
   libtcmu.c
   libtcmu-register.c
   tcmuhandler-generated.c
@@ -65,6 +66,7 @@ install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 add_library(tcmu_static
   configfs.c
   api.c
+  alua.c
   libtcmu.c
   libtcmu-register.c
   tcmuhandler-generated.c
@@ -144,6 +146,9 @@ set_target_properties(handler_file
   PROPERTIES
   PREFIX ""
   )
+target_include_directories(handler_file
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  )
 
 # Stuff for building the file optical handler
 add_library(handler_file_optical
@@ -153,6 +158,9 @@ add_library(handler_file_optical
 set_target_properties(handler_file_optical
   PROPERTIES
   PREFIX ""
+  )
+target_include_directories(handler_file_optical
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 target_link_libraries(handler_file_optical ${PTHREAD})
 
@@ -175,6 +183,9 @@ if (with-rbd)
 	  PROPERTIES
 	  PREFIX ""
 	  )
+	target_include_directories(handler_rbd
+	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+	  )
 	target_link_libraries(handler_rbd
 	  ${LIBRBD}
 	  )
@@ -193,6 +204,9 @@ if (with-glfs)
 	  PROPERTIES
 	  PREFIX ""
 	  )
+	target_include_directories(handler_glfs
+	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+	  )
 	target_link_libraries(handler_glfs
 	  ${GFAPI}
 	  )
@@ -210,6 +224,9 @@ if (with-qcow)
 	set_target_properties(handler_qcow
 	  PROPERTIES
 	  PREFIX ""
+	  )
+	target_include_directories(handler_qcow
+	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
 	  )
 
 	CHECK_INCLUDE_FILE("linux/falloc.h" HAVE_LINUX_FALLOC)
