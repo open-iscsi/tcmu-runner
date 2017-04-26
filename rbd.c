@@ -281,14 +281,7 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	 * Or, set to transitioning and grab the lock in the background.
 	 */
 	while (attempts++ < 5) {
-		/*
-		 * This should only happen if a test is injecting STPGs.
-		 * Normally the initiators will do a RTPG first, so we never
-		 * have the lock and we have cleaned up from blacklisting
-		 * there.
-		 */
 		ret = is_exclusive_lock_owner(dev);
-		tcmu_dev_err(dev, "rnd lock is exlusive lock got %d\n", ret);
 		if (ret == 1) {
 			ret = 0;
 			break;
@@ -332,10 +325,7 @@ static int tcmu_rbd_report_state(struct tcmu_device *dev,
 	/* TODO: For ESX return remote ports */
 
 	ret = is_exclusive_lock_owner(dev);
-	if (ret == -ESHUTDOWN) {
-		tcmu_rbd_image_reopen(dev);
-		return ALUA_ACCESS_STATE_STANDBY;
-	} else if (ret <= 0) {
+	if (ret <= 0) {
 		return ALUA_ACCESS_STATE_STANDBY;
 	} else {
 		return ALUA_ACCESS_STATE_OPTIMIZED;
