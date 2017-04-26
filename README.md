@@ -45,9 +45,50 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 1. If using systemd, copy `org.kernel.TCMUService1.service` to `/usr/share/dbus-1/system-services/` and `tcmu-runner.service` to `/lib/systemd/system`.
 1. Or, run it from the command line as root. It should print the number of handlers and devices found.
 
-##### Creating a LIO user-backed storage object in configfs
+##### Creating a LIO user-backed storage object with targetcli-fb or configfs
 
-Support for creating user backstores via targetcli is under development, but for now:
+Support for the user/tcmu backstore is supported in targetcli-fb/rtslib-fb:
+
+https://github.com/open-iscsi/targetcli-fb
+https://github.com/open-iscsi/rtslib-fb
+
+1. Start targetcli
+
+# targetcli
+
+2. Go to the user/tcmu backstore dir.
+
+/> cd /backstores/
+
+3. By default, tcmu-runner installs the glfs, qcow and rbd tcmu-runner handlers:
+
+/backstores> ls
+o- backstores .......................................................... [...]
+  o- user:glfs .......................................... [Storage Objects: 0]
+  o- user:qcow .......................................... [Storage Objects: 0]
+  o- user:rbd ........................................... [Storage Objects: 0]
+
+4. 'cd' to the handler you want to setup:
+
+/backstores> cd user:rbd 
+
+/backstores/user:rbd> create cfgstring=/pool/rbd1 name=rbd0 size=1G
+Created user-backed storage object rbd0 size 1073741824.
+
+
+Note that the cfgstring is handler specific. The format is:
+
+rbd: /pool_name/image_name
+qcow: /path_to_file
+glfs: /volume@hostname/filename
+
+5. The created backstore device can then be mapped to a LUN like traditional
+backstores.
+
+------------------------------
+
+If your version of targetcli/rtslib does not support tcmu, setup can be done
+manually through configfs:
 
 1. Ensure `target_core_user` kernel module is loaded.
 2. Create the HBA (user_1) and the storage object (test): `mkdir -p /sys/kernel/config/target/core/user_1/test`
@@ -62,6 +103,8 @@ To delete:
 
 1. `rmdir /sys/kernel/config/target/core/user_1/test`
 2. `rmdir /sys/kernel/config/target/core/user_1`
+
+------------------------------
 
 ### Writing a TCMU handler
 
