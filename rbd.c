@@ -138,7 +138,6 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	state->state = TCMU_RBD_OPENING;
 	pthread_spin_unlock(&state->lock);
 
-	/* TODO locking */
 	ret = rados_create(&state->cluster, NULL);
 	if (ret < 0) {
 		tcmu_dev_dbg(dev, "Could not create cluster. (Err %d)\n", ret);
@@ -237,7 +236,7 @@ static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
 
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get lock owners %d\n", ret);
-		return -EIO;
+		return -EAGAIN;
 	}
 
 	if (lock_mode != RBD_LOCK_MODE_EXCLUSIVE) {
@@ -248,7 +247,7 @@ static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
 
 	if (*orig_owner && strcmp(*orig_owner, owners[0])) {
 		/* someone took the lock while we were retrying */
-		ret = -EINVAL;
+		ret = -EIO;
 		goto free_owners;
 	}
 
