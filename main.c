@@ -525,6 +525,9 @@ static void *tcmur_cmdproc_thread(void *arg)
 			else
 				ret = tcmur_generic_handle_cmd(dev, cmd);
 
+			if (ret == TCMU_NOT_HANDLED)
+				tcmu_warn("Command 0x%x not supported\n", cmd->cdb[0]);
+
 			/*
 			 * command (processing) completion is called in the following
 			 * scenarios:
