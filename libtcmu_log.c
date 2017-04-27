@@ -97,6 +97,10 @@ unsigned int tcmu_get_log_level(void)
 
 void tcmu_set_log_level(int level)
 {
+	/* set the default log level to warning */
+	if (!level)
+		level = TCMU_CONF_LOG_WARN;
+
 	tcmu_log_level = to_syslog_level(level);
 }
 
