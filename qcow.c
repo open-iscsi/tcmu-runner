@@ -319,7 +319,7 @@ static int qcow2_probe(struct bdev *bdev, int dirfd, const char *pathname)
 		goto err;
 	}
 	if (be32toh(head.magic) != QCOW_MAGIC) {
-		perror("bad magic");
+		tcmu_warn("not qcow: will treat as raw: %s", pathname);
 		goto err;
 	}
 	if (be32toh(head.version) < 2) {
