@@ -705,7 +705,8 @@ void tcmulib_processing_start(struct tcmu_device *dev)
 		r = read(dev->fd, &buf, 4);
 	} while (r == -1 && errno == EINTR);
 	if (r == -1 && errno != EAGAIN)
-		perror("read");
+		tcmu_err("failed to read device /dev/%s, %d\n",
+			 dev->dev_name, errno);
 }
 
 void tcmulib_processing_complete(struct tcmu_device *dev)
@@ -718,7 +719,8 @@ void tcmulib_processing_complete(struct tcmu_device *dev)
 		r = write(dev->fd, &buf, 4);
 	} while (r == -1 && errno == EINTR);
 	if (r == -1 && errno != EAGAIN)
-		perror("write");
+		tcmu_err("failed to write device /dev/%s, %d\n",
+			 dev->dev_name, errno);
 }
 
 int tcmulib_start_cmdproc_thread(struct tcmu_device *dev,
