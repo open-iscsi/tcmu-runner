@@ -79,8 +79,10 @@ struct tcmur_handler {
 	 * - SAM_STAT_GOOD on success.
 	 * - SCSI status with sense set if needed on failure.
 	 */
-	tcmu_transition_state_fn_t *transition_state;
 	tcmu_report_state_fn_t *report_state;
+	int (*lock)(struct tcmu_device *dev);
+	int (*unlock)(struct tcmu_device *dev);
+
 
 	/*
 	 * Async handle_cmd only handlers return:

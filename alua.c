@@ -437,9 +437,45 @@ static bool alua_check_sup_state(uint8_t state, uint8_t sup)
 	return false;
 }
 
+static int tcmu_do_transition(struct tcmu_device *dev,
+			      struct tgt_port_grp *group, uint8_t new_state,
+			      uint8_t *sense)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	int ret;
+
+	switch (new_state) {
+	case ALUA_ACCESS_STATE_OPTIMIZED:
+	case ALUA_ACCESS_STATE_NON_OPTIMIZED:
+		if (rhandler->lock && rhandler->lock(dev))
+			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						   ASC_STPG_CMD_FAILED, NULL);
+		/* TODO for ESX set remote ports to standby */
+		return SAM_STAT_GOOD;
+	case ALUA_ACCESS_STATE_STANDBY:
+	case ALUA_ACCESS_STATE_UNAVAILABLE:
+	case ALUA_ACCESS_STATE_OFFLINE:
+		if (rhandler->unlock) {
+			ret = rhandler->unlock(dev);
+			if (ret < 0)
+				/*
+				 * Return success even though we failed. The initiator
+				 * will send a STPG to the port it wants to activate,
+				 * and that node will grab the lock from us if it hasn't
+				 * already.
+				 */
+				tcmu_dev_err(dev, "Could not release lock. (Err %d)\n",
+					     ret);
+		}
+		return SAM_STAT_GOOD;
+	}
+
+	return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+				   ASC_INVALID_FIELD_IN_PARAMETER_LIST, NULL);
+}
+
 int tcmu_transition_tgt_port_grp(struct tgt_port_grp *group, uint8_t new_state,
-				 uint8_t alua_status, uint8_t *sense,
-				 tcmu_transition_state_fn_t *transition_fn)
+				 uint8_t alua_status, uint8_t *sense)
 {
 	struct tcmu_device *dev = group->dev;
 	int ret;
@@ -450,14 +486,14 @@ int tcmu_transition_tgt_port_grp(struct tgt_port_grp *group, uint8_t new_state,
 	if (!alua_check_sup_state(new_state, group->supported_states)) {
 		if (sense)
 			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					NULL);
+						   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
+						   NULL);
 		else
 			return SAM_STAT_CHECK_CONDITION;
 	}
 
-	if (transition_fn) {
-		ret = transition_fn(dev, group, new_state, sense);
+	if (sense) {
+		ret = tcmu_do_transition(dev, group, new_state, sense);
 		if (ret != SAM_STAT_GOOD)
 			return ret;
 	}
@@ -536,7 +572,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 			if (state != group->state) {
 				if (tcmu_transition_tgt_port_grp(group, state,
 							TPGS_ALUA_IMPLICIT,
-							NULL, NULL))
+							NULL))
 					tcmu_err("Could not perform implicit state change for group %u\n", group->id);
 			}
 		} else {
@@ -576,8 +612,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 
 int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 				   struct list_head *group_list,
-				   struct tcmulib_cmd *cmd,
-				   tcmu_transition_state_fn_t *transition_fn)
+				   struct tcmulib_cmd *cmd)
 {
 	struct tgt_port_grp *group;
 	uint32_t off = 4, param_list_len = tcmu_get_xfer_length(cmd->cdb);
@@ -617,8 +652,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 			tcmu_dbg("Got STPG for group %u\n", id);
 			ret = tcmu_transition_tgt_port_grp(group, new_state,
 							   TPGS_ALUA_EXPLICIT,
-							   cmd->sense_buf,
-							   transition_fn);
+							   cmd->sense_buf);
 			if (ret) {
 				tcmu_err("Failing STPG for group %d\n", id);
 				goto free_buf;

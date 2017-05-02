@@ -60,16 +60,12 @@ struct tgt_port_grp {
 	struct list_head tgt_ports;
 };
 
-typedef int (tcmu_transition_state_fn_t)(struct tcmu_device *,
-					 struct tgt_port_grp *,
-					 uint8_t new_state, uint8_t *sense);
 typedef int tcmu_report_state_fn_t(struct tcmu_device *,
 				   struct tgt_port_grp *);
 
 int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 				   struct list_head *group_list,
-				   struct tcmulib_cmd *cmd,
-				   tcmu_transition_state_fn_t *transition_fn);
+				   struct tcmulib_cmd *cmd);
 int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 				      struct list_head *group_list,
 				      struct tcmulib_cmd *cmd,
