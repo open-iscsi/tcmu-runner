@@ -501,7 +501,6 @@ static int handle_stpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct list_head group_list;
 	int ret;
 
@@ -512,8 +511,7 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 
-	ret = tcmu_emulate_report_tgt_port_grps(dev, &group_list, cmd,
-						rhandler->report_state);
+	ret = tcmu_emulate_report_tgt_port_grps(dev, &group_list, cmd);
 	tcmu_release_tgt_port_grps(&group_list);
 	return ret;
 }

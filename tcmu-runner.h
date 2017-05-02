@@ -74,17 +74,6 @@ struct tcmur_handler {
 	int nr_threads;
 
 	/*
-	 * Synchronously change the state to new_state.
-	 * Returns
-	 * - SAM_STAT_GOOD on success.
-	 * - SCSI status with sense set if needed on failure.
-	 */
-	tcmu_report_state_fn_t *report_state;
-	int (*lock)(struct tcmu_device *dev);
-	int (*unlock)(struct tcmu_device *dev);
-
-
-	/*
 	 * Async handle_cmd only handlers return:
 	 *
 	 * - SCSI status if handled (either good/bad)
@@ -119,6 +108,9 @@ struct tcmur_handler {
 	rw_fn_t write;
 	rw_fn_t read;
 	flush_fn_t flush;
+	int (*lock)(struct tcmu_device *dev);
+	int (*unlock)(struct tcmu_device *dev);
+	int (*has_lock)(struct tcmu_device *dev);
 };
 
 /*

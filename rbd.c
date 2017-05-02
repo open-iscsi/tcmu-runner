@@ -71,7 +71,7 @@ struct rbd_aio_cb {
  * -ESHUTDOWN/-EBLACKLISTED(-108) = client is blacklisted.
  * -EIO = misc error.
  */
-static int is_exclusive_lock_owner(struct tcmu_device *dev)
+static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	int ret, is_owner;
@@ -281,7 +281,7 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	 * Or, set to transitioning and grab the lock in the background.
 	 */
 	while (attempts++ < 5) {
-		ret = is_exclusive_lock_owner(dev);
+		ret = tcmu_rbd_has_lock(dev);
 		if (ret == 1) {
 			ret = 0;
 			break;
@@ -321,21 +321,6 @@ static int tcmu_rbd_unlock(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	return rbd_lock_release(state->image);
-}
-
-static int tcmu_rbd_report_state(struct tcmu_device *dev,
-				 struct tgt_port_grp *group)
-{
-	int ret;
-
-	/* TODO: For ESX return remote ports */
-
-	ret = is_exclusive_lock_owner(dev);
-	if (ret <= 0) {
-		return ALUA_ACCESS_STATE_STANDBY;
-	} else {
-		return ALUA_ACCESS_STATE_OPTIMIZED;
-	}
 }
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
@@ -696,7 +681,7 @@ struct tcmur_handler tcmu_rbd_handler = {
 #endif
 	.lock          = tcmu_rbd_lock,
 	.unlock        = tcmu_rbd_unlock,
-	.report_state  = tcmu_rbd_report_state,
+	.has_lock      = tcmu_rbd_has_lock,
 };
 
 int handler_init(void)

@@ -519,10 +519,28 @@ int tcmu_transition_tgt_port_grp(struct tgt_port_grp *group, uint8_t new_state,
 	return SAM_STAT_GOOD;
 }
 
+static int tcmu_report_state(struct tcmu_device *dev,
+			     struct tgt_port_grp *group)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	int ret;
+
+	/* TODO: For ESX return remote ports */
+
+	if (!rhandler->has_lock)
+		return group->state;
+
+	ret = rhandler->has_lock(dev);
+	if (ret <= 0) {
+		return ALUA_ACCESS_STATE_STANDBY;
+	} else {
+		return ALUA_ACCESS_STATE_OPTIMIZED;
+	}
+}
+
 int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 				      struct list_head *group_list,
-				      struct tcmulib_cmd *cmd,
-				      tcmu_report_state_fn_t *report_fn)
+				      struct tcmulib_cmd *cmd)
 {
 	struct tgt_port_grp *group;
 	struct tgt_port *port;
@@ -563,20 +581,16 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 		if (group->pref)
 			buf[off] = 0x80;
 
-		if (report_fn) {
-			state = report_fn(dev, group);
-			/*
-			 * Some handlers are not able to async update state,
-			 * so check it now and update.
-			 */
-			if (state != group->state) {
-				if (tcmu_transition_tgt_port_grp(group, state,
-							TPGS_ALUA_IMPLICIT,
-							NULL))
-					tcmu_err("Could not perform implicit state change for group %u\n", group->id);
-			}
-		} else {
-			state = group->state;
+		state = tcmu_report_state(dev, group);
+		/*
+		 * Some handlers are not able to async update state,
+		 * so check it now and update.
+		 */
+		if (state != group->state) {
+			if (tcmu_transition_tgt_port_grp(group, state,
+							 TPGS_ALUA_IMPLICIT,
+							 NULL))
+				tcmu_err("Could not perform implicit state change for group %u\n", group->id);
 		}
 
 		buf[off++] |= state;
