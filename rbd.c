@@ -160,7 +160,7 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not create ioctx for pool %s. (Err %d)\n",
 			     state->pool_name, ret);
-		goto rados_destroy;
+		goto rados_shutdown;
 	}
 
 	ret = rbd_open(state->io_ctx, state->image_name, &state->image, NULL);
