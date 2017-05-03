@@ -307,15 +307,18 @@ static int qcow2_probe(struct bdev *bdev, int dirfd, const char *pathname)
 	tcmu_dbg("%s\n", __func__);
 
 	if (faccessat(dirfd, pathname, R_OK|W_OK, AT_EACCESS) == -1) {
-		perror("no file access");
+		tcmu_err("faccessat failed dirfd %d, pathname %s, errno %d\n",
+			 dirfd, pathname, errno);
 		return -1;
 	}
 	if ((fd = openat(dirfd, pathname, O_RDONLY)) == -1) {
-		perror("openat failed");
+		tcmu_err("openat failed dirfd %d, pathname %s, errno %d\n",
+			 dirfd, pathname, errno);
 		return -1;
 	}
 	if (pread(fd, &head, sizeof(head), 0) == -1) {
-		perror("read fail");
+		tcmu_err("pread failed dirfd %d, pathname %s, errno %d\n",
+			 dirfd, pathname, errno);
 		goto err;
 	}
 	if (be32toh(head.magic) != QCOW_MAGIC) {
@@ -323,7 +326,7 @@ static int qcow2_probe(struct bdev *bdev, int dirfd, const char *pathname)
 		goto err;
 	}
 	if (be32toh(head.version) < 2) {
-		tcmu_err("version = %d\n", head.version);
+		tcmu_err("version = %d, pathname %s\n", head.version, pathname);
 		goto err;
 	}
 	close(fd);
