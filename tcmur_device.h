@@ -19,7 +19,12 @@
 
 #include "tcmur_aio.h"
 
+#define TCMUR_DEV_FORMATTING		0x01
+
 struct tcmur_device {
+	/* TCMUR_DEV flags */
+	uint32_t flags;
+
 	/*
 	 * lock order:
 	 *  work_queue->aio_lock
@@ -30,6 +35,9 @@ struct tcmur_device {
 
 	pthread_spinlock_t lock; /* protects concurrent updates to mailbox */
 	pthread_mutex_t caw_lock; /* for atomic CAW operation */
+
+	uint32_t format_progress;
+	pthread_mutex_t format_lock; /* for atomic format operations */
 };
 
 #endif
