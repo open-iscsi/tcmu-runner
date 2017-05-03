@@ -25,6 +25,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 
+#include "darray.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
 
@@ -49,27 +50,22 @@
  * How to add new options ?
  *
  * Using "log_level" as an example:
- * Firstly, add log_level member in:
+ *
+ * 1, Add log_level member in:
  *	struct tcmu_config {
  *		int log_level;
  *	};
+ *    in file libtcmu_config.h.
  *
- * Secondly, add the following in "tcmu_conf_option tcmu_options[] = {}":
- *	{
- *		.key = "log_level",   // from struct tcmu_config {}
- *		.type = TCMU_OPT_INT, // int type
- *		{
- *			.opt_int = 2, // default value is 2
- *		},
- *	},
- *
- * Thirdly, add the following option in "tcmu.conf" file as default value,
- * and this default value will overwrite the value in '.opt_int' above:
+ * 2, Add the following option in "tcmu.conf" file as default:
  *	log_level = 2
+ *    or
+ *	# log_level = 2
  *
- * Then the new options could be configured through /etc/tcmu/tcmu.conf.
+ *    Note: the option name in config file must be the same as in
+ *    tcmu_config.
  *
- * The last, you should add your own set method in:
+ * 3, You should add your own set method in:
  *	static void tcmu_conf_set_options(struct tcmu_config *cfg)
  *	{
  *		TCMU_PARSE_CFG_INT(cfg, log_level);
@@ -80,71 +76,69 @@
  * tcmu-runner, consumer and tcmu-synthesizer daemons should be restarted.
  * And the dynamic reloading feature will be added later.
  */
-static struct tcmu_conf_option tcmu_options[] = {
-	{
-		.key = "log_level",
-		.type = TCMU_OPT_INT,
-		{
-			.opt_int = 2,
-		},
-	},
-	/* Add new options here */
-	{
-		.key = NULL,
-		.type = TCMU_OPT_NONE,
-		{},
-	},
-};
 
-static int tcmu_get_option_index(const char *key)
+static darray(struct tcmu_conf_option) tcmu_options = darray_new();
+
+static struct tcmu_conf_option * tcmu_get_option(const char *key)
 {
-	int i = 0;
+	struct tcmu_conf_option *option;
 
-	while (tcmu_options[i].key != NULL) {
-		if (!strcmp(tcmu_options[i].key, key))
-			return i;
-		i++;
+	darray_foreach(option, tcmu_options) {
+		if (!strcmp(option->key, key))
+			return option;
 	}
 
-	return -1;
+	return NULL;
 }
 
 #define TCMU_PARSE_CFG_INT(cfg, key) \
 do { \
-	int ind = tcmu_get_option_index(#key); \
-	if (ind >= 0) { \
-		cfg->key = tcmu_options[ind].opt_int; \
+	struct tcmu_conf_option *option; \
+	option = tcmu_get_option(#key); \
+	if (option) { \
+		cfg->key = option->opt_int; \
 	} \
 } while (0)
 
 #define TCMU_PARSE_CFG_BOOL(cfg, key) \
 do { \
-	int ind = tcmu_get_option_index(#key); \
-	if (ind >= 0) { \
-		cfg->key = tcmu_options[ind].opt_bool; \
+	struct tcmu_conf_option *option; \
+	option = tcmu_get_option(#key); \
+	if (option) { \
+		cfg->key = option->opt_bool; \
 	} \
 } while (0)
 
 #define TCMU_PARSE_CFG_STR(cfg, key) \
 do { \
-	int ind = tcmu_get_option_index(#key); \
-	if (ind >= 0) { \
-		cfg->key = strdup(tcmu_options[ind].opt_str); } \
+	struct tcmu_conf_option *option; \
+	option = tcmu_get_option(#key); \
+	if (option) { \
+		cfg->key = strdup(option->opt_str); } \
 } while (0);
 
 #define TCMU_FREE_CFG_STR(cfg, key) \
 do { \
+	struct tcmu_conf_option *option; \
 	cfg->key = NULL; \
-	free(tcmu_options[i]->opt_str); \
+	darray_foreach(option, tcmu_options) { \
+		if (!strcmp(option->key, key)) { \
+			free(option->opt_str); \
+			break; \
+		} \
+	} \
 } while (0);
 
 #define TCMU_CONF_CHECK_LOG_LEVEL(key) \
 do { \
-	int ind = tcmu_get_option_index(#key); \
-	if (tcmu_options[ind].opt_int > TCMU_CONF_LOG_LEVEL_MAX) { \
-		tcmu_options[ind].opt_int = TCMU_CONF_LOG_LEVEL_MAX; \
-	} else if (tcmu_options[ind].opt_int < TCMU_CONF_LOG_LEVEL_MIN) { \
-		tcmu_options[ind].opt_int = TCMU_CONF_LOG_LEVEL_MIN; \
+	struct tcmu_conf_option *option; \
+	option = tcmu_get_option(#key); \
+	if (!option) \
+		return; \
+	if (option->opt_int > TCMU_CONF_LOG_LEVEL_MAX) { \
+		option->opt_int = TCMU_CONF_LOG_LEVEL_MAX; \
+	} else if (option->opt_int < TCMU_CONF_LOG_LEVEL_MIN) { \
+		option->opt_int = TCMU_CONF_LOG_LEVEL_MIN; \
 	} \
 } while (0);
 
@@ -172,7 +166,14 @@ struct tcmu_config *tcmu_config_new(void)
 
 void tcmu_config_destroy(struct tcmu_config *cfg)
 {
-	/* TCMU_FREE_CFG_STR(cfg, "__STR__"); */
+	struct tcmu_conf_option *opt;
+
+	darray_foreach(opt, tcmu_options) {
+		if (opt->type == TCMU_OPT_STR)
+			free(opt->opt_str);
+	}
+
+	darray_free(tcmu_options);
 
 	free(cfg);
 }
@@ -221,10 +222,29 @@ static int tcmu_read_config(int fd, char *buf, int count)
 #define MAX_KEY_LEN 64
 #define MAX_VAL_STR_LEN 256
 
+struct tcmu_conf_option *tcmu_register_option(char *key, tcmu_option_type type)
+{
+	struct tcmu_conf_option option, *opt;
+
+	option.key = key;
+	option.type = type;
+
+	darray_append(tcmu_options, option);
+
+	darray_foreach(opt, tcmu_options) {
+		if (!strcmp(opt->key, key))
+			return opt;
+	}
+
+	tcmu_err("failed to register new option!\n");
+	return NULL;
+}
+
 static void tcmu_parse_option(char **cur, const char *end)
 {
+	struct tcmu_conf_option *option;
+	tcmu_option_type type;
 	char *p = *cur, *q = *cur, *r, *s;
-	int ind;
 
 	while (isblank(*p))
 		p++;
@@ -241,11 +261,12 @@ static void tcmu_parse_option(char **cur, const char *end)
 		while (!isblank(*r) && r < q)
 			r++;
 		*r = '\0';
-		ind = tcmu_get_option_index(p);
-		if (ind < 0)
-			return;
+		option = tcmu_get_option(p);
+		if (!option)
+			option = tcmu_register_option(p, TCMU_OPT_BOOL);
 
-		tcmu_options[ind].opt_bool = true;
+		if (option)
+			option->opt_bool = true;
 
 		return;
 	}
@@ -254,12 +275,29 @@ static void tcmu_parse_option(char **cur, const char *end)
 		r--;
 	r++;
 	*r = '\0';
-	ind = tcmu_get_option_index(p);
-	if (ind < 0)
-		return;
+
+	option = tcmu_get_option(p);
+	if (!option) {
+		r = s;
+		while (isblank(*r) || *r == '=')
+			r++;
+
+		if (*r == '"' || *r == '\'') {
+			type = TCMU_OPT_STR;
+		} else if (isdigit(*r)) {
+			type = TCMU_OPT_INT;
+		} else {
+			tcmu_err("option type %d not supported!\n");
+			return;
+		}
+
+		option = tcmu_register_option(p, type);
+		if (!option)
+			return;
+	}
 
 	/* parse the int/string type options */
-	switch (tcmu_options[ind].type) {
+	switch (option->type) {
 	case TCMU_OPT_INT:
 		while (!isdigit(*s))
 			s++;
@@ -267,7 +305,8 @@ static void tcmu_parse_option(char **cur, const char *end)
 		while (isdigit(*r))
 			r++;
 		*r= '\0';
-		tcmu_options[ind].opt_int = atoi(s);
+
+		option->opt_int = atoi(s);
 		break;
 	case TCMU_OPT_STR:
 		s++;
@@ -283,9 +322,10 @@ static void tcmu_parse_option(char **cur, const char *end)
 		if (*r == '"' || *r == '\'')
 			*r = '\0';
 
-		tcmu_options[ind].opt_str = strdup(s);
+		option->opt_str = strdup(s);
 		break;
 	default:
+		tcmu_err("option type %d not supported!\n");
 		break;
 	}
 }
