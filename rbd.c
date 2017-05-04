@@ -382,18 +382,20 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	pool = strtok(config, "/");
 	if (!pool) {
+		tcmu_dev_err(dev, "Could not get pool name\n");
 		ret = -EINVAL;
 		goto free_state;
 	}
 	state->pool_name = strdup(pool);
 	if (!state->pool_name) {
 		ret = -ENOMEM;
-		tcmu_dev_err(dev, "Could copy pool name\n");
+		tcmu_dev_err(dev, "Could not copy pool name\n");
 		goto free_state;
 	}
 
 	name = strtok(NULL, "/");
 	if (!name) {
+		tcmu_dev_err(dev, "Could not get image name\n");
 		ret = -EINVAL;
 		goto free_state;
 	}
@@ -401,7 +403,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	state->image_name = strdup(name);
 	if (!state->image_name) {
 		ret = -ENOMEM;
-		tcmu_dev_err(dev, "Could copy image name\n");
+		tcmu_dev_err(dev, "Could not copy image name\n");
 		goto free_state;
 	}
 
