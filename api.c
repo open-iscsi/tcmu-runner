@@ -632,13 +632,68 @@ int handle_cache_page(uint8_t *buf, size_t buf_len)
 	return 20;
 }
 
+static int handle_control_page(uint8_t *buf, size_t buf_len)
+{
+	if (buf_len < 12)
+		return -1;
+
+	buf[0] = 0x0a;
+	buf[1] = 0x0a;
+
+	/* From spc4r31, section 7.5.7 Control mode Page
+	 *
+	 * GLTSD = 1: because we don't implicitly save log parameters
+	 *
+	 * A global logging target save disable (GLTSD) bit set to
+	 * zero specifies that the logical unit implicitly saves, at
+	 * vendor specific intervals, each log parameter in which the
+	 * TSD bit (see 7.3) is set to zero. A GLTSD bit set to one
+	 * specifies that the logical unit shall not implicitly save
+	 * any log parameters.
+	 */
+	buf[2] = 0x02;
+
+	/* From spc4r31, section 7.5.7 Control mode Page
+	 *
+	 * TAS = 1: Currently not settable by tcmu. Using the LIO default
+	 *
+	 * A task aborted status (TAS) bit set to zero specifies that
+	 * aborted commands shall be terminated by the device server
+	 * without any response to the application client. A TAS bit
+	 * set to one specifies that commands aborted by the actions
+	 * of an I_T nexus other than the I_T nexus on which the command
+	 * was received shall be completed with TASK ABORTED status
+	 */
+	buf[5] = 0x40;
+
+	/* From spc4r31, section 7.5.7 Control mode Page
+	 *
+	 * BUSY TIMEOUT PERIOD: Currently is unlimited
+	 *
+	 * The BUSY TIMEOUT PERIOD field specifies the maximum time, in
+	 * 100 milliseconds increments, that the application client allows
+	 * for the device server to return BUSY status for unanticipated
+	 * conditions that are not a routine part of commands from the
+	 * application client. This value may be rounded down as defined
+	 * in 5.4(the Parameter rounding section).
+	 *
+	 * A 0000h value in this field is undefined by this standard.
+	 * An FFFFh value in this field is defined as an unlimited period.
+	 */
+	buf[8] = 0xff;
+	buf[9] = 0xff;
+
+	return 12;
+}
+
+
 static struct {
 	uint8_t page;
 	uint8_t subpage;
 	int (*get)(uint8_t *buf, size_t buf_len);
 } modesense_handlers[] = {
-	{8, 0, handle_cache_page},
-	// TODO: control page
+	{0x8, 0, handle_cache_page},
+	{0xa, 0, handle_control_page},
 };
 
 /*
