@@ -366,7 +366,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	config += 1; /* get past '/' */
 
 	block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (block_size < 0) {
+	if (block_size <= 0) {
 		tcmu_dev_err(dev, "Could not get hw_block_size\n");
 		ret = -EINVAL;
 		goto free_state;
