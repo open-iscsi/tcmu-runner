@@ -18,6 +18,7 @@
 #define READ_DISC_INFORMATION           0x51
 #define MODE_SELECT_10                  0x55
 #define MODE_SENSE_10                   0x5a
+#define RECEIVE_COPY_RESULTS            0x84 /* RECEIVE COPY STATUS */
 #define READ_16                         0x88
 #define COMPARE_AND_WRITE               0x89
 #define WRITE_16                        0x8a
@@ -31,6 +32,34 @@
 #define MAINTENANCE_OUT			0xa4
 #define MI_REPORT_TARGET_PGS		0x0a
 #define MO_SET_TARGET_PGS		0x0a
+
+/*
+ * Receive Copy Results Sevice Actions
+ */
+#define RCR_SA_COPY_STATUS              0x00
+#define RCR_SA_RECEIVE_DATA             0x01
+#define RCR_SA_OPERATING_PARAMETERS     0x03
+#define RCR_SA_FAILED_SEGMENT_DETAILS   0x04
+
+/*
+ * Receive Copy Results Operating Parameters
+ */
+#define RCR_OP_MAX_TARGET_DESC_COUNT    0x02
+#define RCR_OP_MAX_SEGMENT_DESC_COUNT   0x01
+#define RCR_OP_MAX_DESC_LIST_LEN        1024
+#define RCR_OP_MAX_SEGMENT_LEN          1024
+#define RCR_OP_TOTAL_CONCURR_COPIES     0x01
+#define RCR_OP_MAX_CONCURR_COPIES       0x01
+#define RCR_OP_DATA_SEG_GRAN_LOG2       0x09
+#define RCR_OP_INLINE_DATA_GRAN_LOG2    0x09
+#define RCR_OP_HELD_DATA_GRAN_LOG2      0x09
+
+/*
+ * Receive Copy Results descriptor type codes supports
+ */
+#define RCR_OP_IMPLE_DES_LIST_LENGTH    0x02
+#define XCOPY_SEG_DESC_TYPE_CODE_B2B    0x02 /* block --> block */
+#define XCOPY_TARGET_DESC_TYPE_CODE_ID  0xe4 /* Identification descriptor */
 
 /*
  * Service action opcodes

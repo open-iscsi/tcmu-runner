@@ -443,6 +443,121 @@ static int handle_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return async_handle_cmd(dev, cmd, flush_work_fn);
 }
 
+static int handle_recv_copy_result(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct iovec *iovec = cmd->iovec;
+	size_t iov_cnt = cmd->iov_cnt;
+	uint8_t buf[128];
+	uint16_t val16;
+	uint32_t val32;
+
+	memset(buf, 0, sizeof(buf));
+
+	/*
+	 * From spc4r31, section 6.18.4 OPERATING PARAMETERS service
+	 * action
+	 */
+
+	/*
+	 * SNLID = 1: the copy manager will support an EXTENDED COPY
+	 * command parameter list in which the LIST ID USAGE field is
+	 * set to 11b
+	 */
+	buf[4] = 0x01;
+
+	/*
+	 * MAXIMUM TARGET COUNT: the max number of target descriptors
+	 * that the copy manager allows in a single EXTENDED COPY
+	 * target descriptor list.
+	 */
+	val16 = htobe16(RCR_OP_MAX_TARGET_DESC_COUNT);
+	memcpy(&buf[8], &val16, 2);
+
+	/*
+	 * MAXIMUM SEGMENT COUNT: the max number of segment descriptors
+	 * that the copy manager allows in a single EXTENDED COPY
+	 * segment descriptor list.
+	 */
+	val16 = htobe16(RCR_OP_MAX_SEGMENT_DESC_COUNT);
+	memcpy(&buf[10], &val16, 2);
+
+	/*
+	 * MAXIMUM DESCRIPTOR LIST LENGTH: the max length, in bytes,
+	 * of the target descriptor list and segment descriptor list.
+	 */
+	val32 = htobe32(RCR_OP_MAX_DESC_LIST_LEN);
+	memcpy(&buf[12], &val32, 4);
+
+	/*
+	 * MAXIMUM SEGMENT LENGTH: the length, in bytes, of the largest
+	 * amount of data that the copy manager supports writing via a
+	 * single segment.
+	 */
+	val32 = htobe32(RCR_OP_MAX_SEGMENT_LEN);
+	memcpy(&buf[16], &val32, 4);
+
+	/*
+	 * MAXIMUM CONCURRENT COPIES: the max number of EXTENDED COPY
+	 * commands with the LIST ID USAGE field set to 00b or 10b that
+	 * are supported for concurrent processing by the copy manager.
+	 */
+	val16 = htobe16(RCR_OP_TOTAL_CONCURR_COPIES);
+	memcpy(&buf[34], &val16, 2);
+
+	/*
+	 * MAXIMUM CONCURRENT COPIES: the max number of EXTENDED COPY
+	 * commands with the LIST ID USAGE field set to 00b or 10b that
+	 * are supported for concurrent processing by the copy manager.
+	 */
+	buf[36] = RCR_OP_MAX_CONCURR_COPIES;
+
+	/*
+	 * DATA SEGMENT GRANULARITY: the length of the smallest data
+	 * block that copy manager permits in a non-inline segment
+	 * descriptor. In power of two.
+	 */
+	buf[37] = RCR_OP_DATA_SEG_GRAN_LOG2;
+
+	/*
+	 * INLINE DATA GRANULARITY: the length of the of the smallest
+	 * block of inline data that the copy manager permits being
+	 * written by a segment descriptor containing the 04h descriptor
+	 * type code (see 6.3.7.7). In power of two.
+	 */
+	buf[38] = RCR_OP_INLINE_DATA_GRAN_LOG2;
+
+	/*
+	 * HELD DATA GRANULARITY: the length of the smallest block of
+	 * held data that the copy manager shall transfer to the
+	 * application client in response to a RECEIVE COPY RESULTS
+	 * command with RECEIVE DATA service action (see 6.18.3).
+	 * In power of two.
+	 */
+	buf[39] = RCR_OP_HELD_DATA_GRAN_LOG2;
+
+	/*
+	 * IMPLEMENTED DESCRIPTOR LIST LENGTH: the length, in bytes, of
+	 * the list of implemented descriptor type codes.
+	 */
+	buf[43] = RCR_OP_IMPLE_DES_LIST_LENGTH;
+
+	/*
+	 * The list of implemented descriptor type codes: one byte for
+	 * each segment or target DESCRIPTOR TYPE CODE value (see 6.3.5)
+	 * supported by the copy manager,
+	 */
+	buf[44] = XCOPY_SEG_DESC_TYPE_CODE_B2B; /* block --> block */
+	buf[45] = XCOPY_TARGET_DESC_TYPE_CODE_ID; /* Identification descriptor */
+
+	/* AVAILABLE DATA (n-3)*/
+	val32 = htobe32(42);
+	memcpy(&buf[0], &val32, 4);
+
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
+
+	return SAM_STAT_GOOD;
+}
+
 /* async write */
 static int handle_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
@@ -739,6 +854,10 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case SYNCHRONIZE_CACHE_16:
 		if (rhandler->flush)
 			ret = handle_flush(dev, cmd);
+		break;
+	case RECEIVE_COPY_RESULTS:
+		if ((cdb[1] & 0x1f) == RCR_SA_OPERATING_PARAMETERS)
+			ret = handle_recv_copy_result(dev, cmd);
 		break;
 	case COMPARE_AND_WRITE:
 		ret = handle_caw(dev, cmd);
