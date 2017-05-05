@@ -18,6 +18,7 @@
 #define READ_DISC_INFORMATION           0x51
 #define MODE_SELECT_10                  0x55
 #define MODE_SENSE_10                   0x5a
+#define EXTENDED_COPY                   0x83
 #define RECEIVE_COPY_RESULTS            0x84 /* RECEIVE COPY STATUS */
 #define READ_16                         0x88
 #define COMPARE_AND_WRITE               0x89
@@ -100,18 +101,23 @@ enum scsi_protocol {
  * Sense codes
  */
 #define ASC_NOT_READY_FORMAT_IN_PROGRESS        0x0404
-#define ASC_PORT_IN_STANDBY			0x040B
+#define ASC_PORT_IN_STANDBY                     0x040B
+#define ASC_COPY_TARGET_DEVICE_NOT_REACHABLE    0x0D02
+#define ASC_INCORRECT_COPY_TARGET_DEVICE_TYPE   0x0D03
 #define ASC_READ_ERROR                          0x1100
+#define ASC_LOGICAL_UNIT_COMMUNICATION_FAILURE  0x0800
 #define ASC_WRITE_ERROR                         0x0C00
 #define ASC_PARAMETER_LIST_LENGTH_ERROR         0x1a00
 #define ASC_MISCOMPARE_DURING_VERIFY_OPERATION  0x1d00
 #define ASC_LBA_OUT_OF_RANGE                    0x2100
 #define ASC_INVALID_FIELD_IN_CDB                0x2400
 #define ASC_INVALID_FIELD_IN_PARAMETER_LIST     0x2600
+#define ASC_UNSUPPORTED_SEGMENT_DESC_TYPE_CODE  0x2609
+#define ASC_UNSUPPORTED_TARGET_DESC_TYPE_CODE   0x2607
 #define ASC_CANT_WRITE_INCOMPATIBLE_FORMAT      0x3005
 #define ASC_SAVING_PARAMETERS_NOT_SUPPORTED     0x3900
 #define ASC_INTERNAL_TARGET_FAILURE             0x4400
-#define ASC_STPG_CMD_FAILED			0x670A
+#define ASC_STPG_CMD_FAILED                     0x670A
 
 
 #define ALUA_ACCESS_STATE_OPTIMIZED		0x0
