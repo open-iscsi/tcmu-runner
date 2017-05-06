@@ -51,8 +51,6 @@
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
 
-#define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
-
 static char *handler_path = DEFAULT_HANDLER_PATH;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
