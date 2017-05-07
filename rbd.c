@@ -71,7 +71,7 @@ struct rbd_aio_cb {
  * -ESHUTDOWN/-EBLACKLISTED(-108) = client is blacklisted.
  * -EIO = misc error.
  */
-static int is_exclusive_lock_owner(struct tcmu_device *dev)
+static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	int ret, is_owner;
@@ -281,7 +281,7 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	 * Or, set to transitioning and grab the lock in the background.
 	 */
 	while (attempts++ < 5) {
-		ret = is_exclusive_lock_owner(dev);
+		ret = tcmu_rbd_has_lock(dev);
 		if (ret == 1) {
 			ret = 0;
 			break;
@@ -317,56 +317,11 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	return ret;
 }
 
-static int tcmu_rbd_report_state(struct tcmu_device *dev,
-				 struct tgt_port_grp *group)
-{
-	int ret;
-
-	/* TODO: For ESX return remote ports */
-
-	ret = is_exclusive_lock_owner(dev);
-	if (ret <= 0) {
-		return ALUA_ACCESS_STATE_STANDBY;
-	} else {
-		return ALUA_ACCESS_STATE_OPTIMIZED;
-	}
-}
-
-static int tcmu_rbd_transition(struct tcmu_device *dev,
-			       struct tgt_port_grp *group, uint8_t new_state,
-			       uint8_t *sense)
+static int tcmu_rbd_unlock(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	int ret;
-
-	switch (new_state) {
-	case ALUA_ACCESS_STATE_OPTIMIZED:
-	case ALUA_ACCESS_STATE_NON_OPTIMIZED:
-		if (tcmu_rbd_lock(dev))
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_STPG_CMD_FAILED, NULL);
-		/* TODO for ESX set remote ports to standby */
-		return SAM_STAT_GOOD;
-	case ALUA_ACCESS_STATE_STANDBY:
-	case ALUA_ACCESS_STATE_UNAVAILABLE:
-	case ALUA_ACCESS_STATE_OFFLINE:
-		ret = rbd_lock_release(state->image);
-		if (ret < 0)
-			/*
-			 * Return success even though we failed. The initiator
-			 * will send a STPG to the port it wants to activate,
-			 * and that node will grab the lock from us if it hasn't
-			 * already.
-			 */
-			tcmu_dev_err(dev, "Could not release lock. (Err %d)\n",
-				     ret);
-		return SAM_STAT_GOOD;
-	}
-
-	return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-				   ASC_INVALID_FIELD_IN_PARAMETER_LIST, NULL);
+	return rbd_lock_release(state->image);
 }
-
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 {
@@ -724,8 +679,9 @@ struct tcmur_handler tcmu_rbd_handler = {
 #ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 	.flush	       = tcmu_rbd_flush,
 #endif
-	.transition_state = tcmu_rbd_transition,
-	.report_state  = tcmu_rbd_report_state,
+	.lock          = tcmu_rbd_lock,
+	.unlock        = tcmu_rbd_unlock,
+	.has_lock      = tcmu_rbd_has_lock,
 };
 
 int handler_init(void)
