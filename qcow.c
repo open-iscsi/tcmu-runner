@@ -74,20 +74,6 @@
 #include "qcow.h"
 #include "qcow2.h"
 
-#define min(a,b) ({ \
-  __typeof__ (a) _a = (a); \
-  __typeof__ (b) _b = (b); \
-  (void) (&_a == &_b); \
-  _a < _b ? _a : _b; \
-})
-
-#define max(a,b) ({ \
-  __typeof__ (a) _a = (a); \
-  __typeof__ (b) _b = (b); \
-  (void) (&_a == &_b); \
-  _a > _b ? _a : _b; \
-})
-
 /* Block Device abstraction to support multiple image types */
 
 struct bdev_ops;

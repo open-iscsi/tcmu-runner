@@ -39,6 +39,20 @@ struct tcmulib_cmd;
 #define CFGFS_ROOT "/sys/kernel/config/target"
 #define CFGFS_CORE CFGFS_ROOT"/core"
 
+#define max(a,b) ({			\
+	__typeof__ (a) _a = (a);	\
+	__typeof__ (b) _b = (b);	\
+	(void) (&_a == &_b);		\
+	_a < _b ? _b : _a; })
+
+#define min(a,b) ({			\
+	__typeof__ (a) _a = (a);	\
+	__typeof__ (b) _b = (b);	\
+	(void) (&_a == &_b);		\
+	_a < _b ? _a : _b; })
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
 typedef void (*cmd_done_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
 
 struct tcmulib_cmd {

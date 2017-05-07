@@ -37,13 +37,6 @@
 
 #define SECTOR_SIZE 512
 
-#define min(a,b)	       \
-	({ __typeof__ (a) _a = (a);		\
-		__typeof__ (b) _b = (b);	\
-		_a < _b ? _a : _b; })
-
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-
 int tcmu_get_cdb_length(uint8_t *cdb)
 {
 	uint8_t group_code = cdb[0] >> 5;

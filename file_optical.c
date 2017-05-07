@@ -81,8 +81,6 @@ struct fbo_state {
 	int curr_handler;
 };
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-
 static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
 static void fbo_report_op_change(struct tcmu_device *dev, uint8_t code)
