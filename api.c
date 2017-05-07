@@ -486,6 +486,19 @@ finish_page83:
 		val16 = htobe16(0x3c);
 		memcpy(&data[2], &val16, 2);
 
+		/*
+		 * From SCSI Commands Reference Manual, section Block Limits
+		 * VPD page (B0h)
+		 *
+		 * MAXIMUM COMPARE AND WRITE LENGTH: set to a non-zero value
+		 * indicates the maximum value that the device server accepts
+		 * in the NUMBER OF LOGICAL BLOCKS field in the COMPARE AND
+		 * WRITE command.
+		 *
+		 * It should be less than or equal to MAXIMUM TRANSFER LENGTH.
+		 */
+		data[5] = 0x01;
+
 		block_size = tcmu_get_attribute(dev, "hw_block_size");
 		if (block_size < 0) {
 			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
