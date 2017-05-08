@@ -90,7 +90,7 @@ static int file_open(struct tcmu_device *dev)
 	tcmu_set_dev_private(dev, state);
 
 	block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (block_size < 0) {
+	if (block_size <= 0) {
 		tcmu_err("Could not get device block size\n");
 		goto err;
 	}

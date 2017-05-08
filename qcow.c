@@ -1412,7 +1412,7 @@ static int qcow_open(struct tcmu_device *dev)
 	tcmu_set_dev_private(dev, bdev);
 
 	bdev->block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (bdev->block_size < 0) {
+	if (bdev->block_size <= 0) {
 		tcmu_err("Could not get device block size\n");
 		goto err;
 	}
