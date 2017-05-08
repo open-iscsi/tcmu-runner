@@ -774,22 +774,15 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = handle_format_unit(dev, cmd);
 		break;
 	case MAINTENANCE_IN:
-		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS) {
+		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
 			ret = handle_rtpg(dev, cmd);
-			break;
-		}
-		goto passthrough;
+		break;
 	case MAINTENANCE_OUT:
-		if (cdb[1] == MO_SET_TARGET_PGS) {
+		if (cdb[1] == MO_SET_TARGET_PGS)
 			ret = handle_stpg(dev, cmd);
-			break;
-		}
-		goto passthrough;
+		break;
 	default:
-passthrough:
-		/* Try to passthrough the default cmds */
-		if (rhandler->handle_cmd)
-			ret = handle_passthrough(dev, cmd);
+		ret = TCMU_NOT_HANDLED;
 	}
 
 	if (ret != TCMU_ASYNC_HANDLED)
@@ -899,12 +892,25 @@ static bool command_is_generic(struct tcmulib_cmd *cmd)
 int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	int ret;
 
 	if (rdev->flags & TCMUR_DEV_FORMATTING && cmd->cdb[0] != INQUIRY)
 		return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
 					   ASC_NOT_READY_FORMAT_IN_PROGRESS,
 					   &rdev->format_progress);
 
+	/*
+	 * The handler want to handle some commands by itself,
+	 * try to passthrough it first
+	 */
+	if (rhandler->handle_cmd) {
+		ret = rhandler->handle_cmd(dev, cmd);
+		if (ret != TCMU_NOT_HANDLED)
+			return ret;
+	}
+
+	/* Falls back to the runner's generic handle callout */
 	if (command_is_generic(cmd))
 		return handle_generic_cmd(dev, cmd);
 	else
