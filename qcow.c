@@ -87,7 +87,7 @@ struct bdev {
 	struct bdev_ops *ops;
 
 	/* from TCMU configfs configuration */
-	uint64_t size;
+	int64_t size;
 	uint64_t num_lbas;
 	uint32_t block_size;
 

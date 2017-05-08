@@ -339,7 +339,8 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	char *pool, *name;
 	char *config;
 	struct tcmu_rbd_state *state;
-	uint64_t size, rbd_size;
+	uint64_t rbd_size;
+	int64_t size;
 	int ret, block_size;
 
 	state = calloc(1, sizeof(*state));
