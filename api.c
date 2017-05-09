@@ -332,7 +332,7 @@ int tcmu_emulate_evpd_inquiry(
 	switch (cdb[2]) {
 	case 0x0: /* Supported VPD pages */
 	{
-		char data[7];
+		char data[8];
 
 		memset(data, 0, sizeof(data));
 
@@ -340,8 +340,9 @@ int tcmu_emulate_evpd_inquiry(
 
 		data[5] = 0x83;
 		data[6] = 0xb0;
+		data[7] = 0xb1;
 
-		data[3] = 3;
+		data[3] = 4;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 		return SAM_STAT_GOOD;
@@ -521,6 +522,29 @@ finish_page83:
 		memcpy(&data[12], &val32, 4);
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
+
+		return SAM_STAT_GOOD;
+	}
+	break;
+	case 0xb1: /* Block Device Characteristics VPD page */
+	{
+		char data[64];
+		uint16_t val16;
+
+		memset(data, 0, sizeof(data));
+
+		/*
+		 * From spc-5 Revision 14, section 6.7.2 Standard INQUIRY data
+		 * set the devive type to Direct access block device.
+		 */
+		data[0] = 0x00;
+
+		/* PAGE CODE (B1h) */
+		data[1] = 0xb1;
+
+		/* PAGE LENGTH (003Ch)*/
+		val16 = htobe16(0x003c);
+		memcpy(&data[2], &val16, 2);
 
 		return SAM_STAT_GOOD;
 	}
