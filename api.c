@@ -288,6 +288,16 @@ int tcmu_emulate_std_inquiry(
 
 	buf[2] = 0x05; /* SPC-3 */
 	buf[3] = 0x02; /* response data format */
+
+	/*
+	 * A Third-Party Copy (3PC)
+	 *
+	 * Enable the XCOPY
+	 */
+	buf[5] = 0x08;
+	if (port)
+		buf[5] |= port->grp->tpgs;
+
 	buf[7] = 0x02; /* CmdQue */
 
 	memcpy(&buf[8], "LIO-ORG ", 8);
@@ -295,9 +305,6 @@ int tcmu_emulate_std_inquiry(
 	memcpy(&buf[16], "TCMU device", 11);
 	memcpy(&buf[32], "0002", 4);
 	buf[4] = 31; /* Set additional length to 31 */
-
-	if (port)
-		buf[5] = port->grp->tpgs;
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 	return SAM_STAT_GOOD;
