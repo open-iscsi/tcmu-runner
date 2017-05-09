@@ -247,18 +247,18 @@ static void gluster_cache_refresh(glfs_t *fs, const char *cfgstring)
 	}
 }
 
-static void gluster_free_server(gluster_server *hosts)
+static void gluster_free_server(gluster_server **hosts)
 {
-	if (!hosts)
+	if (!*hosts)
 		return;
-	free(hosts->volname);
-	free(hosts->path);
+	free((*hosts)->volname);
+	free((*hosts)->path);
 
-	gluster_free_host(hosts->server);
-	free(hosts->server);
-	hosts->server = NULL;
-	free(hosts);
-	hosts = NULL;
+	gluster_free_host((*hosts)->server);
+	free((*hosts)->server);
+	(*hosts)->server = NULL;
+	free(*hosts);
+	*hosts = NULL;
 }
 
 /*
@@ -328,7 +328,7 @@ static int parse_imagepath(char *cfgstring, gluster_server **hosts)
 	return 0;
 
 fail:
-	gluster_free_server(entry);
+	gluster_free_server(&entry);
 	free(origp);
 
 	return -1;
@@ -384,9 +384,8 @@ static glfs_t* tcmu_create_glfs_object(char *config, gluster_server **hosts)
 	gluster_cache_refresh(fs, config);
 
  fail:
-	gluster_free_server(entry);
-
-    return NULL;
+	gluster_free_server(&entry);
+	return NULL;
 }
 
 static char* tcmu_get_path( struct tcmu_device *dev)
@@ -450,7 +449,7 @@ unref:
 done:
 	if (gfd)
 		glfs_close(gfd);
-	gluster_free_server(hosts);
+	gluster_free_server(&hosts);
 
 	return result;
 }
@@ -523,7 +522,7 @@ unref:
 fail:
 	if (gfsp->gfd)
 		glfs_close(gfsp->gfd);
-	gluster_free_server(gfsp->hosts);
+	gluster_free_server(&gfsp->hosts);
 	free(gfsp);
 
 	return -EIO;
@@ -535,7 +534,7 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 
 	glfs_close(gfsp->gfd);
 	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
-	gluster_free_server(gfsp->hosts);
+	gluster_free_server(&gfsp->hosts);
 	free(gfsp);
 }
 
