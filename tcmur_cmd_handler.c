@@ -117,6 +117,12 @@ static int check_lba_and_length(struct tcmu_device *dev,
 	return SAM_STAT_GOOD;
 }
 
+static void handle_generic_cbk(struct tcmu_device *dev,
+			       struct tcmulib_cmd *cmd, int ret)
+{
+	aio_command_finish(dev, cmd, ret);
+}
+
 static int read_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -424,12 +430,6 @@ out:
 }
 
 /* async flush */
-static void handle_flush_cbk(struct tcmu_device *dev,
-			     struct tcmulib_cmd *cmd, int ret)
-{
-	aio_command_finish(dev, cmd, ret);
-}
-
 static int flush_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -439,17 +439,11 @@ static int flush_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 static int handle_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	cmd->done = handle_flush_cbk;
+	cmd->done = handle_generic_cbk;
 	return async_handle_cmd(dev, cmd, flush_work_fn);
 }
 
 /* async write */
-static void handle_write_cbk(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			     int ret)
-{
-	aio_command_finish(dev, cmd, ret);
-}
-
 static int handle_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
@@ -458,17 +452,11 @@ static int handle_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (ret)
 		return ret;
 
-	cmd->done = handle_write_cbk;
+	cmd->done = handle_generic_cbk;
 	return async_handle_cmd(dev, cmd, write_work_fn);
 }
 
 /* async read */
-static void handle_read_cbk(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			    int ret)
-{
-	aio_command_finish(dev, cmd, ret);
-}
-
 static int handle_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
@@ -477,7 +465,7 @@ static int handle_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (ret)
 		return ret;
 
-	cmd->done = handle_read_cbk;
+	cmd->done = handle_generic_cbk;
 	return async_handle_cmd(dev, cmd, read_work_fn);
 }
 
@@ -672,13 +660,6 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 }
 
 /* command passthrough */
-static void
-handle_passthrough_cbk(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-		       int ret)
-{
-	aio_command_finish(dev, cmd, ret);
-}
-
 static int passthrough_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -689,7 +670,7 @@ static int passthrough_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int handle_passthrough(struct tcmu_device *dev,
 			      struct tcmulib_cmd *cmd)
 {
-	cmd->done = handle_passthrough_cbk;
+	cmd->done = handle_generic_cbk;
 	return async_handle_cmd(dev, cmd, passthrough_work_fn);
 }
 
