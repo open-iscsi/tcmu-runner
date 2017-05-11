@@ -515,7 +515,7 @@ static void *log_thread_start(void *arg)
 	return NULL;
 }
 
-static int tcmu_make_absolute_logfile(char *path, const char *filename)
+int tcmu_make_absolute_logfile(char *path, const char *filename)
 {
 	int ret;
 	int err_save = 0;
