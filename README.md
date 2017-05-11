@@ -130,10 +130,15 @@ SCSI commands, if desired.
 
 The `file_optical` handler is an examples of this type.
 
-With the option 2, tcmu-runner is in charge of the event loop and SCSI command
-handling for your plugin, and your handler's registered functions are called
-repeatedly to handle storage requests as required by the upper SCSI layer, which
-will handle most of the SCSI commands for you.
+With the option 2, tcmu-runner will be partially or fully in charge of the event
+loop and SCSI command handling for your plugin, and your handler's registered
+functions are called repeatedly to handle storage requests as required by the
+upper SCSI layer, which will handle most of the SCSI commands for you.
+
+* *Note:* If the .handle_cmd is also implemented by the handler, tcmu-runner will
+try to pass through the commands to the handler first, if and only when the handler
+won't support the commands it should return TCMU_NOT_HANDLED, then the tcmu-runner
+will handle them in generic.
 
 The `file_example` handler is an example of this type.
 
