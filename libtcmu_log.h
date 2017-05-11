@@ -33,6 +33,11 @@
 #define TCMU_LOG_DEBUG	LOG_DEBUG	/* debug-level messages */
 #define TCMU_LOG_DEBUG_SCSI_CMD	(LOG_DEBUG + 1)	/* scsi cmd debug-level messages */
 
+/* default tcmu log dir path */
+#define TCMU_LOG_DIR_DEFAULT   "/var/log/"
+#define TCMU_LOG_FILENAME_MAX  32
+#define TCMU_LOG_FILENAME      "tcmu-runner.log"
+
 typedef enum {
         TCMU_LOG_TO_STDOUT,
         TCMU_LOG_TO_SYSLOG,
