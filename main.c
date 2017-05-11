@@ -456,10 +456,11 @@ static void dbus_name_lost(GDBusConnection *connection,
 	tcmu_dbg("name lost\n");
 }
 
-int load_our_module(void) {
+static int load_our_module(void)
+{
 	struct kmod_list *list = NULL, *itr;
-	int err;
 	struct kmod_ctx *ctx;
+	int ret;
 
 	ctx = kmod_new(NULL, NULL);
 	if (!ctx) {
@@ -467,28 +468,56 @@ int load_our_module(void) {
 		return -1;
 	}
 
-	err = kmod_module_new_from_lookup(ctx, "target_core_user", &list);
-	if (err < 0)
-		return err;
+	ret = kmod_module_new_from_lookup(ctx, "target_core_user", &list);
+	if (ret < 0) {
+		tcmu_err("kmod_module_new_from_lookup() failed to lookup alias target_core_user\n");
+		return ret;
+	}
+
+	if (!list) {
+		tcmu_err("kmod_module_new_from_lookup() failed to find module target_core_user\n");
+		return -ENOENT;
+	}
 
 	kmod_list_foreach(itr, list) {
+		int state, err;
 		struct kmod_module *mod = kmod_module_get_module(itr);
 
-		err = kmod_module_probe_insert_module (
-			mod, KMOD_PROBE_APPLY_BLACKLIST, 0, 0, 0, 0);
+		state = kmod_module_get_initstate(mod);
+		switch (state) {
+		case KMOD_MODULE_BUILTIN:
+			tcmu_info("Module '%s' is builtin\n",
+			          kmod_module_get_name(mod));
+			break;
 
-		if (err != 0) {
-			tcmu_err("kmod_module_probe_insert_module() for %s failed\n",
-			    kmod_module_get_name(mod));
-			return -1;
+		case KMOD_MODULE_LIVE:
+			tcmu_dbg("Module '%s' is already loaded\n",
+			         kmod_module_get_name(mod));
+			break;
+
+		default:
+			err = kmod_module_probe_insert_module(mod,
+			                               KMOD_PROBE_APPLY_BLACKLIST,
+			                               NULL, NULL, NULL, NULL);
+
+			if (err == 0) {
+				tcmu_info("Inserted module '%s'\n",
+				          kmod_module_get_name(mod));
+			} else if (err == KMOD_PROBE_APPLY_BLACKLIST) {
+				tcmu_err("Module '%s' is blacklisted\n",
+				         kmod_module_get_name(mod));
+			} else {
+				tcmu_err("Failed to insert '%s'\n",
+				         kmod_module_get_name(mod));
+			}
+			ret = err;
 		}
-
-		tcmu_dbg("Module %s inserted (or already loaded)\n", kmod_module_get_name(mod));
-
 		kmod_module_unref(mod);
 	}
 
-	return 0;
+	kmod_module_unref_list(list);
+
+	return ret;
 }
 
 static void cmdproc_thread_cleanup(void *arg)
