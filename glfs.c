@@ -76,6 +76,17 @@ struct glfs_state {
 	 */
 };
 
+typedef struct glfs_cbk_cookie {
+	struct tcmu_device *dev;
+	struct tcmulib_cmd *cmd;
+	size_t length;
+	enum {
+		TCMU_GLFS_READ  = 1,
+		TCMU_GLFS_WRITE = 2,
+		TCMU_GLFS_FLUSH = 3
+	} op;
+} glfs_cbk_cookie;
+
 struct gluster_cacheconn {
     char *volname;
 	gluster_hostdef *server;
@@ -539,54 +550,122 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 	free(gfsp);
 }
 
-static int tcmu_glfs_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			  struct iovec *iov, size_t iov_cnt, size_t length,
-			  off_t offset)
+static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 {
-        struct glfs_state *state = tcmu_get_dev_private(dev);
-	ssize_t ret;
+	glfs_cbk_cookie *cookie = data;
+	struct tcmu_device *dev = cookie->dev;
+	struct tcmulib_cmd *cmd = cookie->cmd;
+	size_t length = cookie->length;
 
-        ret = glfs_preadv(state->gfd, iov, iov_cnt, offset, SEEK_SET);
-	if (ret != length) {
-		ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-					   ASC_READ_ERROR, NULL);
+	if (ret < 0 || ret != length) {
+		/* Read/write/flush failed */
+		switch (cookie->op) {
+		case TCMU_GLFS_READ:
+			ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+			                           ASC_READ_ERROR, NULL);
+			break;
+		case TCMU_GLFS_WRITE:
+		case TCMU_GLFS_FLUSH:
+			ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+			                           ASC_WRITE_ERROR, NULL);
+			break;
+		}
 	} else {
 		ret = SAM_STAT_GOOD;
 	}
 
 	cmd->done(dev, cmd, ret);
-	return 0;
+	free(cookie);
 }
 
-static int tcmu_glfs_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			   struct iovec *iov, size_t iov_cnt, size_t length,
-			   off_t offset)
+static int tcmu_glfs_read(struct tcmu_device *dev,
+                          struct tcmulib_cmd *cmd,
+                          struct iovec *iov, size_t iov_cnt,
+                          size_t length, off_t offset)
 {
 	struct glfs_state *state = tcmu_get_dev_private(dev);
-	ssize_t ret;
+	glfs_cbk_cookie *cookie = NULL;
 
-	ret = glfs_pwritev(state->gfd, iov, iov_cnt, offset, ALLOWED_BSOFLAGS);
-	if (ret != length) {
-		ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-					   ASC_WRITE_ERROR, NULL);
-	} else {
-		ret = SAM_STAT_GOOD;
+	cookie = calloc(1, sizeof(*cookie));
+	if (!cookie) {
+		tcmu_err("Could not allocate cookie: %m\n");
+		goto out;
+	}
+	cookie->dev = dev;
+	cookie->cmd = cmd;
+	cookie->length = length;
+	cookie->op = TCMU_GLFS_READ;
+
+	if (glfs_preadv_async(state->gfd, iov, iov_cnt, offset, SEEK_SET,
+	                      glfs_async_cbk, cookie) < 0) {
+		tcmu_err("glfs_preadv_async failed: %m\n");
+		goto out;
 	}
 
-	cmd->done(dev, cmd, ret);
 	return 0;
+
+out:
+	free(cookie);
+	return SAM_STAT_TASK_SET_FULL;
 }
 
-static int tcmu_glfs_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int tcmu_glfs_write(struct tcmu_device *dev,
+                           struct tcmulib_cmd *cmd,
+                           struct iovec *iov, size_t iov_cnt,
+                           size_t length, off_t offset)
 {
 	struct glfs_state *state = tcmu_get_dev_private(dev);
-	int ret = SAM_STAT_GOOD;
+	glfs_cbk_cookie *cookie = NULL;
 
-	if (glfs_fdatasync(state->gfd))
-		ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-					   ASC_WRITE_ERROR, NULL);
-	cmd->done(dev, cmd, ret);
+	cookie = calloc(1, sizeof(*cookie));
+	if (!cookie) {
+		tcmu_err("Could not allocate cookie: %m\n");
+		goto out;
+	}
+	cookie->dev = dev;
+	cookie->cmd = cmd;
+	cookie->length = length;
+	cookie->op = TCMU_GLFS_WRITE;
+
+	if (glfs_pwritev_async(state->gfd, iov, iov_cnt, offset,
+	                       ALLOWED_BSOFLAGS, glfs_async_cbk, cookie) < 0) {
+		tcmu_err("glfs_pwritev_async failed: %m\n");
+		goto out;
+	}
+
 	return 0;
+
+out:
+	free(cookie);
+	return SAM_STAT_TASK_SET_FULL;
+}
+
+static int tcmu_glfs_flush(struct tcmu_device *dev,
+                           struct tcmulib_cmd *cmd)
+{
+	struct glfs_state *state = tcmu_get_dev_private(dev);
+	glfs_cbk_cookie *cookie = NULL;
+
+	cookie = calloc(1, sizeof(*cookie));
+	if (!cookie) {
+		tcmu_err("Could not allocate cookie: %m\n");
+		goto out;
+	}
+	cookie->dev = dev;
+	cookie->cmd = cmd;
+	cookie->length = 0;
+	cookie->op = TCMU_GLFS_FLUSH;
+
+	if (glfs_fdatasync_async(state->gfd, glfs_async_cbk, cookie) < 0) {
+		tcmu_err("glfs_fdatasync_async failed: %m\n");
+		goto out;
+	}
+
+	return 0;
+
+out:
+	free(cookie);
+	return SAM_STAT_TASK_SET_FULL;
 }
 
 static const char glfs_cfg_desc[] =
@@ -609,7 +688,6 @@ struct tcmur_handler glfs_handler = {
 	.read 		= tcmu_glfs_read,
 	.write		= tcmu_glfs_write,
 	.flush		= tcmu_glfs_flush,
-	.nr_threads	= 1,
 };
 
 /* Entry point must be named "handler_init". */
