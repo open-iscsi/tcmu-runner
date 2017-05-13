@@ -79,30 +79,13 @@ static bool file_check_config(const char *cfgstring, char **reason)
 static int file_open(struct tcmu_device *dev)
 {
 	struct file_state *state;
-	int64_t size;
 	char *config;
-	int block_size;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
 		return -ENOMEM;
 
 	tcmu_set_dev_private(dev, state);
-
-	block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (block_size <= 0) {
-		tcmu_err("Could not get device block size\n");
-		goto err;
-	}
-	tcmu_set_dev_block_size(dev, block_size);
-
-	size = tcmu_get_device_size(dev);
-	if (size < 0) {
-		tcmu_err("Could not get device size\n");
-		goto err;
-	}
-
-	tcmu_set_dev_num_lbas(dev, size / block_size);
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {
@@ -117,7 +100,7 @@ static int file_open(struct tcmu_device *dev)
 		goto err;
 	}
 
-	tcmu_dbg("config %s, size %lld\n", tcmu_get_dev_cfgstring(dev), size);
+	tcmu_dbg("config %s\n", tcmu_get_dev_cfgstring(dev));
 
 	return 0;
 
