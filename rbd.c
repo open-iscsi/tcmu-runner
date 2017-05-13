@@ -336,6 +336,7 @@ static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 
 static int tcmu_rbd_open(struct tcmu_device *dev)
 {
+	rbd_image_info_t image_info;
 	char *pool, *name;
 	char *config;
 	struct tcmu_rbd_state *state;
@@ -410,6 +411,13 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		ret = -EIO;
 		goto stop_image;
 	}
+
+	ret = rbd_stat(state->image, &image_info, sizeof(image_info));
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not stat image.\n");
+		goto stop_image;
+	}
+	tcmu_set_dev_max_xfer_len(dev, image_info.obj_size);
 
 	tcmu_dev_dbg(dev, "config %s, size %lld\n", tcmu_get_dev_cfgstring(dev),
 		     rbd_size);

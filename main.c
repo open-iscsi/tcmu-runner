@@ -565,7 +565,7 @@ static int dev_added(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev;
-	int32_t block_size;
+	int32_t block_size, max_sectors;
 	int64_t dev_size;
 	int ret;
 
@@ -588,6 +588,11 @@ static int dev_added(struct tcmu_device *dev)
 		goto free_rdev;
 	}
 	tcmu_set_dev_num_lbas(dev, dev_size / block_size);
+
+	max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
+	if (max_sectors < 0)
+		goto free_rdev;
+	tcmu_set_dev_max_xfer_len(dev, max_sectors * block_size);
 
 	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld",
 		     block_size, dev_size);
