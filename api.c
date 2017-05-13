@@ -503,10 +503,20 @@ finish_page83:
 						   ASC_INVALID_FIELD_IN_CDB, NULL);
 		}
 
-		max_xfer_length = tcmu_get_attribute(dev, "hw_max_sectors");
-		if (max_xfer_length < 0) {
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB, NULL);
+		/*
+		 * Daemons like runner may override the user requested
+		 * value due to device specific limits.
+		 */
+		if (dev->max_xfer_len) {
+			max_xfer_length = dev->max_xfer_len / block_size;
+		} else {
+			max_xfer_length = tcmu_get_attribute(dev,
+							     "hw_max_sectors");
+			if (max_xfer_length < 0) {
+				return tcmu_set_sense_data(sense,
+						HARDWARE_ERROR,
+						ASC_INTERNAL_TARGET_FAILURE, NULL);
+			}
 		}
 
 		val32 = htobe32(max_xfer_length);
