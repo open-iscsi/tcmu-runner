@@ -35,8 +35,6 @@
 #include "libtcmu_priv.h"
 #include "alua.h"
 
-#define SECTOR_SIZE 512
-
 int tcmu_get_cdb_length(uint8_t *cdb)
 {
 	uint8_t group_code = cdb[0] >> 5;
@@ -475,7 +473,6 @@ finish_page83:
 	{
 		char data[64];
 		int block_size;
-		int max_sectors;
 		int max_xfer_length;
 		uint16_t val16;
 		uint32_t val32;
@@ -506,14 +503,11 @@ finish_page83:
 						   ASC_INVALID_FIELD_IN_CDB, NULL);
 		}
 
-		max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
-		if (max_sectors < 0) {
+		max_xfer_length = tcmu_get_attribute(dev, "hw_max_sectors");
+		if (max_xfer_length < 0) {
 			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						   ASC_INVALID_FIELD_IN_CDB, NULL);
 		}
-
-		/* Convert from sectors to blocks */
-		max_xfer_length = max_sectors / (block_size / SECTOR_SIZE);
 
 		val32 = htobe32(max_xfer_length);
 		/* Max xfer length */
