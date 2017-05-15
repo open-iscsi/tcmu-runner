@@ -334,6 +334,8 @@ int tcmu_emulate_evpd_inquiry(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+
 	switch (cdb[2]) {
 	case 0x0: /* Supported VPD pages */
 	{
@@ -647,6 +649,14 @@ finish_page83:
 		 * The logical block data represented by unmapped LBAs is set to zeros
 		 */
 		data[5] = 0x04;
+
+		/*
+		 * The logical block provisioning unmap (LBPU) field.
+		 *
+		 * This will enable the UNMAP command for the device server.
+		 */
+		if (rhandler->unmap)
+			data[5] |= 0x80;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 		return SAM_STAT_GOOD;
