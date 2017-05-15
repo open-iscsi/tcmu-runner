@@ -26,6 +26,7 @@
 #include <limits.h>
 #include <errno.h>
 #include <dirent.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <assert.h>
@@ -52,6 +53,8 @@
 #include "libtcmu_log.h"
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
+/* tcmu log dir path */
+extern char *tcmu_log_dir;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
@@ -456,10 +459,11 @@ static void dbus_name_lost(GDBusConnection *connection,
 	tcmu_dbg("name lost\n");
 }
 
-int load_our_module(void) {
+static int load_our_module(void)
+{
 	struct kmod_list *list = NULL, *itr;
-	int err;
 	struct kmod_ctx *ctx;
+	int ret;
 
 	ctx = kmod_new(NULL, NULL);
 	if (!ctx) {
@@ -467,28 +471,56 @@ int load_our_module(void) {
 		return -1;
 	}
 
-	err = kmod_module_new_from_lookup(ctx, "target_core_user", &list);
-	if (err < 0)
-		return err;
+	ret = kmod_module_new_from_lookup(ctx, "target_core_user", &list);
+	if (ret < 0) {
+		tcmu_err("kmod_module_new_from_lookup() failed to lookup alias target_core_user\n");
+		return ret;
+	}
+
+	if (!list) {
+		tcmu_err("kmod_module_new_from_lookup() failed to find module target_core_user\n");
+		return -ENOENT;
+	}
 
 	kmod_list_foreach(itr, list) {
+		int state, err;
 		struct kmod_module *mod = kmod_module_get_module(itr);
 
-		err = kmod_module_probe_insert_module (
-			mod, KMOD_PROBE_APPLY_BLACKLIST, 0, 0, 0, 0);
+		state = kmod_module_get_initstate(mod);
+		switch (state) {
+		case KMOD_MODULE_BUILTIN:
+			tcmu_info("Module '%s' is builtin\n",
+			          kmod_module_get_name(mod));
+			break;
 
-		if (err != 0) {
-			tcmu_err("kmod_module_probe_insert_module() for %s failed\n",
-			    kmod_module_get_name(mod));
-			return -1;
+		case KMOD_MODULE_LIVE:
+			tcmu_dbg("Module '%s' is already loaded\n",
+			         kmod_module_get_name(mod));
+			break;
+
+		default:
+			err = kmod_module_probe_insert_module(mod,
+			                               KMOD_PROBE_APPLY_BLACKLIST,
+			                               NULL, NULL, NULL, NULL);
+
+			if (err == 0) {
+				tcmu_info("Inserted module '%s'\n",
+				          kmod_module_get_name(mod));
+			} else if (err == KMOD_PROBE_APPLY_BLACKLIST) {
+				tcmu_err("Module '%s' is blacklisted\n",
+				         kmod_module_get_name(mod));
+			} else {
+				tcmu_err("Failed to insert '%s'\n",
+				         kmod_module_get_name(mod));
+			}
+			ret = err;
 		}
-
-		tcmu_dbg("Module %s inserted (or already loaded)\n", kmod_module_get_name(mod));
-
 		kmod_module_unref(mod);
 	}
 
-	return 0;
+	kmod_module_unref_list(list);
+
+	return ret;
 }
 
 static void cmdproc_thread_cleanup(void *arg)
@@ -652,6 +684,25 @@ static void dev_removed(struct tcmu_device *dev)
 	free(rdev);
 }
 
+static bool tcmu_logdir_create(const char *path)
+{
+	DIR* dir = opendir(path);
+
+	if (dir) {
+		closedir(dir);
+	} else if (errno == ENOENT) {
+		if (mkdir(path, 0755) == -1) {
+			tcmu_err("mkdir(%s) failed: %m\n", path);
+			return FALSE;
+		}
+	} else {
+		tcmu_err("opendir(%s) failed: %m\n", path);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
 static void usage(void) {
 	printf("\nusage:\n");
 	printf("\ttcmu-runner [options]\n");
@@ -661,12 +712,15 @@ static void usage(void) {
 	printf("\t-d, --debug: enable debug messages\n");
 	printf("\t--handler-path: set path to search for handler modules\n");
 	printf("\t\tdefault is %s\n", DEFAULT_HANDLER_PATH);
+	printf("\t-l, --tcmu-log-dir: tcmu log dir\n");
+	printf("\t\tdefault is %s\n", TCMU_LOG_DIR_DEFAULT);
 	printf("\n");
 }
 
 static struct option long_options[] = {
 	{"debug", no_argument, 0, 'd'},
 	{"handler-path", required_argument, 0, 0},
+	{"tcmu-log-dir", required_argument, 0, 'l'},
 	{"help", no_argument, 0, 'h'},
 	{"version", no_argument, 0, 'V'},
 	{0, 0, 0, 0},
@@ -691,7 +745,7 @@ int main(int argc, char **argv)
 	while (1) {
 		int option_index = 0;
 
-		c = getopt_long(argc, argv, "dhV",
+		c = getopt_long(argc, argv, "dhlV",
 				long_options, &option_index);
 		if (c == -1)
 			break;
@@ -700,6 +754,16 @@ int main(int argc, char **argv)
 		case 0:
 			if (option_index == 1)
 				handler_path = strdup(optarg);
+			break;
+		case 'l':
+			if (strlen(optarg) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
+				tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
+				         optarg, PATH_MAX - TCMU_LOG_FILENAME_MAX);
+			}
+			if (!tcmu_logdir_create(optarg)) {
+				exit(1);
+			}
+			tcmu_log_dir = strdup(optarg);
 			break;
 		case 'd':
 			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG_SCSI_CMD);

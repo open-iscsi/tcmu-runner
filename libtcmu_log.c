@@ -35,8 +35,8 @@
 #define LOG_MSG_LEN (LOG_ENTRY_LEN - 1) /* the length of the log message */
 #define LOG_ENTRYS (1024 * 32)
 
-/* tcmu log filepath */
-#define LOG_FILE_PATH "/var/log/tcmu-runner.log"
+/* tcmu log dir path */
+char *tcmu_log_dir = NULL;
 
 pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -515,10 +515,30 @@ static void *log_thread_start(void *arg)
 	return NULL;
 }
 
+int tcmu_make_absolute_logfile(char *path, const char *filename)
+{
+	int ret;
+	int err_save = 0;
+
+	ret = snprintf(path, PATH_MAX, "%s/%s",
+	               tcmu_log_dir?tcmu_log_dir:TCMU_LOG_DIR_DEFAULT,
+	               filename);
+	if (ret < 0) {
+		err_save = errno;
+		tcmu_err("snprintf() failed: %m\n");
+		goto out;
+	}
+
+out:
+	errno = err_save;
+	return ret;
+}
+
 static struct log_buf *tcmu_log_initialize(void)
 {
 	int ret;
 	pthread_mutex_lock(&g_mutex);
+	char logfilepath[PATH_MAX];
 
 	if (initialized && logbuf != NULL) {
 		pthread_mutex_unlock(&g_mutex);
@@ -548,7 +568,14 @@ static struct log_buf *tcmu_log_initialize(void)
 	if (ret < 0)
 		fprintf(stderr, "create stdout output error \n");
 
-	ret = create_file_output(TCMU_LOG_DEBUG, LOG_FILE_PATH);
+	ret = tcmu_make_absolute_logfile(logfilepath, TCMU_LOG_FILENAME);
+	if (ret < 0) {
+		fprintf(stderr, "tcmu_make_absolute_logfile failed\n");
+		free(logbuf);
+		return NULL;
+	}
+
+	ret = create_file_output(TCMU_LOG_DEBUG, logfilepath);
 	if (ret < 0)
 		fprintf(stderr, "create file output error \n");
 

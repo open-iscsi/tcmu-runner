@@ -33,6 +33,11 @@
 #define ALLOWED_BSOFLAGS (O_SYNC | O_DIRECT | O_RDWR | O_LARGEFILE)
 
 #define GLUSTER_PORT "24007"
+#define TCMU_GLFS_LOG_FILENAME "tcmu-runner-glfs.log"  /* MAX 32 CHAR */
+#define TCMU_GLFS_DEBUG_LEVEL  4
+
+/* tcmu log dir path */
+extern char *tcmu_log_dir;
 
 typedef enum gluster_transport {
 	GLUSTER_TRANSPORT_TCP,
@@ -247,18 +252,18 @@ static void gluster_cache_refresh(glfs_t *fs, const char *cfgstring)
 	}
 }
 
-static void gluster_free_server(gluster_server *hosts)
+static void gluster_free_server(gluster_server **hosts)
 {
-	if (!hosts)
+	if (!*hosts)
 		return;
-	free(hosts->volname);
-	free(hosts->path);
+	free((*hosts)->volname);
+	free((*hosts)->path);
 
-	gluster_free_host(hosts->server);
-	free(hosts->server);
-	hosts->server = NULL;
-	free(hosts);
-	hosts = NULL;
+	gluster_free_host((*hosts)->server);
+	free((*hosts)->server);
+	(*hosts)->server = NULL;
+	free(*hosts);
+	*hosts = NULL;
 }
 
 /*
@@ -328,7 +333,7 @@ static int parse_imagepath(char *cfgstring, gluster_server **hosts)
 	return 0;
 
 fail:
-	gluster_free_server(entry);
+	gluster_free_server(&entry);
 	free(origp);
 
 	return -1;
@@ -337,6 +342,7 @@ fail:
 static glfs_t* tcmu_create_glfs_object(char *config, gluster_server **hosts)
 {
 	gluster_server *entry = NULL;
+	char logfilepath[PATH_MAX];
     glfs_t *fs =  NULL;
     int ret = -1;
 
@@ -371,6 +377,17 @@ static glfs_t* tcmu_create_glfs_object(char *config, gluster_server **hosts)
 		goto unref;
 	}
 
+	ret = tcmu_make_absolute_logfile(logfilepath, TCMU_GLFS_LOG_FILENAME);
+	if (ret < 0) {
+		tcmu_err("tcmu_make_absolute_logfile failed: %m\n");
+		goto unref;
+	}
+
+	ret = glfs_set_logging(fs, logfilepath, TCMU_GLFS_DEBUG_LEVEL);
+	if (ret < 0) {
+		tcmu_err("glfs_set_logging failed: %m\n");
+		goto unref;
+	}
 
 	ret = glfs_init(fs);
 	if (ret) {
@@ -378,15 +395,14 @@ static glfs_t* tcmu_create_glfs_object(char *config, gluster_server **hosts)
 		goto unref;
 	}
 
-    return fs;
+	return fs;
 
  unref:
 	gluster_cache_refresh(fs, config);
 
  fail:
-	gluster_free_server(entry);
-
-    return NULL;
+	gluster_free_server(&entry);
+	return NULL;
 }
 
 static char* tcmu_get_path( struct tcmu_device *dev)
@@ -450,7 +466,7 @@ unref:
 done:
 	if (gfd)
 		glfs_close(gfd);
-	gluster_free_server(hosts);
+	gluster_free_server(&hosts);
 
 	return result;
 }
@@ -523,7 +539,7 @@ unref:
 fail:
 	if (gfsp->gfd)
 		glfs_close(gfsp->gfd);
-	gluster_free_server(gfsp->hosts);
+	gluster_free_server(&gfsp->hosts);
 	free(gfsp);
 
 	return -EIO;
@@ -535,7 +551,7 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 
 	glfs_close(gfsp->gfd);
 	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
-	gluster_free_server(gfsp->hosts);
+	gluster_free_server(&gfsp->hosts);
 	free(gfsp);
 }
 

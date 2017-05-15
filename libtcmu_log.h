@@ -33,6 +33,11 @@
 #define TCMU_LOG_DEBUG	LOG_DEBUG	/* debug-level messages */
 #define TCMU_LOG_DEBUG_SCSI_CMD	(LOG_DEBUG + 1)	/* scsi cmd debug-level messages */
 
+/* default tcmu log dir path */
+#define TCMU_LOG_DIR_DEFAULT   "/var/log/"
+#define TCMU_LOG_FILENAME_MAX  32
+#define TCMU_LOG_FILENAME      "tcmu-runner.log"
+
 typedef enum {
         TCMU_LOG_TO_STDOUT,
         TCMU_LOG_TO_SYSLOG,
@@ -53,6 +58,8 @@ void tcmu_warn_message(struct tcmu_device *dev, const char *funcname, int linenr
 void tcmu_info_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_dbg_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+
+int tcmu_make_absolute_logfile(char *path, const char *filename);
 
 #define tcmu_dev_err(dev, ...)  {tcmu_err_message(dev, __func__, __LINE__, __VA_ARGS__);}
 #define tcmu_dev_warn(dev, ...) {tcmu_warn_message(dev, __func__, __LINE__, __VA_ARGS__);}
