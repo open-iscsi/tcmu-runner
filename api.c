@@ -338,6 +338,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		/* data[1] (page code) already 0 */
 
+		data[4] = 0x80;
 		data[5] = 0x83;
 		data[6] = 0xb0;
 		data[7] = 0xb1;
@@ -346,6 +347,37 @@ int tcmu_emulate_evpd_inquiry(
 		data[3] = 5;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
+		return SAM_STAT_GOOD;
+	}
+	break;
+	case 0x80: /* Unit Serial Number */
+	{
+		char data[512];
+		char *wwn;
+		uint32_t len;
+
+		memset(data, 0, sizeof(data));
+
+		data[1] = 0x80;
+
+		wwn = tcmu_get_wwn(dev);
+		if (!wwn) {
+			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						   ASC_INTERNAL_TARGET_FAILURE,
+						   NULL);
+		}
+
+		/*
+		 * The maximum length of the unit_serial has limited
+		 * to 254 Bytes in kernel, so here limit to 256 Bytes
+		 * will be enough.
+		 */
+		len = snprintf(&data[4], 256, "%s", wwn);
+		data[3] = len + 1;
+
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
+
+		free(wwn);
 		return SAM_STAT_GOOD;
 	}
 	break;
