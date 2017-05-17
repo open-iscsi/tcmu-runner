@@ -748,6 +748,14 @@ int tcmu_emulate_read_capacity_16(
 	val32 = htobe32(block_size);
 	memcpy(&buf[8], &val32, 4);
 
+	/*
+	 * Logical Block Provisioning Management Enabled (LBPME) bit
+	 *
+	 * The LBPME bit sets to one and then the logical unit implements
+	 * logical block provisioning management
+	 */
+	buf[14] = 0x80;
+
 	/* all else is zero */
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
