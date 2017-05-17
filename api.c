@@ -711,6 +711,17 @@ int tcmu_emulate_read_capacity_16(
 	return SAM_STAT_GOOD;
 }
 
+int handle_rwrecovery_page(uint8_t *buf, size_t buf_len)
+{
+	if (buf_len < 12)
+		return -1;
+
+	buf[0] = 0x1;
+	buf[1] = 0xa;
+
+	return 12;
+}
+
 int handle_cache_page(uint8_t *buf, size_t buf_len)
 {
 	if (buf_len < 20)
@@ -783,6 +794,7 @@ static struct {
 	uint8_t subpage;
 	int (*get)(uint8_t *buf, size_t buf_len);
 } modesense_handlers[] = {
+	{0x1, 0, handle_rwrecovery_page},
 	{0x8, 0, handle_cache_page},
 	{0xa, 0, handle_control_page},
 };
