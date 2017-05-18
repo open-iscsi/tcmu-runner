@@ -595,7 +595,6 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 		state->length = (num_lbas - state->done_blocks) * block_size;
 
 	if (alloc_iovec(writecmd, state->length)) {
-		free(state);
 		goto free_state;
 	}
 
