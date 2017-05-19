@@ -465,6 +465,10 @@ static void cancel_log_thread(pthread_t thread)
 
 void tcmu_cancel_log_thread(void)
 {
+	if (!logbuf) {
+		return;
+	}
+
 	cancel_log_thread(logbuf->thread_id);
 }
 
