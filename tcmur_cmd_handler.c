@@ -149,87 +149,96 @@ static int write_work_fn(struct tcmu_device *dev,
 }
 
 struct write_same {
-	pthread_cond_t cond;
-	pthread_mutex_t lock;
-	bool cbk_finished;
+	uint64_t cur_lba;
+	uint64_t lba_cnt;
+
+	struct iovec iovec;
+	size_t iov_cnt;
+	void *iov_base;
+	size_t iov_len;
 };
-
-static void handle_write_same_sync(struct tcmu_device *dev,
-				   struct tcmulib_cmd *cmd,
-				   int ret)
-{
-	struct write_same *write_same = cmd->cmdstate;
-
-	pthread_mutex_lock(&write_same->lock);
-	write_same->cbk_finished = true;
-	pthread_cond_signal(&write_same->cond);
-	pthread_mutex_unlock(&write_same->lock);
-}
 
 static int write_same_16_work_fn(struct tcmu_device *dev,
 				 struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint32_t lba_cnt = tcmu_get_xfer_length(cmd->cdb);
-	uint64_t start_lba = tcmu_get_lba(cmd->cdb);
 	struct write_same *write_same = cmd->cmdstate;
-	void *iov_base;
-	size_t iov_len;
-	int ret;
+	uint64_t cur_lba = write_same->cur_lba;
 
-	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba:: %hu, end lba: %llu\n",
-		     start_lba, lba_cnt, start_lba + lba_cnt);
-
-
-	iov_base = cmd->iovec->iov_base;
-	iov_len = cmd->iovec->iov_len;
-
-	write_same->cbk_finished = false;
-	cmd->done = handle_write_same_sync;
+	write_same->iovec.iov_base = write_same->iov_base;
+	write_same->iovec.iov_len = write_same->iov_len;
 
 	/*
 	 * Write contents of the logical block data(from the Data-Out Buffer)
 	 * to each LBA in the specified LBA range.
 	 */
-	while (lba_cnt--) {
-		cmd->iovec->iov_base = iov_base;
-		cmd->iovec->iov_len = iov_len;
-		ret = rhandler->write(dev, cmd, cmd->iovec, cmd->iov_cnt,
-				      tcmu_iovec_length(cmd->iovec, cmd->iov_cnt),
-				      block_size * start_lba);
-		if (ret)
-			goto out;
+	return rhandler->write(dev, cmd, &write_same->iovec,
+			       write_same->iov_cnt, write_same->iov_len,
+			       block_size * cur_lba);
+}
 
-		pthread_mutex_lock(&write_same->lock);
-		if (!write_same->cbk_finished)
-			pthread_cond_wait(&write_same->cond, &write_same->lock);
-		write_same->cbk_finished = false;
-		pthread_mutex_unlock(&write_same->lock);
+static void handle_write_same_cbk(struct tcmu_device *dev,
+				  struct tcmulib_cmd *cmd,
+				  int ret)
+{
+	struct write_same *write_same = cmd->cmdstate;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint8_t *sense = cmd->sense_buf;
+	uint64_t write_lbas = write_same->iov_len / block_size;
+	uint64_t left_lbas;
+	int rc;
 
-		start_lba++;
+	/* write failed - bail out */
+	if (ret != SAM_STAT_GOOD)
+		goto finish_err;
+
+	write_same->cur_lba += write_lbas;
+	write_same->lba_cnt -= write_lbas;
+	left_lbas = write_same->lba_cnt;
+
+	if (!left_lbas)
+		goto finish_err;
+
+	if (left_lbas <= write_lbas) {
+		tcmu_dev_dbg(dev, "Last lba: %llu, write lbas: %llu\n",
+			     write_same->cur_lba, left_lbas);
+
+		write_same->iov_len = left_lbas * block_size;
+	} else {
+		tcmu_dev_dbg(dev, "Next lba: %llu, write lbas: %llu\n",
+			     write_same->cur_lba, write_lbas);
 	}
 
-	ret = SAM_STAT_GOOD;
+	rc = async_handle_cmd(dev, cmd, write_same_16_work_fn);
+	if (rc != TCMU_ASYNC_HANDLED) {
+		tcmu_dev_err(dev, "Write same async handle cmd failure\n");
+		ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
+					  ASC_WRITE_ERROR,
+					  NULL);
+		goto finish_err;
+	}
 
-out:
-	aio_command_finish(dev, cmd, ret);
-	pthread_cond_destroy(&write_same->cond);
-	pthread_mutex_destroy(&write_same->lock);
+	return;
+
+finish_err:
+	free(write_same->iov_base);
 	free(write_same);
-
-	return ret;
+	aio_command_finish(dev, cmd, ret);
 }
 
 static int handle_write_same_16(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
 	uint8_t *sense = cmd->sense_buf;
-	uint32_t blocks = tcmu_get_xfer_length(cdb);
+	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint64_t start_lba = tcmu_get_lba(cmd->cdb);
+	uint64_t start_lba = tcmu_get_lba(cdb);
 	uint64_t dev_last_lba = tcmu_get_dev_num_lbas(dev);
+	uint64_t write_lbas;
+	size_t max_xfer_length, length = 1024 * 1024;
 	struct write_same *write_same;
+	int i;
 
 	if (cmd->iov_cnt != 1 || cmd->iovec->iov_len != block_size) {
 		tcmu_dev_err(dev, "Illegal Data-Out: iov_cnt %u length: %u\n",
@@ -245,7 +254,7 @@ static int handle_write_same_16(struct tcmu_device *dev, struct tcmulib_cmd *cmd
 	 * A write same (WSNZ) bit has beed set to one, so the device server
 	 * won't support a value of zero here.
 	 */
-	if (!blocks) {
+	if (!lba_cnt) {
 		tcmu_dev_err(dev, "The WSNZ = 1 & WRITE_SAME blocks = 0 is not supported!\n");
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB,
@@ -256,9 +265,9 @@ static int handle_write_same_16(struct tcmu_device *dev, struct tcmulib_cmd *cmd
 	 * The MAXIMUM WRITE SAME LENGTH field in Block Limits VPD page (B0h)
 	 * limit the maximum block number for the WRITE SAME.
 	 */
-	if (blocks > VPD_MAX_WRITE_SAME_LENGTH) {
+	if (lba_cnt > VPD_MAX_WRITE_SAME_LENGTH) {
 		tcmu_dev_err(dev, "blocks: %u exceeds MAXIMUM WRITE SAME LENGTH: %u\n",
-			     blocks, VPD_MAX_WRITE_SAME_LENGTH);
+			     lba_cnt, VPD_MAX_WRITE_SAME_LENGTH);
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB,
 					   NULL);
@@ -268,13 +277,16 @@ static int handle_write_same_16(struct tcmu_device *dev, struct tcmulib_cmd *cmd
 	 * The logical block address plus the number of blocks shouldn't
 	 * exceeds the capacity of the medium
 	 */
-	if (start_lba + blocks > dev_last_lba) {
+	if (start_lba + lba_cnt > dev_last_lba) {
 		tcmu_dev_err(dev, "lba %llu plus blocks %lu exceeds the dev capacity %llu\n",
-			     start_lba, blocks, dev_last_lba);
+			     start_lba, lba_cnt, dev_last_lba);
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE,
 					   NULL);
 	}
+
+	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba:: %hu, last lba: %llu\n",
+		     start_lba, lba_cnt, start_lba + lba_cnt - 1);
 
 	/*
 	 * For now not support UNMAP bit and ANCHOR bit.
@@ -288,15 +300,41 @@ static int handle_write_same_16(struct tcmu_device *dev, struct tcmulib_cmd *cmd
 
 	write_same = calloc(1, sizeof(struct write_same));
 	if (!write_same) {
+		tcmu_dev_err(dev, "Failed to calloc write_same data!\n");
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE,
 					   NULL);
 	}
 
-	pthread_cond_init(&write_same->cond, NULL);
-	pthread_mutex_init(&write_same->lock, NULL);
+	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
+	length = round_up(length, max_xfer_length);
+	length = min(length, (size_t)lba_cnt * block_size);
 
+	write_same->iov_len = length;
+	write_same->iov_base = calloc(1, length);
+	if (!write_same->iov_base) {
+		tcmu_dev_err(dev, "Failed to calloc iov_base data!\n");
+		free(write_same);
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE,
+					   NULL);
+	}
+
+	write_lbas = length / block_size;
+	for (i = 0; i < write_lbas; i++)
+		memcpy(write_same->iov_base + i * block_size,
+		       cmd->iovec->iov_base, block_size);
+
+	write_same->cur_lba = start_lba;
+	write_same->lba_cnt = lba_cnt;
+	write_same->iov_cnt = 1;
 	cmd->cmdstate = write_same;
+
+	cmd->done = handle_write_same_cbk;
+
+	tcmu_dev_dbg(dev, "First lba: %llu, write lbas: %llu\n",
+		     start_lba, write_lbas);
+
 	return async_handle_cmd(dev, cmd, write_same_16_work_fn);
 }
 
