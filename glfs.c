@@ -99,7 +99,7 @@ struct gluster_cacheconn {
 	darray(char *) cfgstring;
 } gluster_cacheconn;
 
-static darray(struct gluster_cacheconn) cache = darray_new();
+static darray(struct gluster_cacheconn *) cache = darray_new();
 
 
 const char *const gluster_transport_lookup[] = {
@@ -156,7 +156,7 @@ gluster_compare_hosts(gluster_hostdef *src_server, gluster_hostdef *dst_server)
 
 static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
 {
-	struct gluster_cacheconn *entry = NULL;
+	struct gluster_cacheconn *entry;
 	char* cfg_copy = NULL;
 
 	entry = calloc(1, sizeof(gluster_cacheconn));
@@ -166,7 +166,7 @@ static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
 	entry->volname = strdup(dst->volname);
 
 	entry->server = calloc(1, sizeof(gluster_hostdef));
-	if (!entry)
+	if (!entry->server)
 		goto error;
 
 	entry->server->type = dst->server->type;
@@ -184,7 +184,7 @@ static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
 	darray_init(entry->cfgstring);
 	darray_append(entry->cfgstring, cfg_copy);
 
-	darray_append(cache, *entry);
+	darray_append(cache, entry);
 
 	return 0;
 
@@ -194,17 +194,17 @@ static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
 
 static glfs_t* gluster_cache_query(gluster_server *dst, char *cfgstring)
 {
-	struct gluster_cacheconn *entry = NULL;
+	struct gluster_cacheconn **entry;
 	char** config;
 	char* cfg_copy = NULL;
 	bool cfgmatch = false;
 
 	darray_foreach(entry, cache) {
-		if (strcmp(entry->volname, dst->volname))
+		if (strcmp((*entry)->volname, dst->volname))
 			continue;
-		if (gluster_compare_hosts(entry->server, dst->server)) {
+		if (gluster_compare_hosts((*entry)->server, dst->server)) {
 
-			darray_foreach(config, entry->cfgstring) {
+			darray_foreach(config, (*entry)->cfgstring) {
 				if (!strcmp(*config, cfgstring)) {
 					cfgmatch = true;
 					break;
@@ -212,9 +212,9 @@ static glfs_t* gluster_cache_query(gluster_server *dst, char *cfgstring)
 			}
 			if (!cfgmatch) {
 				cfg_copy = strdup(cfgstring);
-				darray_append(entry->cfgstring, cfg_copy);
+				darray_append((*entry)->cfgstring, cfg_copy);
 			}
-			return entry->fs;
+			return (*entry)->fs;
 		}
 	}
 
@@ -223,7 +223,7 @@ static glfs_t* gluster_cache_query(gluster_server *dst, char *cfgstring)
 
 static void gluster_cache_refresh(glfs_t *fs, const char *cfgstring)
 {
-	struct gluster_cacheconn *entry = NULL;
+	struct gluster_cacheconn **entry;
 	char** config;
 	size_t i = 0;
 	size_t j = 0;
@@ -232,28 +232,28 @@ static void gluster_cache_refresh(glfs_t *fs, const char *cfgstring)
 		return;
 
 	darray_foreach(entry, cache) {
-		if (entry->fs == fs) {
+		if ((*entry)->fs == fs) {
 			if (cfgstring) {
-				darray_foreach(config, entry->cfgstring) {
+				darray_foreach(config, (*entry)->cfgstring) {
 					if (!strcmp(*config, cfgstring)) {
 						free(*config);
-						darray_remove(entry->cfgstring, j);
+						darray_remove((*entry)->cfgstring, j);
 						break;
 					}
 					j++;
 				}
 			}
 
-			if (darray_size(entry->cfgstring))
+			if (darray_size((*entry)->cfgstring))
 				return;
 
-			free(entry->volname);
-			glfs_fini(entry->fs);
-			entry->fs = NULL;
-			gluster_free_host(entry->server);
-			free(entry->server);
-			entry->server = NULL;
-			free(entry);
+			free((*entry)->volname);
+			glfs_fini((*entry)->fs);
+			(*entry)->fs = NULL;
+			gluster_free_host((*entry)->server);
+			free((*entry)->server);
+			(*entry)->server = NULL;
+			free((*entry));
 
 			darray_remove(cache, i);
 			return;
