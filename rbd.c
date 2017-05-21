@@ -336,12 +336,12 @@ static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 
 static int tcmu_rbd_open(struct tcmu_device *dev)
 {
+	rbd_image_info_t image_info;
 	char *pool, *name;
 	char *config;
 	struct tcmu_rbd_state *state;
 	uint64_t rbd_size;
-	int64_t size;
-	int ret, block_size;
+	int ret;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
@@ -364,21 +364,6 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		goto free_state;
 	}
 	config += 1; /* get past '/' */
-
-	block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (block_size <= 0) {
-		tcmu_dev_err(dev, "Could not get hw_block_size\n");
-		ret = -EINVAL;
-		goto free_state;
-	}
-	tcmu_set_dev_block_size(dev, block_size);
-
-	size = tcmu_get_device_size(dev);
-	if (size < 0) {
-		tcmu_dev_err(dev, "Could not get device size\n");
-		goto free_state;
-	}
-	tcmu_set_dev_num_lbas(dev, size / block_size);
 
 	pool = strtok(config, "/");
 	if (!pool) {
@@ -418,12 +403,21 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		goto stop_image;
 	}
 
-	if (size != rbd_size) {
-		tcmu_dev_err(dev, "device size and backing size disagree: device %lld backing %lld\n",
-			     size, rbd_size);
+	if (rbd_size !=
+	    tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev)) {
+		tcmu_dev_err(dev, "device size and backing size disagree: device (num LBAs %lld, block size %ld) backing %lld\n",
+			     tcmu_get_dev_num_lbas(dev),
+			     tcmu_get_dev_block_size(dev), rbd_size);
 		ret = -EIO;
 		goto stop_image;
 	}
+
+	ret = rbd_stat(state->image, &image_info, sizeof(image_info));
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not stat image.\n");
+		goto stop_image;
+	}
+	tcmu_set_dev_max_xfer_len(dev, image_info.obj_size);
 
 	tcmu_dev_dbg(dev, "config %s, size %lld\n", tcmu_get_dev_cfgstring(dev),
 		     rbd_size);

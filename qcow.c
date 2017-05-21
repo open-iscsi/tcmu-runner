@@ -88,7 +88,6 @@ struct bdev {
 
 	/* from TCMU configfs configuration */
 	int64_t size;
-	uint64_t num_lbas;
 	uint32_t block_size;
 
 	int fd;		/* image file descriptor */
@@ -418,7 +417,6 @@ static int qcow_setup_backing_file(struct bdev *bdev, struct qcow_header *header
 	/* backing file settings copied from overlay */
 	s->backing_image->size = bdev->size;
 	s->backing_image->block_size = bdev->block_size;
-	s->backing_image->num_lbas = bdev->num_lbas;
 
 	/* backing file pathname may be relative to the overlay image */
 	dirfd = get_dirfd(bdev->fd);
@@ -1411,21 +1409,12 @@ static int qcow_open(struct tcmu_device *dev)
 
 	tcmu_set_dev_private(dev, bdev);
 
-	bdev->block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (bdev->block_size <= 0) {
-		tcmu_err("Could not get device block size\n");
-		goto err;
-	}
-	tcmu_set_dev_block_size(dev, bdev->block_size);
-
+	bdev->block_size = tcmu_get_dev_block_size(dev);
 	bdev->size = tcmu_get_device_size(dev);
 	if (bdev->size < 0) {
 		tcmu_err("Could not get device size\n");
 		goto err;
 	}
-
-	tcmu_set_dev_num_lbas(dev, bdev->size / bdev->block_size);
-	bdev->num_lbas = bdev->size / bdev->block_size;
 
 	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
 	if (!config) {

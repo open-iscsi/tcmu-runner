@@ -597,12 +597,37 @@ static int dev_added(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev;
+	int32_t block_size, max_sectors;
+	int64_t dev_size;
 	int ret;
 
 	rdev = calloc(1, sizeof(*rdev));
 	if (!rdev)
 		return -ENOMEM;
 	tcmu_set_daemon_dev_private(dev, rdev);
+
+	ret = -EINVAL;
+	block_size = tcmu_get_attribute(dev, "hw_block_size");
+	if (block_size <= 0) {
+		tcmu_dev_err(dev, "Could not get hw_block_size\n");
+		goto free_rdev;
+	}
+	tcmu_set_dev_block_size(dev, block_size);
+
+	dev_size = tcmu_get_device_size(dev);
+	if (dev_size < 0) {
+		tcmu_dev_err(dev, "Could not get device size\n");
+		goto free_rdev;
+	}
+	tcmu_set_dev_num_lbas(dev, dev_size / block_size);
+
+	max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
+	if (max_sectors < 0)
+		goto free_rdev;
+	tcmu_set_dev_max_xfer_len(dev, max_sectors * block_size);
+
+	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld",
+		     block_size, dev_size);
 
 	ret = pthread_spin_init(&rdev->lock, 0);
 	if (ret < 0)

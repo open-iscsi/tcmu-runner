@@ -488,28 +488,12 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	int ret = 0;
 	char *config;
 	struct stat st;
-	int block_size;
-	int64_t size;
 
 	gfsp = calloc(1, sizeof(*gfsp));
 	if (!gfsp)
 		return -ENOMEM;
 
 	tcmu_set_dev_private(dev, gfsp);
-
-	block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (block_size <= 0) {
-		tcmu_err("Could not get hw_block_size setting\n");
-		goto fail;
-	}
-	tcmu_set_dev_block_size(dev, block_size);
-
-	size = tcmu_get_device_size(dev);
-	if (size < 0) {
-		tcmu_err("Could not get device size\n");
-		goto fail;
-	}
-	tcmu_set_dev_num_lbas(dev, size / block_size);
 
 	config = tcmu_get_path(dev);
 	if (!config) {
