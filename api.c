@@ -573,7 +573,7 @@ finish_page83:
 		memcpy(&data[12], &val32, 4);
 
 		/* MAXIMUM WRITE SAME LENGTH */
-		val64 = VPD_MAX_WRITE_SAME_LENGTH;
+		val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
 		memcpy(&data[36], &val64, 8);
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
