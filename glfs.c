@@ -30,7 +30,7 @@
 
 #include "tcmu-runner.h"
 
-#define ALLOWED_BSOFLAGS (O_SYNC | O_DIRECT | O_RDWR | O_LARGEFILE)
+#define ALLOWED_BSOFLAGS (O_DIRECT | O_RDWR | O_LARGEFILE)
 
 #define GLUSTER_PORT "24007"
 #define TCMU_GLFS_LOG_FILENAME "tcmu-runner-glfs.log"  /* MAX 32 CHAR */
