@@ -555,7 +555,7 @@ finish_page83:
 		 * value due to device specific limits.
 		 */
 		if (dev->max_xfer_len) {
-			max_xfer_length = dev->max_xfer_len / block_size;
+			max_xfer_length = dev->max_xfer_len;
 		} else {
 			max_xfer_length = tcmu_get_attribute(dev,
 							     "hw_max_sectors");

@@ -624,7 +624,7 @@ static int dev_added(struct tcmu_device *dev)
 	max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
 	if (max_sectors < 0)
 		goto free_rdev;
-	tcmu_set_dev_max_xfer_len(dev, max_sectors * block_size);
+	tcmu_set_dev_max_xfer_len(dev, max_sectors);
 
 	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld",
 		     block_size, dev_size);

@@ -417,7 +417,8 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		tcmu_dev_err(dev, "Could not stat image.\n");
 		goto stop_image;
 	}
-	tcmu_set_dev_max_xfer_len(dev, image_info.obj_size);
+	tcmu_set_dev_max_xfer_len(dev, image_info.obj_size /
+				  tcmu_get_dev_block_size(dev));
 
 	tcmu_dev_dbg(dev, "config %s, size %lld\n", tcmu_get_dev_cfgstring(dev),
 		     rbd_size);
