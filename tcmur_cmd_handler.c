@@ -1498,7 +1498,7 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmulib_cmd *writecmd;
 	struct format_unit_state *state;
-	size_t length = 1024 * 1024;
+	size_t max_xfer_length, length = 1024 * 1024;
 	uint8_t *sense = cmd->sense_buf;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
@@ -1527,6 +1527,9 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 
 	cmd->cmdstate = state;
 	state->done_blocks = 0;
+
+	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
+	length = round_up(length, max_xfer_length);
 	state->length = length;
 
 	/* Check length on first write to make sure its not less than 1MB */
