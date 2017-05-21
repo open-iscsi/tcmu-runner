@@ -1001,8 +1001,8 @@ static int xcopy_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	end_lba = src_lba + lba_cnt;
 
-	src_max_sectors = tcmu_get_attribute(src_dev, "hw_max_sectors");
-	dst_max_sectors = tcmu_get_attribute(dst_dev, "hw_max_sectors");
+	src_max_sectors = tcmu_get_dev_max_xfer_len(src_dev);
+	dst_max_sectors = tcmu_get_dev_max_xfer_len(dst_dev);
 
 	max_sectors = min(src_max_sectors, dst_max_sectors);
 	max_sectors = min(max_sectors, (uint32_t)XCOPY_MAX_SECTORS);

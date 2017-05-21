@@ -552,7 +552,7 @@ uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev)
 /**
  * tcmu_set_dev_max_xfer_len - set device's max command size
  * @dev: tcmu device
- * @len: max transfer length in bytes
+ * @len: max transfer length in block_size sectors
  */
 void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len)
 {

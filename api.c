@@ -555,7 +555,7 @@ finish_page83:
 		 * value due to device specific limits.
 		 */
 		if (dev->max_xfer_len) {
-			max_xfer_length = dev->max_xfer_len / block_size;
+			max_xfer_length = dev->max_xfer_len;
 		} else {
 			max_xfer_length = tcmu_get_attribute(dev,
 							     "hw_max_sectors");
@@ -573,7 +573,7 @@ finish_page83:
 		memcpy(&data[12], &val32, 4);
 
 		/* MAXIMUM WRITE SAME LENGTH */
-		val64 = VPD_MAX_WRITE_SAME_LENGTH;
+		val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
 		memcpy(&data[36], &val64, 8);
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
