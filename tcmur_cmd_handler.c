@@ -104,16 +104,16 @@ static int check_lba_and_length(struct tcmu_device *dev,
 	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
 
 	if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
-		tcmu_err("iov len mismatch: iov len %zu, xfer len %" PRIu32 ", block size %" PRIu32 "\n",
-			 iov_length, sectors, tcmu_get_dev_block_size(dev));
+		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
+			     iov_length, sectors, tcmu_get_dev_block_size(dev));
 
 		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 	}
 
 	if (lba + sectors > num_lbas || lba + sectors < lba) {
-		tcmu_err("cmd exceeds last lba %"PRIu64" (lba %"PRIu64", xfer len %"PRIu32")\n",
-			 num_lbas, lba, sectors);
+		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %llu, xfer len %lu)\n",
+			     num_lbas, lba, sectors);
 		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE, NULL);
 	}
@@ -389,7 +389,7 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 	cmp_offset = tcmu_compare_with_iovec(state->read_buf, state->w_iovec,
 					     state->requested);
 	if (cmp_offset != -1) {
-		tcmu_err("Verify failed at offset %lu\n", cmp_offset);
+		tcmu_dev_err(dev, "Verify failed at offset %lu\n", cmp_offset);
 		ret =  tcmu_set_sense_data(sense, MISCOMPARE,
 					   ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
 					   &cmp_offset);
@@ -1444,8 +1444,9 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 
 	/* Check for last commmand */
 	if (state->done_blocks == dev->num_lbas) {
-		tcmu_dbg("last format cmd, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
-			 state->done_blocks, dev->num_lbas, dev->block_size);
+		tcmu_dev_dbg(dev,
+			     "last format cmd, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
+			     state->done_blocks, dev->num_lbas, dev->block_size);
 		goto free_iovec;
 	}
 
@@ -1468,12 +1469,13 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 
 		writecmd->done = handle_format_unit_cbk;
 
-		tcmu_dbg("next format cmd, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
-			 state->done_blocks, dev->num_lbas, dev->block_size);
+		tcmu_dev_dbg(dev,
+			     "next format cmd, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
+			     state->done_blocks, dev->num_lbas, dev->block_size);
 
 		rc = async_handle_cmd(dev, writecmd, format_unit_work_fn);
 		if (rc != TCMU_ASYNC_HANDLED) {
-			tcmu_err(" async handle cmd failure");
+			tcmu_dev_err(dev, " async handle cmd failure\n");
 			ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						  ASC_WRITE_ERROR,
 						  NULL);
@@ -1537,8 +1539,8 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 		goto free_state;
 	}
 
-	tcmu_dbg("start emulate format, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
-		 state->done_blocks, num_lbas, block_size);
+	tcmu_dev_dbg(dev, "start emulate format, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
+		     state->done_blocks, num_lbas, block_size);
 
 	/* copy incase handler changes it */
 	state->write_buf = writecmd->iovec->iov_base;
@@ -1737,7 +1739,7 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	 */
 	port = tcmu_get_enabled_port(&group_list);
 	if (!port)
-		tcmu_dbg("no enabled ports found. Skipping ALUA support\n");
+		tcmu_dev_dbg(dev, "no enabled ports found. Skipping ALUA support\n");
 
 	ret = tcmu_emulate_inquiry(dev, port, cmd->cdb, cmd->iovec,
 				   cmd->iov_cnt, cmd->sense_buf);

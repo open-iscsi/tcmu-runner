@@ -626,7 +626,7 @@ static int dev_added(struct tcmu_device *dev)
 		goto free_rdev;
 	tcmu_set_dev_max_xfer_len(dev, max_sectors);
 
-	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld",
+	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld\n",
 		     block_size, dev_size);
 
 	ret = pthread_spin_init(&rdev->lock, 0);
