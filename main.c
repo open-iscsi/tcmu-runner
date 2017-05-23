@@ -484,8 +484,7 @@ static int load_our_module(void)
 			if (uname(&u) < 0) {
 				tcmu_err("uname() failed: %m\n");
 			} else {
-				tcmu_info("no modules directory '/lib/modules/%s', checking "
-					  "module target_core_user entry in '/sys/modules/'\n",
+				tcmu_info("no modules directory '/lib/modules/%s', checking module target_core_user entry in '/sys/modules/'\n",
 					  u.release);
 				ret = stat("/sys/module/target_core_user", &sb);
 				if (!ret) {
