@@ -735,7 +735,7 @@ int tcmu_emulate_read_capacity_16(
 	return SAM_STAT_GOOD;
 }
 
-int handle_rwrecovery_page(uint8_t *buf, size_t buf_len)
+int handle_rwrecovery_page(struct tcmu_device *dev, uint8_t *buf, size_t buf_len)
 {
 	if (buf_len < 12)
 		return -1;
@@ -746,19 +746,32 @@ int handle_rwrecovery_page(uint8_t *buf, size_t buf_len)
 	return 12;
 }
 
-int handle_cache_page(uint8_t *buf, size_t buf_len)
+int handle_cache_page(struct tcmu_device *dev, uint8_t *buf, size_t buf_len)
 {
 	if (buf_len < 20)
 		return -1;
 
 	buf[0] = 0x8;
 	buf[1] = 0x12;
-	buf[2] = 0x4; // WCE=1
+
+	/*
+	 * If device supports a writeback cache then set
+	 * writeback cache enable (WCE)
+	 */
+	if (dev->write_cache_enabled)
+		buf[2] = 0x4;
+
+	/*
+	 * If device can read from cache or medium set read cache disable
+	 * (RCD) to zero. If it only reads from themedium then set to one.
+	 */
+	if (!dev->read_cache_enabled)
+		buf[2] = 0x1;
 
 	return 20;
 }
 
-static int handle_control_page(uint8_t *buf, size_t buf_len)
+static int handle_control_page(struct tcmu_device *dev, uint8_t *buf, size_t buf_len)
 {
 	if (buf_len < 12)
 		return -1;
@@ -816,7 +829,7 @@ static int handle_control_page(uint8_t *buf, size_t buf_len)
 static struct {
 	uint8_t page;
 	uint8_t subpage;
-	int (*get)(uint8_t *buf, size_t buf_len);
+	int (*get)(struct tcmu_device *, uint8_t *buf, size_t buf_len);
 } modesense_handlers[] = {
 	{0x1, 0, handle_rwrecovery_page},
 	{0x8, 0, handle_cache_page},
@@ -828,11 +841,8 @@ static struct {
  *
  * For TYPE_DISK only.
  */
-int tcmu_emulate_mode_sense(
-	uint8_t *cdb,
-	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+int tcmu_emulate_mode_sense(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
+			    size_t iov_cnt, uint8_t *sense)
 {
 	bool sense_ten = (cdb[0] == MODE_SENSE_10);
 	uint8_t page_code = cdb[2] & 0x3f;
@@ -857,7 +867,8 @@ int tcmu_emulate_mode_sense(
 	if (page_code == 0x3f) {
 		got_sense = true;
 		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
-			ret = modesense_handlers[i].get(&buf[used_len], sizeof(buf) - used_len);
+			ret = modesense_handlers[i].get(dev, &buf[used_len],
+							sizeof(buf) - used_len);
 			if (ret <= 0)
 				break;
 
@@ -874,7 +885,7 @@ int tcmu_emulate_mode_sense(
 		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
 			if (page_code == modesense_handlers[i].page
 			    && subpage_code == modesense_handlers[i].subpage) {
-				ret = modesense_handlers[i].get(&buf[used_len],
+				ret = modesense_handlers[i].get(dev, &buf[used_len],
 								sizeof(buf) - used_len);
 				if (ret <= 0)
 					break;
@@ -914,11 +925,8 @@ int tcmu_emulate_mode_sense(
  *
  * For TYPE_DISK only.
  */
-int tcmu_emulate_mode_select(
-	uint8_t *cdb,
-	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+int tcmu_emulate_mode_select(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
+			     size_t iov_cnt, uint8_t *sense)
 {
 	bool select_ten = (cdb[0] == MODE_SELECT_10);
 	uint8_t page_code = cdb[2] & 0x3f;
@@ -947,7 +955,7 @@ int tcmu_emulate_mode_select(
 	for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
 		if (page_code == modesense_handlers[i].page
 		    && subpage_code == modesense_handlers[i].subpage) {
-			ret = modesense_handlers[i].get(&buf[hdr_len],
+			ret = modesense_handlers[i].get(dev, &buf[hdr_len],
 							sizeof(buf) - hdr_len);
 			if (ret <= 0)
 				return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,

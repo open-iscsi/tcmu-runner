@@ -73,11 +73,11 @@ static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case READ_6:
 	case READ_10:

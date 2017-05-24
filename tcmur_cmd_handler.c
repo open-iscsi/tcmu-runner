@@ -1823,12 +1823,12 @@ static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 							     iov_cnt, sense);
 	case MODE_SENSE:
 	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt, sense);
 	case START_STOP:
 		return tcmu_emulate_start_stop(dev, cdb, sense);
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt, sense);
 	default:
 		return TCMU_NOT_HANDLED;
 	}
