@@ -412,7 +412,7 @@ static glfs_t* tcmu_create_glfs_object(char *config, gluster_server **hosts)
 	gluster_cache_refresh(fs, config);
 
  fail:
-	gluster_free_server(&entry);
+	gluster_free_server(hosts);
 	return NULL;
 }
 
