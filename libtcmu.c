@@ -293,13 +293,13 @@ static int add_device(struct tcmulib_context *ctx,
 
 	dev->ctx = ctx;
 
-	darray_append(ctx->devices, dev);
-
 	ret = dev->handler->added(dev);
 	if (ret < 0) {
 		tcmu_err("handler open failed for %s\n", dev->dev_name);
 		goto err_munmap;
 	}
+
+	darray_append(ctx->devices, dev);
 
 	return 0;
 
