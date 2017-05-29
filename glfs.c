@@ -436,7 +436,7 @@ static bool glfs_check_config(const char *cfgstring, char **reason)
 	char *path;
 	glfs_t *fs = NULL;
 	glfs_fd_t *gfd = NULL;
-	gluster_server *hosts; /* gluster server defination */
+	gluster_server *hosts = NULL; /* gluster server defination */
 	bool result = true;
 
 	path = strchr(cfgstring, '/');
