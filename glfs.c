@@ -298,12 +298,12 @@ static int parse_imagepath(char *cfgstring, gluster_server **hosts)
 
 	*hosts = calloc(1, sizeof(gluster_server));
 	if (!hosts)
-		return -ENOMEM;
+                goto fail;
 	entry = *hosts;
 
 	entry->server = calloc(1, sizeof(gluster_hostdef));
 	if (!entry->server)
-		return -ENOMEM;
+                goto fail;
 
 	*sep = '\0';
 	entry->volname = strdup(p);
@@ -344,7 +344,7 @@ static int parse_imagepath(char *cfgstring, gluster_server **hosts)
 	return 0;
 
 fail:
-	gluster_free_server(&entry);
+	gluster_free_server(hosts);
 	free(origp);
 
 	return -1;
