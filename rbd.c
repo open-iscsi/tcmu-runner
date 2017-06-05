@@ -610,6 +610,8 @@ out:
 	return SAM_STAT_TASK_SET_FULL;
 }
 
+#ifdef LIBRBD_SUPPORTS_AIO_FLUSH
+
 static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
@@ -647,6 +649,8 @@ out_free_aio_cb:
 out:
 	return SAM_STAT_TASK_SET_FULL;
 }
+
+#endif
 
 /*
  * For backstore creation
