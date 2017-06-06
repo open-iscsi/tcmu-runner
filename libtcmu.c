@@ -44,12 +44,15 @@
 static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_DEVICE]	= { .type = NLA_STRING },
 	[TCMU_ATTR_MINOR]	= { .type = NLA_U32 },
+	[TCMU_ATTR_TYPE]	= { .type = NLA_U32 },
 };
 
 static darray(struct tcmu_thread) g_threads = darray_new();
 
 static int add_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
 static void remove_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
+static int reconfig_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring,
+			   uint32_t cfgtype);
 
 static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 			  struct genl_info *info, void *arg)
@@ -70,6 +73,14 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 		break;
 	case TCMU_CMD_REMOVED_DEVICE:
 		remove_device(ctx, buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
+		break;
+	case TCMU_CMD_RECONFIG_DEVICE:
+		if (!info->attrs[TCMU_ATTR_TYPE]) {
+			tcmu_err("TCMU_ATTR_TYPE not set, doing nothing\n");
+			return 0;
+		}
+		return reconfig_device(ctx, buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]),
+				       nla_get_u32(info->attrs[TCMU_ATTR_TYPE]));
 		break;
 	default:
 		tcmu_err("Unknown notification %d\n", cmd->c_id);
@@ -92,6 +103,13 @@ static struct genl_cmd tcmu_cmds[] = {
 		.c_msg_parser	= handle_netlink,
 		.c_maxattr	= TCMU_ATTR_MAX,
 		.c_attr_policy	= tcmu_attr_policy,
+	},
+	{
+		.c_id		= TCMU_CMD_RECONFIG_DEVICE,
+		.c_name		= "RECONFIG DEVICE",
+		.c_msg_parser   = handle_netlink,
+		.c_maxattr      = TCMU_ATTR_MAX,
+		.c_attr_policy  = tcmu_attr_policy,
 	},
 };
 
@@ -323,6 +341,55 @@ static void close_devices(struct tcmulib_context *ctx)
 		dev = *dev_ptr;
 		remove_device(ctx, dev->dev_name, cfgstring);
 	}
+}
+
+static int reconfig_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring,
+			   uint32_t cfgtype)
+{
+	struct tcmu_device **dev_ptr;
+	struct tcmu_device *dev;
+	int i = 0;
+	bool found = false;
+	int ret;
+
+	if (cfgtype == NO_RECONFIG)
+		return 0;
+
+	darray_foreach(dev_ptr, ctx->devices) {
+		dev = *dev_ptr;
+		size_t len = strnlen(dev->dev_name, sizeof(dev->dev_name));
+		if (strncmp(dev->dev_name, dev_name, len)) {
+			i++;
+		} else {
+			found = true;
+			break;
+		}
+	}
+
+	if (!found) {
+		tcmu_dev_err(dev, "could not reconfigure device %s: not found\n",
+			     dev_name);
+		return -ENOENT;
+	}
+
+	dev->handler = find_handler(ctx, dev->cfgstring);
+	if (!dev->handler) {
+		tcmu_dev_err(dev, "could not find handler for %s\n", dev->dev_name);
+		return -ENOENT;
+	}
+
+	if (!dev->handler->reconfig) {
+		tcmu_dev_err(dev, "reconfiguration is not supported with this device\n");
+		return -EPERM;
+	}
+
+	ret = dev->handler->reconfig(dev, cfgtype);
+	if (ret < 0) {
+                tcmu_dev_err(dev, "handler reconfig failed for %s\n", dev->dev_name);
+                return ret;
+        }
+
+	return 0;
 }
 
 static void remove_device(struct tcmulib_context *ctx,

@@ -84,6 +84,13 @@ struct tcmulib_cmd {
 	cmd_done_t done;
 };
 
+enum tcmu_reconfig_types {
+	NO_RECONFIG,
+	CONFIG_PATH,
+	CONFIG_SIZE,
+	CONFIG_WRITECACHE,
+};
+
 /* Set/Get methods for the opaque tcmu_device */
 void *tcmu_get_dev_private(struct tcmu_device *dev);
 void tcmu_set_dev_private(struct tcmu_device *dev, void *priv);
