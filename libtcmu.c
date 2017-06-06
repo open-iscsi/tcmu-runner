@@ -882,3 +882,24 @@ void tcmulib_cleanup_all_cmdproc_threads()
 		cancel_thread(thread->thread_id);
 	}
 }
+
+int tcmu_config_size(struct tcmu_device *dev)
+{
+	int64_t dev_size;
+	uint32_t block_size;
+
+	block_size = tcmu_get_attribute(dev, "hw_block_size");
+	if (block_size <= 0) {
+		tcmu_dev_err(dev, "Could not get hw_block_size\n");
+		return -EINVAL;
+	}
+
+	dev_size = tcmu_get_device_size(dev);
+	if (dev_size < 0) {
+		tcmu_dev_err(dev, "Could not get device size\n");
+		return -EINVAL;
+	}
+
+	tcmu_set_dev_num_lbas(dev, dev_size / block_size);
+	return 0;
+}

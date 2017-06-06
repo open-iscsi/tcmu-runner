@@ -42,6 +42,7 @@
 
 #include "scsi_defs.h"
 #include "tcmu-runner.h"
+#include "libtcmu.h"
 
 struct file_state {
 	int fd;
@@ -74,6 +75,25 @@ static bool file_check_config(const char *cfgstring, char **reason)
 	unlink(path);
 
 	return true;
+}
+
+static int file_reconfig(struct tcmu_device *dev, uint32_t cfgtype)
+{
+	int ret = 0;
+
+	switch (cfgtype) {
+	case CONFIG_PATH:
+		tcmu_dev_err(dev, "device path reconfiguration is not supported\n");
+		return -EINVAL;
+	case CONFIG_SIZE:
+		ret = tcmu_config_size(dev);
+		break;
+	case CONFIG_WRITECACHE:
+		tcmu_dev_err(dev, "write_cache reconfiguration is not supported\n");
+		return -EINVAL;
+	}
+
+	return ret;
 }
 
 static int file_open(struct tcmu_device *dev)
@@ -200,6 +220,7 @@ static struct tcmur_handler file_handler = {
 	.cfg_desc = file_cfg_desc,
 
 	.check_config = file_check_config,
+	.reconfig = file_reconfig,
 
 	.open = file_open,
 	.close = file_close,

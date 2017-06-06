@@ -29,6 +29,7 @@
 #include "darray.h"
 
 #include "tcmu-runner.h"
+#include "libtcmu.h"
 
 #define ALLOWED_BSOFLAGS (O_SYNC | O_DIRECT | O_RDWR | O_LARGEFILE)
 
@@ -482,6 +483,25 @@ done:
 	return result;
 }
 
+static int glfs_reconfig(struct tcmu_device *dev, uint32_t cfgtype)
+{
+	int ret = 0;
+
+	switch (cfgtype) {
+	case CONFIG_PATH:
+		tcmu_dev_err(dev, "device path reconfiguration is not supported\n");
+		return -EINVAL;
+	case CONFIG_SIZE:
+		ret = tcmu_config_size(dev);
+		break;
+	case CONFIG_WRITECACHE:
+		tcmu_dev_err(dev, "write_cache reconfiguration is not supported\n");
+		return -EINVAL;
+	}
+
+	return ret;
+}
+
 static int tcmu_glfs_open(struct tcmu_device *dev)
 {
 	struct glfs_state *gfsp;
@@ -677,15 +697,16 @@ static const char glfs_cfg_desc[] =
 	"  filename:  The backing file";
 
 struct tcmur_handler glfs_handler = {
-	.name 		= "Gluster glfs handler",
-	.subtype 	= "glfs",
+	.name		= "Gluster glfs handler",
+	.subtype	= "glfs",
 	.cfg_desc	= glfs_cfg_desc,
 
-	.check_config 	= glfs_check_config,
+	.check_config	= glfs_check_config,
+	.reconfig	= glfs_reconfig,
 
-	.open 		= tcmu_glfs_open,
-	.close 		= tcmu_glfs_close,
-	.read 		= tcmu_glfs_read,
+	.open		= tcmu_glfs_open,
+	.close		= tcmu_glfs_close,
+	.read		= tcmu_glfs_read,
 	.write		= tcmu_glfs_write,
 	.flush		= tcmu_glfs_flush,
 };

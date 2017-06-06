@@ -126,6 +126,9 @@ void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev);
 /* cleanup all (devices) command processing threads */
 void tcmulib_cleanup_all_cmdproc_threads();
 
+/* Functions for reconfiguration */
+int tcmu_config_size(struct tcmu_device *dev);
+
 #ifdef __cplusplus
 }
 #endif

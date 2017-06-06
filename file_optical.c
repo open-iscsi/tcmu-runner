@@ -148,6 +148,25 @@ static bool fbo_check_config(const char *cfgstring, char **reason)
 	return true;
 }
 
+static int fbo_reconfig(struct tcmu_device *dev, uint32_t cfgtype)
+{
+	int ret = 0;
+
+	switch (cfgtype) {
+	case CONFIG_PATH:
+		tcmu_dev_err(dev, "device path reconfiguration is not supported\n");
+		return -EINVAL;
+	case CONFIG_SIZE:
+		tcmu_dev_err(dev, "device size reconfiguration is not supported\n");
+		return -EINVAL;
+	case CONFIG_WRITECACHE:
+		tcmu_dev_err(dev, "Write_cache reconfiguration is not supported\n");
+		return -EINVAL;
+	}
+
+	return ret;
+}
+
 /* Note: this is called per lun, not per mapping */
 static int fbo_open(struct tcmu_device *dev)
 {
@@ -1677,7 +1696,7 @@ static struct tcmur_handler fbo_handler = {
 	.cfg_desc = fbo_cfg_desc,
 
 	.check_config = fbo_check_config,
-
+	.reconfig = fbo_reconfig,
 	.open = fbo_open,
 	.close = fbo_close,
 	.name = "File-backed optical Handler",
