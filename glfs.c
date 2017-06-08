@@ -25,6 +25,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <scsi/scsi.h>
+#include <pthread.h>
 #include <glusterfs/api/glfs.h>
 #include "darray.h"
 
@@ -38,6 +39,9 @@
 
 /* tcmu log dir path */
 extern char *tcmu_log_dir;
+
+/* cache protection */
+pthread_mutex_t glfs_lock;
 
 typedef enum gluster_transport {
 	GLUSTER_TRANSPORT_TCP,
@@ -263,6 +267,48 @@ static void gluster_cache_refresh(glfs_t *fs, const char *cfgstring)
 	}
 }
 
+static void gluster_thread_cleanup(void *arg)
+{
+	pthread_mutex_unlock(arg);
+}
+
+static int gluster_cache_query_or_add(struct tcmu_device *dev,
+                                      glfs_t **fs, gluster_server *entry,
+                                      char *config, bool *init)
+{
+	int ret = -1;
+
+	pthread_cleanup_push(gluster_thread_cleanup, &glfs_lock);
+	pthread_mutex_lock(&glfs_lock);
+
+	*fs = gluster_cache_query(entry, config);
+	if (*fs) {
+		*init = false;
+		ret = 0;
+		goto out;
+	}
+
+	*fs = glfs_new(entry->volname);
+	if (!*fs) {
+		tcmu_dev_err(dev, "glfs_new failed: %m\n");
+		goto out;
+	}
+
+	ret = gluster_cache_add(entry, *fs, config);
+	if (ret) {
+		tcmu_dev_err(dev, "gluster_cache_add failed: %m\n");
+		glfs_fini(*fs);
+		*fs = NULL;
+		goto out;
+	}
+
+ out:
+	pthread_mutex_unlock(&glfs_lock);
+	pthread_cleanup_pop(0);
+
+	return ret;
+}
+
 static void gluster_free_server(gluster_server **hosts)
 {
 	if (!*hosts)
@@ -357,6 +403,7 @@ static glfs_t* tcmu_create_glfs_object(struct tcmu_device *dev,
 	char logfilepath[PATH_MAX];
 	glfs_t *fs =  NULL;
 	int ret = -1;
+	bool init = true;
 
 	if (parse_imagepath(config, hosts) == -1) {
 		tcmu_dev_err(dev, "hostaddr, volname, or path missing\n");
@@ -364,20 +411,14 @@ static glfs_t* tcmu_create_glfs_object(struct tcmu_device *dev,
 	}
 	entry = *hosts;
 
-	fs = gluster_cache_query(entry, config);
-	if (fs)
-		return fs;
-
-	fs = glfs_new(entry->volname);
-	if (!fs) {
-		tcmu_dev_err(dev, "glfs_new failed\n");
+	ret = gluster_cache_query_or_add(dev, &fs, entry, config, &init);
+	if (ret) {
+		tcmu_dev_err(dev, "gluster_cache_query_or_add() failed\n");
 		goto fail;
 	}
 
-	ret = gluster_cache_add(entry, fs, config);
-	if (ret) {
-		tcmu_dev_err(dev, "gluster_cache_add failed: %m\n");
-		goto fail;
+	if (!init) {
+		return fs;
 	}
 
 	ret = glfs_set_volfile_server(fs,
@@ -641,5 +682,17 @@ struct tcmur_handler glfs_handler = {
 /* Entry point must be named "handler_init". */
 int handler_init(void)
 {
-	return tcmur_register_handler(&glfs_handler);
+	int ret;
+
+	ret = pthread_mutex_init(&glfs_lock, NULL);
+	if (ret != 0) {
+		return -1;
+	}
+
+	ret = tcmur_register_handler(&glfs_handler);
+	if (ret != 0) {
+		pthread_mutex_destroy(&glfs_lock);
+	}
+
+	return ret;
 }
