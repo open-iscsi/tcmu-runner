@@ -495,10 +495,6 @@ out:
 #define XCOPY_MAX_SECTORS               1024
 
 struct xcopy {
-	pthread_cond_t cond;
-	pthread_mutex_t lock;
-	bool cbk_finished;
-
 	struct tcmu_device *origdev;
 	struct tcmu_device *src_dev;
 	uint8_t src_tid_wwn[XCOPY_NAA_IEEE_REGEX_LEN];
@@ -507,9 +503,15 @@ struct xcopy {
 
 	uint64_t src_lba;
 	uint64_t dst_lba;
-	unsigned long stdi;
-	unsigned long dtdi;
-	unsigned long lba_cnt;
+	uint32_t stdi;
+	uint32_t dtdi;
+	uint32_t lba_cnt;
+	uint32_t copy_lbas;
+
+	void *iov_base;
+	size_t iov_len;
+	struct iovec iovec;
+	size_t iov_cnt;
 };
 
 /* For now only supports block -> block type */
@@ -1010,95 +1012,105 @@ err:
 	return ret;
 }
 
-static void handle_xcopy_rw_sync(struct tcmu_device *dev,
-				 struct tcmulib_cmd *cmd,
-				 int ret)
+static int xcopy_read_work_fn(struct tcmu_device *src_dev, struct tcmulib_cmd *cmd);
+static void handle_xcopy_read_cbk(struct tcmu_device *src_dev,
+				  struct tcmulib_cmd *cmd,
+				  int ret);
+
+static void handle_xcopy_write_cbk(struct tcmu_device *dst_dev,
+				  struct tcmulib_cmd *cmd,
+				  int ret)
 {
 	struct xcopy *xcopy = cmd->cmdstate;
+	struct tcmu_device *src_dev = xcopy->src_dev;
 
-	pthread_mutex_lock(&xcopy->lock);
-	xcopy->cbk_finished = true;
-	pthread_cond_signal(&xcopy->cond);
-	pthread_mutex_unlock(&xcopy->lock);
-}
-
-static int xcopy_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
-{
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	struct xcopy *xcopy = cmd->cmdstate;
-	struct tcmu_device *src_dev = xcopy->src_dev, *dst_dev = xcopy->dst_dev;
-	uint64_t src_lba = xcopy->src_lba, dst_lba = xcopy->dst_lba, end_lba;
-	unsigned short lba_cnt = xcopy->lba_cnt, copy_lbas, max_lbas;
-	uint32_t max_sectors, src_max_sectors, dst_max_sectors;
-	void *iov_base;
-	size_t iov_len;
-	struct iovec iovec;
-	size_t iov_cnt;
-	int ret;
-
-	end_lba = src_lba + lba_cnt;
-
-	src_max_sectors = tcmu_get_dev_max_xfer_len(src_dev);
-	dst_max_sectors = tcmu_get_dev_max_xfer_len(dst_dev);
-
-	max_sectors = min(src_max_sectors, dst_max_sectors);
-	max_sectors = min(max_sectors, (uint32_t)XCOPY_MAX_SECTORS);
-	max_lbas = min(max_sectors, ((uint32_t)(~0U)));
-
-	iov_len = min(lba_cnt, max_lbas) * block_size;
-	iov_base = calloc(1, iov_len);
-	iov_cnt = 1;
-
-	tcmu_dev_dbg(dev, "Source lba: %llu Number of lba:: %hu, Destination lba: %llu\n",
-		     src_lba, lba_cnt, dst_lba);
-
-	xcopy->cbk_finished = false;
-	cmd->done = handle_xcopy_rw_sync;
-	while (src_lba < end_lba) {
-		copy_lbas = min(lba_cnt, max_lbas);
-
-		iovec.iov_base = iov_base;
-		iovec.iov_len = copy_lbas * block_size;
-		ret = rhandler->read(src_dev, cmd, &iovec, iov_cnt,
-				     tcmu_iovec_length(&iovec, iov_cnt),
-				     block_size * src_lba);
-		if (ret)
-			goto out;
-		pthread_mutex_lock(&xcopy->lock);
-		if (!xcopy->cbk_finished)
-			pthread_cond_wait(&xcopy->cond, &xcopy->lock);
-		xcopy->cbk_finished = false;
-		pthread_mutex_unlock(&xcopy->lock);
-
-		src_lba += copy_lbas;
-
-		iovec.iov_base = iov_base;
-		iovec.iov_len = copy_lbas * block_size;
-		ret = rhandler->write(dst_dev, cmd, &iovec, iov_cnt,
-				      tcmu_iovec_length(&iovec, iov_cnt),
-				      block_size * dst_lba);
-		if (ret)
-			goto out;
-		pthread_mutex_lock(&xcopy->lock);
-		if (!xcopy->cbk_finished)
-			pthread_cond_wait(&xcopy->cond, &xcopy->lock);
-		xcopy->cbk_finished = false;
-		pthread_mutex_unlock(&xcopy->lock);
-
-		dst_lba += copy_lbas;
-		lba_cnt -= copy_lbas;
+	/* write failed - bail out */
+	if (ret != SAM_STAT_GOOD) {
+		tcmu_dev_err(src_dev, "Failed to write to dst device!\n");
+		goto out;
 	}
 
-	ret = SAM_STAT_GOOD;
-out:
-	free(iov_base);
-	aio_command_finish(xcopy->origdev, cmd, ret);
-	pthread_cond_destroy(&xcopy->cond);
-	pthread_mutex_destroy(&xcopy->lock);
-	free(xcopy);
+	xcopy->lba_cnt -= xcopy->copy_lbas;
+	if (!xcopy->lba_cnt)
+		goto out;
 
-	return ret;
+	xcopy->src_lba += xcopy->copy_lbas;
+	xcopy->dst_lba += xcopy->copy_lbas;
+	xcopy->copy_lbas = min(xcopy->lba_cnt, xcopy->copy_lbas);
+
+	cmd->done = handle_xcopy_read_cbk;
+	ret = async_handle_cmd(xcopy->src_dev, cmd, xcopy_read_work_fn);
+	if (ret != TCMU_ASYNC_HANDLED)
+		goto out;
+
+	return;
+
+out:
+	aio_command_finish(xcopy->origdev, cmd, ret);
+	free(xcopy->iov_base);
+	free(xcopy);
+}
+
+static int xcopy_write_work_fn(struct tcmu_device *dst_dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dst_dev);
+	uint32_t block_size = tcmu_get_dev_block_size(dst_dev);
+	struct xcopy *xcopy = cmd->cmdstate;
+	struct iovec *iovec = &xcopy->iovec;
+	size_t iov_cnt = xcopy->iov_cnt;
+
+	iovec->iov_base = xcopy->iov_base;
+	iovec->iov_len = xcopy->iov_len;
+
+	cmd->done = handle_xcopy_write_cbk;
+	return rhandler->write(dst_dev, cmd, iovec, iov_cnt, xcopy->iov_len,
+			       block_size * xcopy->dst_lba);
+}
+
+static void handle_xcopy_read_cbk(struct tcmu_device *src_dev,
+				  struct tcmulib_cmd *cmd,
+				  int ret)
+{
+	struct xcopy *xcopy = cmd->cmdstate;
+
+	/* read failed - bail out */
+	if (ret != SAM_STAT_GOOD) {
+		tcmu_dev_err(src_dev, "Failed to read from src device!\n");
+		goto err;
+	}
+
+	cmd->done = handle_xcopy_write_cbk;
+
+	ret = async_handle_cmd(xcopy->dst_dev, cmd, xcopy_write_work_fn);
+	if (ret != TCMU_ASYNC_HANDLED)
+		goto err;
+
+	return;
+
+err:
+	aio_command_finish(xcopy->origdev, cmd, ret);
+	free(xcopy->iov_base);
+	free(xcopy);
+}
+
+static int xcopy_read_work_fn(struct tcmu_device *src_dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(src_dev);
+	uint32_t block_size = tcmu_get_dev_block_size(src_dev);
+	struct xcopy *xcopy = cmd->cmdstate;
+	struct iovec *iovec = &xcopy->iovec;
+	size_t iov_cnt = xcopy->iov_cnt;
+
+	tcmu_dev_dbg(src_dev,
+		     "Copying %llu sectors from src (lba:%llu) to dst (lba:%llu)\n",
+		     xcopy->copy_lbas, xcopy->src_lba, xcopy->dst_lba);
+
+	iovec->iov_base = xcopy->iov_base;
+	iovec->iov_len = xcopy->iov_len;
+
+	cmd->done = handle_xcopy_read_cbk;
+	return rhandler->read(src_dev, cmd, iovec, iov_cnt, xcopy->iov_len,
+			      block_size * xcopy->src_lba);
 }
 
 /* async xcopy */
@@ -1106,6 +1118,8 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
 	size_t data_length = tcmu_get_xfer_length(cdb);
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint32_t max_sectors, src_max_sectors, copy_lbas, dst_max_sectors;
 	uint8_t *sense = cmd->sense_buf;
 	struct xcopy *xcopy;
 	int ret;
@@ -1140,22 +1154,46 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	/* Parse and check the parameter list */
 	ret = xcopy_parse_parameter_list(dev, cmd, xcopy);
 	if (ret != 0)
-		goto err;
+		goto finish_err;
 
+	/* Nothing to do with BLOCK DEVICE NUMBER OF BLOCKS set to zero */
+	if (!xcopy->lba_cnt) {
+		ret = SAM_STAT_GOOD;
+		goto finish_err;
+	}
+
+	src_max_sectors = tcmu_get_dev_max_xfer_len(xcopy->src_dev);
+	dst_max_sectors = tcmu_get_dev_max_xfer_len(xcopy->dst_dev);
+
+	max_sectors = min(src_max_sectors, dst_max_sectors);
+	max_sectors = min(max_sectors, (uint32_t)XCOPY_MAX_SECTORS);
+	copy_lbas = min(max_sectors, xcopy->lba_cnt);
+	xcopy->copy_lbas = copy_lbas;
+
+	xcopy->iov_len = xcopy->copy_lbas * block_size;
+	xcopy->iov_base = calloc(1, xcopy->iov_len);
+	if (!xcopy->iov_base) {
+		tcmu_dev_err(dev, "calloc iovec data error\n");
+		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					  ASC_INTERNAL_TARGET_FAILURE,
+					  NULL);
+		goto finish_err;
+	}
+
+	xcopy->iov_cnt = 1;
 	xcopy->origdev = dev;
-	pthread_cond_init(&xcopy->cond, NULL);
-	pthread_mutex_init(&xcopy->lock, NULL);
-
 	cmd->cmdstate = xcopy;
 
-	ret = async_handle_cmd(dev, cmd, xcopy_work_fn);
+	ret = async_handle_cmd(xcopy->src_dev, cmd, xcopy_read_work_fn);
 	if (ret == TCMU_ASYNC_HANDLED)
 		return ret;
 
-err:
+	free(xcopy->iov_base);
+finish_err:
 	free(xcopy);
 	return ret;
 }
+
 /* async compare_and_write */
 
 struct caw_state {
