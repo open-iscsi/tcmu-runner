@@ -151,7 +151,7 @@ gluster_compare_hosts(gluster_hostdef *src_server, gluster_hostdef *dst_server)
 			break;
 	}
 
-    return false;
+	return false;
 }
 
 static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
