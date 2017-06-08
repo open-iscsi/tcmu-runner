@@ -158,7 +158,7 @@ struct write_same {
 	size_t iov_len;
 };
 
-static int write_same_16_work_fn(struct tcmu_device *dev,
+static int write_same_work_fn(struct tcmu_device *dev,
 				 struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -210,7 +210,7 @@ static void handle_write_same_cbk(struct tcmu_device *dev,
 			     write_same->cur_lba, write_lbas);
 	}
 
-	rc = async_handle_cmd(dev, cmd, write_same_16_work_fn);
+	rc = async_handle_cmd(dev, cmd, write_same_work_fn);
 	if (rc != TCMU_ASYNC_HANDLED) {
 		tcmu_dev_err(dev, "Write same async handle cmd failure\n");
 		ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
@@ -227,7 +227,7 @@ finish_err:
 	aio_command_finish(dev, cmd, ret);
 }
 
-static int handle_write_same_16(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int handle_write_same(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
 	uint8_t *sense = cmd->sense_buf;
@@ -335,7 +335,7 @@ static int handle_write_same_16(struct tcmu_device *dev, struct tcmulib_cmd *cmd
 	tcmu_dev_dbg(dev, "First lba: %llu, write lbas: %llu\n",
 		     start_lba, write_lbas);
 
-	return async_handle_cmd(dev, cmd, write_same_16_work_fn);
+	return async_handle_cmd(dev, cmd, write_same_work_fn);
 }
 
 /* async write verify */
@@ -1773,8 +1773,9 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case WRITE_VERIFY_16:
 		ret = handle_write_verify(dev, cmd);
 		break;
+	case WRITE_SAME:
 	case WRITE_SAME_16:
-		ret = handle_write_same_16(dev, cmd);
+		ret = handle_write_same(dev, cmd);
 		break;
 	case FORMAT_UNIT:
 		ret = handle_format_unit(dev, cmd);
