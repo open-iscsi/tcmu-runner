@@ -626,6 +626,7 @@ static int dev_added(struct tcmu_device *dev)
 	int32_t block_size, max_sectors;
 	int64_t dev_size;
 	int ret;
+	int write_cache_enabled;
 
 	rdev = calloc(1, sizeof(*rdev));
 	if (!rdev)
@@ -654,6 +655,9 @@ static int dev_added(struct tcmu_device *dev)
 
 	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld\n",
 		     block_size, dev_size);
+
+	write_cache_enabled = tcmu_get_attribute(dev, "emulate_write_cache");
+	tcmu_set_dev_write_cache_enabled(dev, write_cache_enabled);
 
 	ret = pthread_spin_init(&rdev->lock, 0);
 	if (ret < 0)
@@ -855,6 +859,7 @@ int main(int argc, char **argv)
 		tmp_handler.subtype = (*tmp_r_handler)->subtype;
 		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;
 		tmp_handler.check_config = (*tmp_r_handler)->check_config;
+		tmp_handler.reconfig = (*tmp_r_handler)->reconfig;
 		tmp_handler.added = dev_added;
 		tmp_handler.removed = dev_removed;
 

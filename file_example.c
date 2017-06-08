@@ -76,6 +76,33 @@ static bool file_check_config(const char *cfgstring, char **reason)
 	return true;
 }
 
+static int file_reconfig(struct tcmu_device *dev, uint32_t cfgtype)
+{
+	int64_t dev_size;
+	uint32_t block_size;
+
+	switch (cfgtype) {
+	case No_reconfig:
+		break;
+	case Config_path:
+		tcmu_err("Device Path is an Unsupported Reconfiguration\n");
+		return -EINVAL;
+	case Config_size:
+		block_size = tcmu_get_attribute(dev, "hw_block_size");
+		if (block_size <= 0)
+			tcmu_dev_err(dev, "Could not get hw_block_size\n");
+		dev_size = tcmu_get_device_size(dev);
+		if (dev_size < 0)
+			tcmu_dev_err(dev, "Could not get device size\n");
+		tcmu_set_dev_num_lbas(dev, dev_size / block_size);
+		break;
+	case Config_writecache:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int file_open(struct tcmu_device *dev)
 {
 	struct file_state *state;
@@ -200,6 +227,7 @@ static struct tcmur_handler file_handler = {
 	.cfg_desc = file_cfg_desc,
 
 	.check_config = file_check_config,
+	.reconfig = file_reconfig,
 
 	.open = file_open,
 	.close = file_close,

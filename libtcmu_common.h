@@ -84,6 +84,13 @@ struct tcmulib_cmd {
 	cmd_done_t done;
 };
 
+enum tcmu_reconfig_types {
+	No_reconfig,
+	Config_path,
+	Config_size,
+	Config_writecache
+};
+
 /* Set/Get methods for the opaque tcmu_device */
 void *tcmu_get_dev_private(struct tcmu_device *dev);
 void tcmu_set_dev_private(struct tcmu_device *dev, void *priv);
@@ -97,6 +104,10 @@ void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size);
 uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev);
 void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev);
+void tcmu_set_dev_read_cache_enabled(struct tcmu_device *dev, int enabled);
+int tcmu_get_dev_read_cache_enabled(struct tcmu_device *dev);
+void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, int enabled);
+int tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
 struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev);
 
@@ -127,8 +138,10 @@ int tcmu_emulate_read_capacity_10(uint64_t num_lbas, uint32_t block_size, uint8_
 				  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_read_capacity_16(uint64_t num_lbas, uint32_t block_size, uint8_t *cdb,
 				  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
-int tcmu_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
-int tcmu_emulate_mode_select(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+int tcmu_emulate_mode_sense(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
+			    size_t iov_cnt, uint8_t *sense);
+int tcmu_emulate_mode_select(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
+			     size_t iov_cnt, uint8_t *sense);
 /* SCSI helpers */
 void tcmu_cdb_debug_info(const struct tcmulib_cmd *cmd);
 
