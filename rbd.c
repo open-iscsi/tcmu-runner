@@ -37,6 +37,13 @@
 
 #include <rbd/librbd.h>
 
+/*
+ * rbd_lock_acquire exclusive lock support was added in librbd 0.1.11 (267)
+ */
+#if LIBRBD_VERSION_CODE > 266
+#define RBD_LOCK_ACQUIRE_SUPPORT 1
+#endif
+
 enum {
 	TCMU_RBD_OPENING,
 	TCMU_RBD_OPENED,
@@ -63,34 +70,6 @@ struct rbd_aio_cb {
 	int64_t length;
 	char *bounce_buffer;
 };
-
-/*
- * Returns:
- * 0 = client is not owner.
- * 1 = client is owner.
- * -ESHUTDOWN/-EBLACKLISTED(-108) = client is blacklisted.
- * -EIO = misc error.
- */
-static int tcmu_rbd_has_lock(struct tcmu_device *dev)
-{
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	int ret, is_owner;
-
-	ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
-	if (ret == -ESHUTDOWN) {
-		return ret;
-	} else if (ret < 0) {
-		/* let initiator figure things out */
-		tcmu_dev_err(dev, "Could not check lock ownership. (Err %d).\n", ret);
-		return -EIO;
-	} else if (is_owner) {
-		tcmu_dev_dbg(dev, "Is owner\n");
-		return 1;
-	}
-	tcmu_dev_dbg(dev, "Not owner\n");
-
-	return 0;
-}
 
 static void tcmu_rbd_image_close(struct tcmu_device *dev)
 {
@@ -186,6 +165,36 @@ set_closed:
 	state->state = TCMU_RBD_CLOSED;
 	pthread_spin_unlock(&state->lock);
 	return ret;
+}
+
+#ifdef RBD_LOCK_ACQUIRE_SUPPORT
+
+/*
+ * Returns:
+ * 0 = client is not owner.
+ * 1 = client is owner.
+ * -ESHUTDOWN/-EBLACKLISTED(-108) = client is blacklisted.
+ * -EIO = misc error.
+ */
+static int tcmu_rbd_has_lock(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	int ret, is_owner;
+
+	ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
+	if (ret == -ESHUTDOWN) {
+		return ret;
+	} else if (ret < 0) {
+		/* let initiator figure things out */
+		tcmu_dev_err(dev, "Could not check lock ownership. (Err %d).\n", ret);
+		return -EIO;
+	} else if (is_owner) {
+		tcmu_dev_dbg(dev, "Is owner\n");
+		return 1;
+	}
+	tcmu_dev_dbg(dev, "Not owner\n");
+
+	return 0;
 }
 
 static int tcmu_rbd_image_reopen(struct tcmu_device *dev)
@@ -322,6 +331,8 @@ static int tcmu_rbd_unlock(struct tcmu_device *dev)
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	return rbd_lock_release(state->image);
 }
+
+#endif
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 {
@@ -610,6 +621,8 @@ out:
 	return SAM_STAT_TASK_SET_FULL;
 }
 
+#ifdef LIBRBD_SUPPORTS_AIO_FLUSH
+
 static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
@@ -648,6 +661,8 @@ out:
 	return SAM_STAT_TASK_SET_FULL;
 }
 
+#endif
+
 /*
  * For backstore creation
  *
@@ -677,9 +692,12 @@ struct tcmur_handler tcmu_rbd_handler = {
 #ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 	.flush	       = tcmu_rbd_flush,
 #endif
+
+#ifdef RBD_LOCK_ACQUIRE_SUPPORT
 	.lock          = tcmu_rbd_lock,
 	.unlock        = tcmu_rbd_unlock,
 	.has_lock      = tcmu_rbd_has_lock,
+#endif
 };
 
 int handler_init(void)
