@@ -348,6 +348,17 @@ static int alua_filter(const struct dirent *dir)
  *
  * User must call tcmu_release_tgt_port_grps when finished with the list of
  * groups.
+ *
+ * For now, we will only support ALUA if the user has defined groups.
+ * tcmu ALUA support was added in 4.11, but not all fabric modules support
+ * it. Depending on the kernel version and tools used we could have:
+ *
+ * 1. The default ALUA group, but empty members.
+ * 2. The default ALUA group, and reading/writing to members will return
+ *    a error or crash the kernel.
+ * 3. The default ALUA group, and members set to it, but some fabric
+ *    modules did not report the target port group/tag properly so
+ *    we cannot match groups to ports.
  */
 int tcmu_get_tgt_port_grps(struct tcmu_device *dev,
 			   struct list_head *group_list)
@@ -366,6 +377,9 @@ int tcmu_get_tgt_port_grps(struct tcmu_device *dev,
 	}
 
 	for (i = 0; i < n; i++) {
+		if (!strcmp(namelist[i]->d_name, "default_tg_pt_gp"))
+			continue;
+
 		group = tcmu_get_tgt_port_grp(dev, namelist[i]->d_name);
 		if (!group)
 			goto free_groups;
@@ -549,6 +563,9 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	uint32_t alloc_len = tcmu_get_xfer_length(cmd->cdb);
 	uint8_t *buf, state;
 
+	if (!tcmu_get_enabled_port(group_list))
+		return TCMU_NOT_HANDLED;
+
 	if (alloc_len < 4)
 		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
@@ -558,7 +575,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 
-	if (ext_hdr && alloc_len > 5 && !list_empty(group_list)) {
+	if (ext_hdr && alloc_len > 5) {
 		buf[4] = 0x10;
 		/*
 		 * assume all groups will have the same value for now.
@@ -633,6 +650,9 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 	uint16_t id, tmp_id;
 	char *buf, new_state;
 	int found, ret = SAM_STAT_GOOD;
+
+	if (!tcmu_get_enabled_port(group_list))
+		return TCMU_NOT_HANDLED;
 
 	if (!param_list_len)
 		return SAM_STAT_GOOD;

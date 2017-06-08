@@ -1771,13 +1771,6 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 
-	/*
-	 * Detect if the user did not setup ALUA or the kernel did not fully
-	 * support it. ALUA tcmu support was added in 4.11. Before that and
-	 * in the unsetup case, we will end up with at least the default ALUA
-	 * group and a empty members (groups are not set to any LUNs) file. For
-	 * these cases we just return tpgs=0.
-	 */
 	port = tcmu_get_enabled_port(&group_list);
 	if (!port)
 		tcmu_dev_dbg(dev, "no enabled ports found. Skipping ALUA support\n");
