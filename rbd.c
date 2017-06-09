@@ -361,7 +361,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	tcmu_set_dev_private(dev, state);
 
 	ret = pthread_spin_init(&state->lock, 0);
-	if (ret < 0) {
+	if (ret != 0) {
 		free(state);
 		return ret;
 	}
