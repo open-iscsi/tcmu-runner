@@ -371,12 +371,11 @@ int tcmu_load_config(struct tcmu_config *cfg, const char *path)
 	}
 
 	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
+	close(fd);
 	if (len < 0) {
 		tcmu_err("Failed to read file '%s'\n", path);
 		return -1;
 	}
-
-	close(fd);
 
 	buf[len] = '\0';
 
