@@ -61,6 +61,10 @@
 #include "tcmu-runner.h"
 #include "libtcmu.h"
 
+#define TCMU_ATTR_DEV_CFG       4
+#define TCMU_ATTR_DEV_SIZE      5
+#define TCMU_ATTR_WRITECACHE    6
+
 struct fbo_state {
 	int fd;
 	uint64_t num_lbas;
@@ -148,18 +152,18 @@ static bool fbo_check_config(const char *cfgstring, char **reason)
 	return true;
 }
 
-static int fbo_reconfig(struct tcmu_device *dev, uint32_t cfgtype)
+static int fbo_reconfig(struct tcmu_device *dev, int cfgtype)
 {
 	int ret = 0;
 
 	switch (cfgtype) {
-	case CONFIG_PATH:
+	case TCMU_ATTR_DEV_CFG:
 		tcmu_dev_err(dev, "device path reconfiguration is not supported\n");
 		return -EINVAL;
-	case CONFIG_SIZE:
+	case TCMU_ATTR_DEV_SIZE:
 		tcmu_dev_err(dev, "device size reconfiguration is not supported\n");
 		return -EINVAL;
-	case CONFIG_WRITECACHE:
+	case TCMU_ATTR_WRITECACHE:
 		tcmu_dev_err(dev, "Write_cache reconfiguration is not supported\n");
 		return -EINVAL;
 	}

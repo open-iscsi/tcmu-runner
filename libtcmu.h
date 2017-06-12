@@ -55,7 +55,7 @@ struct tcmulib_handler {
 	 */
 	bool (*check_config)(const char *cfgstring, char **reason);
 
-	int (*reconfig)(struct tcmu_device *dev, uint32_t cfgtype);
+	int (*reconfig)(struct tcmu_device *dev, int cfgtype);
 
 	/* Per-device added/removed callbacks */
 	int (*added)(struct tcmu_device *dev);
