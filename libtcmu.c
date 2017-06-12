@@ -41,42 +41,22 @@
 #include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
 
+#define TCMU_NL_VERSION 2
+
 static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_DEVICE]	= { .type = NLA_STRING },
 	[TCMU_ATTR_MINOR]	= { .type = NLA_U32 },
+	[TCMU_ATTR_CMD_STATUS]	= { .type = NLA_S32 },
+	[TCMU_ATTR_DEVICE_ID]	= { .type = NLA_U32 },
+	[TCMU_ATTR_SUPP_KERN_CMD_REPLY] = { .type = NLA_U8 },
 };
 
 static darray(struct tcmu_thread) g_threads = darray_new();
 
 static int add_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
 static void remove_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
-
 static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
-			  struct genl_info *info, void *arg)
-{
-	struct tcmulib_context *ctx = arg;
-	char buf[32];
-
-	if (!info->attrs[TCMU_ATTR_MINOR] || !info->attrs[TCMU_ATTR_DEVICE]) {
-		tcmu_err("TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, doing nothing\n");
-		return 0;
-	}
-
-	snprintf(buf, sizeof(buf), "uio%d", nla_get_u32(info->attrs[TCMU_ATTR_MINOR]));
-
-	switch (cmd->c_id) {
-	case TCMU_CMD_ADDED_DEVICE:
-		add_device(ctx, buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
-		break;
-	case TCMU_CMD_REMOVED_DEVICE:
-		remove_device(ctx, buf, nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
-		break;
-	default:
-		tcmu_err("Unknown notification %d\n", cmd->c_id);
-	}
-
-	return 0;
-}
+			  struct genl_info *info, void *arg);
 
 static struct genl_cmd tcmu_cmds[] = {
 	{
@@ -100,6 +80,121 @@ static struct genl_ops tcmu_ops = {
 	.o_cmds		= tcmu_cmds,
 	.o_ncmds	= ARRAY_SIZE(tcmu_cmds),
 };
+
+static int send_netlink_reply(struct tcmulib_context *ctx, int reply_cmd,
+			      uint32_t dev_id, int status)
+{
+	struct nl_sock *sock = ctx->nl_sock;
+	struct nl_msg *msg;
+	void *hdr;
+	int ret = -ENOMEM;
+
+	msg = nlmsg_alloc();
+	if (!msg)
+		return ret;
+
+	hdr = genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tcmu_ops.o_id,
+			  0, 0, reply_cmd, TCMU_NL_VERSION);
+	if (!hdr)
+		goto free_msg;
+
+	ret = nla_put_s32(msg, TCMU_ATTR_CMD_STATUS, status);
+	if (ret < 0)
+		goto free_msg;
+
+	ret = nla_put_u32(msg, TCMU_ATTR_DEVICE_ID, dev_id);
+	if (ret < 0)
+		goto free_msg;
+
+	/* Ignore ack. There is nothing we can do. */
+	ret = nl_send_auto(sock, msg);
+free_msg:
+	nlmsg_free(msg);
+
+	if (ret < 0)
+		tcmu_err("Could not send netlink cmd %d\n", reply_cmd);
+	return ret;
+}
+
+static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
+			  struct genl_info *info, void *arg)
+{
+	struct tcmulib_context *ctx = arg;
+	int ret, reply_cmd, version = info->genlhdr->version;
+	char buf[32];
+
+	tcmu_dbg("cmd %d. Got header version %d. Supported %d.\n",
+		 cmd->c_id, info->genlhdr->version, TCMU_NL_VERSION);
+
+	if (!info->attrs[TCMU_ATTR_MINOR] || !info->attrs[TCMU_ATTR_DEVICE]) {
+		tcmu_err("TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, dropping netlink command.\n");
+		return 0;
+	}
+
+	if (version > 1 && !info->attrs[TCMU_ATTR_DEVICE_ID]) {
+		tcmu_err("TCMU_ATTR_DEVICE_ID not set in v%d cmd %d, dropping netink command.\n", version, cmd->c_id);
+		return 0;
+	}
+
+	snprintf(buf, sizeof(buf), "uio%d", nla_get_u32(info->attrs[TCMU_ATTR_MINOR]));
+
+	switch (cmd->c_id) {
+	case TCMU_CMD_ADDED_DEVICE:
+		reply_cmd = TCMU_CMD_ADDED_DEVICE_DONE;
+		ret = add_device(ctx, buf,
+				 nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
+		break;
+	case TCMU_CMD_REMOVED_DEVICE:
+		reply_cmd = TCMU_CMD_REMOVED_DEVICE_DONE;
+		remove_device(ctx, buf,
+			      nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
+		ret = 0;
+		break;
+	default:
+		tcmu_err("Unknown netlink command %d. Netlink header received version %d. libtcmu supports %d\n",
+			 cmd->c_id, version, TCMU_NL_VERSION);
+		return -EOPNOTSUPP;
+	}
+
+	if (version > 1)
+		ret = send_netlink_reply(ctx, reply_cmd,
+				nla_get_u32(info->attrs[TCMU_ATTR_DEVICE_ID]),
+				ret);
+
+	return ret;
+}
+
+static int set_genl_features(struct nl_sock *sock)
+{
+	struct nl_msg *msg;
+	void *hdr;
+	int ret = -ENOMEM;
+
+	msg = nlmsg_alloc();
+	if (!msg)
+		return ret;
+
+	hdr = genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tcmu_ops.o_id,
+			  0, NLM_F_ACK, TCMU_CMD_SET_FEATURES, TCMU_NL_VERSION);
+	if (!hdr)
+		goto free_msg;
+
+	ret = nla_put_u8(msg, TCMU_ATTR_SUPP_KERN_CMD_REPLY, 1);
+	if (ret < 0)
+		goto free_msg;
+
+	ret = nl_send_sync(sock, msg);
+	goto done;
+
+free_msg:
+	nlmsg_free(msg);
+
+done:
+	if (ret < 0)
+		tcmu_err("Could not set features. Error %d\n", ret);
+
+	return ret;
+}
 
 static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 {
@@ -141,6 +236,12 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 		tcmu_err("couldn't add membership\n");
 		goto err_close;
 	}
+
+	/*
+	 * Could be a older kernel. Ignore failure and just work in degraded
+	 * mode.
+	 */
+	set_genl_features(sock);
 
 	return sock;
 
