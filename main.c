@@ -619,6 +619,10 @@ static void *tcmur_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_cdb_debug_info(cmd);
 
+			ret = tcmulib_check_state(dev, cmd);
+			if(ret != 0)
+				goto unit_attention;
+
 			if (tcmur_handler_is_passthrough_only(rhandler))
 				ret = tcmur_cmd_passthrough_handler(dev, cmd);
 			else
@@ -627,6 +631,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			if (ret == TCMU_NOT_HANDLED)
 				tcmu_warn("Command 0x%x not supported\n", cmd->cdb[0]);
 
+unit_attention:
 			/*
 			 * command (processing) completion is called in the following
 			 * scenarios:

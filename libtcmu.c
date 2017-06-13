@@ -736,6 +736,8 @@ int tcmu_update_num_lbas(struct tcmu_device *dev, uint64_t new_size)
 	if (!new_size)
 		return -EINVAL;
 
+	dev->flags |= TCMU_CAPACITY_CHANGED;
+
 	tcmu_set_dev_num_lbas(dev, new_size / tcmu_get_dev_block_size(dev));
 	return 0;
 }
@@ -1025,4 +1027,18 @@ void tcmulib_cleanup_all_cmdproc_threads()
 	darray_foreach(thread, g_threads) {
 		cancel_thread(thread->thread_id);
 	}
+}
+
+int tcmulib_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	int ret;
+
+	if(dev->flags & TCMU_CAPACITY_CHANGED) {
+		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
+					  ASC_CAPACITY_DATA_HAS_CHANGED,
+					  NULL);
+		dev->flags &= ~TCMU_CAPACITY_CHANGED;
+		return ret;
+	}
+	return 0;
 }

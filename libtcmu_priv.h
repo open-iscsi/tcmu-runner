@@ -73,6 +73,11 @@ struct tcmu_device {
 
 	void *d_private; /* private ptr for the daemon */
 	void *hm_private; /* private ptr for handler module */
+
+	/* Flag for state of the device for example if
+	 * Capacity has changed, or path, etc.
+	 */
+	uint32_t flags;
 };
 
 struct tcmu_thread {
