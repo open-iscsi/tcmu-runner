@@ -38,6 +38,8 @@ struct tcmur_device {
 
 	uint32_t format_progress;
 	pthread_mutex_t format_lock; /* for atomic format operations */
+
+	pthread_mutex_t devstate_lock; /* for atomic device state locking operations */
 };
 
 #endif

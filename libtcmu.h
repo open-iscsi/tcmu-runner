@@ -31,7 +31,10 @@ extern "C" {
 
 #include "libtcmu_common.h"
 
-#define TCMU_CAPACITY_CHANGED   0x01
+#define TCMU_DEV_STATE_CAPACITY_CHANGED				0x01
+#define TCMU_DEV_STATE_CONFIG_CHANGING				0x02
+#define TCMU_DEV_STATE_CONFIG_CHANGED				0x04
+#define TCMU_DEV_STATE_CAPACITY_CHANGE_FOR_CONFIG_CHANGE	0x08
 
 enum tcmulib_cfg_type {
 	TCMULIB_CFG_DEV_CFGSTR,
