@@ -73,6 +73,11 @@
 #include "scsi_defs.h"
 #include "qcow.h"
 #include "qcow2.h"
+#include "libtcmu.h"
+
+#define TCMU_ATTR_DEV_CFG       4
+#define TCMU_ATTR_DEV_SIZE      5
+#define TCMU_ATTR_WRITECACHE    6
 
 /* Block Device abstraction to support multiple image types */
 
@@ -1398,6 +1403,25 @@ static bool qcow_check_config(const char *cfgstring, char **reason)
 	return true; /* File exists and is writable */
 }
 
+static int qcow_reconfig(struct tcmu_device *dev, int cfgtype)
+{
+	int ret = 0;
+
+	switch (cfgtype) {
+	case TCMU_ATTR_DEV_CFG:
+		tcmu_dev_err(dev, "device path reconfiguration is not supported\n");
+		return -EINVAL;
+	case TCMU_ATTR_DEV_SIZE:
+		ret = tcmu_config_size(dev);
+		break;
+	case TCMU_ATTR_WRITECACHE:
+		tcmu_dev_err(dev, "write_cache reconfiguration is not supported\n");
+		return -EINVAL;
+	}
+
+	return ret;
+}
+
 static int qcow_open(struct tcmu_device *dev)
 {
 	struct bdev *bdev;
@@ -1502,6 +1526,7 @@ static struct tcmur_handler qcow_handler = {
 	.cfg_desc = qcow_cfg_desc,
 
 	.check_config = qcow_check_config,
+	.reconfig = qcow_reconfig,
 
 	.open = qcow_open,
 	.close = qcow_close,

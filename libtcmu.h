@@ -55,6 +55,8 @@ struct tcmulib_handler {
 	 */
 	bool (*check_config)(const char *cfgstring, char **reason);
 
+	int (*reconfig)(struct tcmu_device *dev, int cfgtype);
+
 	/* Per-device added/removed callbacks */
 	int (*added)(struct tcmu_device *dev);
 	void (*removed)(struct tcmu_device *dev);
@@ -123,6 +125,9 @@ void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev);
 
 /* cleanup all (devices) command processing threads */
 void tcmulib_cleanup_all_cmdproc_threads();
+
+/* Functions for reconfiguration */
+int tcmu_config_size(struct tcmu_device *dev);
 
 #ifdef __cplusplus
 }

@@ -677,15 +677,15 @@ static const char glfs_cfg_desc[] =
 	"  filename:  The backing file";
 
 struct tcmur_handler glfs_handler = {
-	.name 		= "Gluster glfs handler",
-	.subtype 	= "glfs",
+	.name		= "Gluster glfs handler",
+	.subtype	= "glfs",
 	.cfg_desc	= glfs_cfg_desc,
 
-	.check_config 	= glfs_check_config,
+	.check_config	= glfs_check_config,
 
-	.open 		= tcmu_glfs_open,
-	.close 		= tcmu_glfs_close,
-	.read 		= tcmu_glfs_read,
+	.open		= tcmu_glfs_open,
+	.close		= tcmu_glfs_close,
+	.read		= tcmu_glfs_read,
 	.write		= tcmu_glfs_write,
 	.flush		= tcmu_glfs_flush,
 };
