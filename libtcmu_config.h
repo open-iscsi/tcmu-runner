@@ -18,8 +18,12 @@
 # define __TCMU_CONFIG_H
 
 #include <stdbool.h>
+#include <pthread.h>
 
 struct tcmu_config {
+	pthread_t thread_id;
+	char *path;
+
 	int log_level;
 };
 
@@ -63,4 +67,5 @@ struct tcmu_conf_option {
 int tcmu_load_config(struct tcmu_config *cfg, const char *path);
 void tcmu_config_destroy(struct tcmu_config *cfg);
 struct tcmu_config * tcmu_config_new(void);
+void tcmu_cancel_config_thread(struct tcmu_config *cfg);
 #endif /* __TCMU_CONFIG_H */

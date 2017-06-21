@@ -18,7 +18,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/inotify.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -73,8 +75,8 @@
  *	}
  *
  * Note: For now, if the options have been changed in config file, the
- * tcmu-runner, consumer and tcmu-synthesizer daemons should be restarted.
- * And the dynamic reloading feature will be added later.
+ * system config reload thread daemon will try to update them for all the
+ * tcmu-runner, consumer and tcmu-synthesizer daemons.
  */
 
 static darray(struct tcmu_conf_option) tcmu_options = darray_new();
@@ -147,6 +149,7 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg)
 	/* set log_level option */
 	TCMU_PARSE_CFG_INT(cfg, log_level);
 	TCMU_CONF_CHECK_LOG_LEVEL(log_level);
+	tcmu_set_log_level(cfg->log_level);
 
 	/* add your new config options */
 }
@@ -164,18 +167,26 @@ struct tcmu_config *tcmu_config_new(void)
 	return cfg;
 }
 
-void tcmu_config_destroy(struct tcmu_config *cfg)
+void tcmu_cancel_config_thread(struct tcmu_config *cfg)
 {
-	struct tcmu_conf_option *opt;
+	pthread_t thread_id = cfg->thread_id;
+	void *join_retval;
+	int ret;
 
-	darray_foreach(opt, tcmu_options) {
-		if (opt->type == TCMU_OPT_STR)
-			free(opt->opt_str);
+	ret = pthread_cancel(thread_id);
+	if (ret) {
+		tcmu_err("pthread_cancel failed with value %d\n", ret);
+		return;
 	}
 
-	darray_free(tcmu_options);
+	pthread_join(thread_id, &join_retval);
+	if (ret) {
+		tcmu_err("pthread_join failed with value %d\n", ret);
+		return;
+	}
 
-	free(cfg);
+	if (join_retval != PTHREAD_CANCELED)
+		tcmu_err("unexpected join retval: %p\n", join_retval);
 }
 
 #define TCMU_MAX_CFG_FILE_SIZE (2 * 1024 * 1024)
@@ -222,7 +233,8 @@ static int tcmu_read_config(int fd, char *buf, int count)
 #define MAX_KEY_LEN 64
 #define MAX_VAL_STR_LEN 256
 
-struct tcmu_conf_option *tcmu_register_option(char *key, tcmu_option_type type)
+static struct tcmu_conf_option *
+tcmu_register_option(char *key, tcmu_option_type type)
 {
 	struct tcmu_conf_option option, *opt;
 
@@ -356,17 +368,137 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 
 }
 
-int tcmu_load_config(struct tcmu_config *cfg, const char *path)
+static int tcmu_reload_config(struct tcmu_config *cfg)
 {
 	char buf[TCMU_MAX_CFG_FILE_SIZE];
 	int fd, len;
 
+	fd = open(cfg->path, O_RDONLY);
+	if (fd < 0) {
+		tcmu_err("Failed to open file '%s', %m\n", cfg->path);
+		return -1;
+	}
+
+	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
+	close(fd);
+	if (len < 0) {
+		tcmu_err("Failed to read file '%s'\n", cfg->path);
+		return -1;
+	}
+
+	buf[len] = '\0';
+
+	tcmu_parse_options(cfg, buf, len);
+
+	return 0;
+}
+
+void tcmu_config_destroy(struct tcmu_config *cfg)
+{
+	struct tcmu_conf_option *opt;
+
+	if (!cfg)
+		return;
+
+	darray_foreach(opt, tcmu_options) {
+		if (opt->type == TCMU_OPT_STR)
+			free(opt->opt_str);
+	}
+
+	darray_free(tcmu_options);
+	free(cfg->path);
+	free(cfg);
+	cfg = NULL;
+}
+
+static void dyn_config_cleanup(void *arg)
+{
+	struct tcmu_config *cfg = arg;
+
+	tcmu_config_destroy(cfg);
+}
+
+#define BUF_LEN 1024
+static void *dyn_config_start(void *arg)
+{
+	struct tcmu_config *cfg = arg;
+	int monitor, wd, len;
+	char buf[BUF_LEN];
+
+	pthread_cleanup_push(dyn_config_cleanup, arg);
+
+	monitor = inotify_init();
+	if (monitor == -1) {
+		tcmu_err("Failed to init inotify %m\n");
+		return NULL;
+	}
+
+	wd = inotify_add_watch(monitor, cfg->path, IN_ALL_EVENTS);
+	if (wd == -1) {
+		tcmu_err("Failed to add \"%s\" to inotify %m\n", cfg->path);
+		return NULL;
+	}
+
+	tcmu_info("Inotify is watching \"%s\", wd: %d, mask: IN_ALL_EVENTS\n",
+		  cfg->path, wd);
+
+	while (1) {
+		struct inotify_event *event;
+		char *p;
+
+		len = read(monitor, buf, BUF_LEN);
+		if (len == -1) {
+			tcmu_warn("Failed to read inotify: %m\n");
+			continue;
+		}
+
+		for (p = buf; p < buf + len;) {
+			event = (struct inotify_event *)p;
+
+			tcmu_info("event->mask: 0x%x\n", event->mask);
+
+			if (event->wd != wd)
+				continue;
+
+			/*
+			 * If force to write to the unwritable or crashed
+			 * config file, the vi/vim will try to move and
+			 * delete the config file and then recreate it again
+			 * via the *.swp
+			 */
+			if ((event->mask & IN_IGNORED) && !access(cfg->path, F_OK))
+				wd = inotify_add_watch(monitor, cfg->path, IN_ALL_EVENTS);
+
+			/* Try to reload the config file */
+			if (event->mask & IN_MODIFY || event->mask & IN_IGNORED)
+				tcmu_reload_config(cfg);
+
+			p += sizeof(struct inotify_event) + event->len;
+		}
+	}
+
+	pthread_cleanup_pop(1);
+
+	return NULL;
+}
+
+int tcmu_load_config(struct tcmu_config *cfg, const char *path)
+{
+	char buf[TCMU_MAX_CFG_FILE_SIZE];
+	int fd, len, ret;
+
 	if (!path)
 		path = "/etc/tcmu/tcmu.conf"; /* the default config file */
 
+	cfg->path = strdup(path);
+	if (!cfg->path) {
+		tcmu_err("failed to copy path: %s\n", path);
+		return -1;
+	}
+
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
-		tcmu_err("Failed to open file '%s'\n", path);
+		tcmu_err("failed to open file '%s'\n", path);
 		return -1;
 	}
 
@@ -380,6 +512,11 @@ int tcmu_load_config(struct tcmu_config *cfg, const char *path)
 	buf[len] = '\0';
 
 	tcmu_parse_options(cfg, buf, len);
+
+	/* If the dynamic reloading thread fails to start, it will fall back to static config */
+	ret = pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg);
+	if (ret)
+		tcmu_warn("Failed to start the dynamic config reloading feature!\n");
 
 	return 0;
 }
