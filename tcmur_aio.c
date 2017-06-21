@@ -164,7 +164,7 @@ int setup_aio_tracking(struct tcmur_device *rdev)
 
 	aio_track->tracked_aio_ops = 0;
 	ret = pthread_spin_init(&aio_track->track_lock, 0);
-	if (ret < 0) {
+	if (ret != 0) {
 		return ret;
 	}
 
@@ -179,7 +179,7 @@ void cleanup_aio_tracking(struct tcmur_device *rdev)
 	assert(aio_track->tracked_aio_ops == 0);
 
 	ret = pthread_spin_destroy(&aio_track->track_lock);
-	if (ret < 0) {
+	if (ret != 0) {
 		tcmu_err("failed to destroy track lock\n");
 	}
 }
@@ -215,11 +215,11 @@ int setup_io_work_queue(struct tcmu_device *dev)
 	list_head_init(&io_wq->io_queue);
 
 	ret = pthread_mutex_init(&io_wq->io_lock, NULL);
-	if (ret < 0) {
+	if (ret != 0) {
 		goto out;
 	}
 	ret = pthread_cond_init(&io_wq->io_cond, NULL);
-	if (ret < 0) {
+	if (ret != 0) {
 		goto cleanup_lock;
 	}
 
@@ -231,7 +231,7 @@ int setup_io_work_queue(struct tcmu_device *dev)
 	for (i = 0; i < nr_threads; i++) {
 		ret = pthread_create(&io_wq->io_wq_threads[i], NULL,
 				      io_work_queue, dev);
-		if (ret < 0) {
+		if (ret != 0) {
 			goto cleanup_threads;
 		}
 	}

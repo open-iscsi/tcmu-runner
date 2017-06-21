@@ -656,15 +656,15 @@ static int dev_added(struct tcmu_device *dev)
 		     block_size, dev_size);
 
 	ret = pthread_spin_init(&rdev->lock, 0);
-	if (ret < 0)
+	if (ret != 0)
 		goto free_rdev;
 
 	ret = pthread_mutex_init(&rdev->caw_lock, NULL);
-	if (ret < 0)
+	if (ret != 0)
 		goto cleanup_dev_lock;
 
 	ret = pthread_mutex_init(&rdev->format_lock, NULL);
-	if (ret < 0)
+	if (ret != 0)
 		goto cleanup_caw_lock;
 
 	ret = setup_io_work_queue(dev);
@@ -721,15 +721,15 @@ static void dev_removed(struct tcmu_device *dev)
 	cleanup_aio_tracking(rdev);
 
 	ret = pthread_mutex_destroy(&rdev->format_lock);
-	if (ret < 0)
+	if (ret != 0)
 		tcmu_err("could not cleanup format lock %d\n", ret);
 
 	ret = pthread_mutex_destroy(&rdev->caw_lock);
-	if (ret < 0)
+	if (ret != 0)
 		tcmu_err("could not cleanup caw lock %d\n", ret);
 
 	ret = pthread_spin_destroy(&rdev->lock);
-	if (ret < 0)
+	if (ret != 0)
 		tcmu_err("could not cleanup mailbox lock %d\n", ret);
 
 	free(rdev);
