@@ -64,7 +64,7 @@ struct log_output {
 	tcmu_log_destination dest;
 };
 
-static int tcmu_log_level = TCMU_LOG_WARN;
+static int tcmu_log_level = TCMU_LOG_INFO;
 static struct log_buf *tcmu_log_initialize(void);
 
 static struct log_buf *logbuf = NULL;
@@ -85,7 +85,7 @@ static inline int to_syslog_level(int level)
 		case TCMU_CONF_LOG_DEBUG_SCSI_CMD:
 			return TCMU_LOG_DEBUG_SCSI_CMD;
 		default:
-			return TCMU_LOG_WARN;
+			return TCMU_LOG_INFO;
 	}
 }
 
@@ -97,9 +97,9 @@ unsigned int tcmu_get_log_level(void)
 
 void tcmu_set_log_level(int level)
 {
-	/* set the default log level to warning */
+	/* set the default log level to info */
 	if (!level)
-		level = TCMU_CONF_LOG_WARN;
+		level = TCMU_CONF_LOG_INFO;
 
 	tcmu_log_level = to_syslog_level(level);
 }
