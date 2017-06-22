@@ -32,6 +32,22 @@ extern "C" {
 #include "libtcmu_common.h"
 #include "libtcmu_log.h"
 
+enum tcmulib_cfg_type {
+	TCMULIB_CFG_DEV_CFGSTR,
+	TCMULIB_CFG_DEV_SIZE,
+	TCMULIB_CFG_WRITE_CACHE,
+};
+
+struct tcmulib_cfg_info {
+	enum tcmulib_cfg_type type;
+
+	union {
+		uint64_t dev_size;
+		char *dev_cfgstring;
+		bool write_cache;
+	} data;
+};
+
 struct tcmulib_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */
@@ -54,6 +70,8 @@ struct tcmulib_handler {
 	 * Suggest using asprintf().
 	 */
 	bool (*check_config)(const char *cfgstring, char **reason);
+
+	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
 	/* Per-device added/removed callbacks */
 	int (*added)(struct tcmu_device *dev);
