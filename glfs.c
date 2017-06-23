@@ -25,6 +25,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <scsi/scsi.h>
+#include <pthread.h>
 #include <glusterfs/api/glfs.h>
 #include "darray.h"
 
@@ -38,6 +39,9 @@
 
 /* tcmu log dir path */
 extern char *tcmu_log_dir;
+
+/* cache protection */
+pthread_mutex_t glfs_lock;
 
 typedef enum gluster_transport {
 	GLUSTER_TRANSPORT_TCP,
@@ -99,7 +103,7 @@ struct gluster_cacheconn {
 	darray(char *) cfgstring;
 } gluster_cacheconn;
 
-static darray(struct gluster_cacheconn *) cache = darray_new();
+static darray(struct gluster_cacheconn *) glfs_cache = darray_new();
 
 
 const char *const gluster_transport_lookup[] = {
@@ -151,7 +155,7 @@ gluster_compare_hosts(gluster_hostdef *src_server, gluster_hostdef *dst_server)
 			break;
 	}
 
-    return false;
+	return false;
 }
 
 static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
@@ -184,7 +188,7 @@ static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
 	darray_init(entry->cfgstring);
 	darray_append(entry->cfgstring, cfg_copy);
 
-	darray_append(cache, entry);
+	darray_append(glfs_cache, entry);
 
 	return 0;
 
@@ -199,7 +203,7 @@ static glfs_t* gluster_cache_query(gluster_server *dst, char *cfgstring)
 	char* cfg_copy = NULL;
 	bool cfgmatch = false;
 
-	darray_foreach(entry, cache) {
+	darray_foreach(entry, glfs_cache) {
 		if (strcmp((*entry)->volname, dst->volname))
 			continue;
 		if (gluster_compare_hosts((*entry)->server, dst->server)) {
@@ -231,7 +235,7 @@ static void gluster_cache_refresh(glfs_t *fs, const char *cfgstring)
 	if (!fs)
 		return;
 
-	darray_foreach(entry, cache) {
+	darray_foreach(entry, glfs_cache) {
 		if ((*entry)->fs == fs) {
 			if (cfgstring) {
 				darray_foreach(config, (*entry)->cfgstring) {
@@ -255,12 +259,54 @@ static void gluster_cache_refresh(glfs_t *fs, const char *cfgstring)
 			(*entry)->server = NULL;
 			free((*entry));
 
-			darray_remove(cache, i);
+			darray_remove(glfs_cache, i);
 			return;
 		} else {
 			i++;
 		}
 	}
+}
+
+static void gluster_thread_cleanup(void *arg)
+{
+	pthread_mutex_unlock(arg);
+}
+
+static int gluster_cache_query_or_add(struct tcmu_device *dev,
+                                      glfs_t **fs, gluster_server *entry,
+                                      char *config, bool *init)
+{
+	int ret = -1;
+
+	pthread_cleanup_push(gluster_thread_cleanup, &glfs_lock);
+	pthread_mutex_lock(&glfs_lock);
+
+	*fs = gluster_cache_query(entry, config);
+	if (*fs) {
+		*init = false;
+		ret = 0;
+		goto out;
+	}
+
+	*fs = glfs_new(entry->volname);
+	if (!*fs) {
+		tcmu_dev_err(dev, "glfs_new failed: %m\n");
+		goto out;
+	}
+
+	ret = gluster_cache_add(entry, *fs, config);
+	if (ret) {
+		tcmu_dev_err(dev, "gluster_cache_add failed: %m\n");
+		glfs_fini(*fs);
+		*fs = NULL;
+		goto out;
+	}
+
+ out:
+	pthread_mutex_unlock(&glfs_lock);
+	pthread_cleanup_pop(0);
+
+	return ret;
 }
 
 static void gluster_free_server(gluster_server **hosts)
@@ -357,6 +403,7 @@ static glfs_t* tcmu_create_glfs_object(struct tcmu_device *dev,
 	char logfilepath[PATH_MAX];
 	glfs_t *fs =  NULL;
 	int ret = -1;
+	bool init = true;
 
 	if (parse_imagepath(config, hosts) == -1) {
 		tcmu_dev_err(dev, "hostaddr, volname, or path missing\n");
@@ -364,20 +411,14 @@ static glfs_t* tcmu_create_glfs_object(struct tcmu_device *dev,
 	}
 	entry = *hosts;
 
-	fs = gluster_cache_query(entry, config);
-	if (fs)
-		return fs;
-
-	fs = glfs_new(entry->volname);
-	if (!fs) {
-		tcmu_dev_err(dev, "glfs_new failed\n");
+	ret = gluster_cache_query_or_add(dev, &fs, entry, config, &init);
+	if (ret) {
+		tcmu_dev_err(dev, "gluster_cache_query_or_add() failed\n");
 		goto fail;
 	}
 
-	ret = gluster_cache_add(entry, fs, config);
-	if (ret) {
-		tcmu_dev_err(dev, "gluster_cache_add failed: %m\n");
-		goto fail;
+	if (!init) {
+		return fs;
 	}
 
 	ret = glfs_set_volfile_server(fs,
@@ -641,5 +682,17 @@ struct tcmur_handler glfs_handler = {
 /* Entry point must be named "handler_init". */
 int handler_init(void)
 {
-	return tcmur_register_handler(&glfs_handler);
+	int ret;
+
+	ret = pthread_mutex_init(&glfs_lock, NULL);
+	if (ret != 0) {
+		return -1;
+	}
+
+	ret = tcmur_register_handler(&glfs_handler);
+	if (ret != 0) {
+		pthread_mutex_destroy(&glfs_lock);
+	}
+
+	return ret;
 }
