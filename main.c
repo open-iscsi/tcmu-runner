@@ -38,6 +38,8 @@
 #include <getopt.h>
 #include <poll.h>
 #include <scsi/scsi.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #include <libkmod.h>
 #include <sys/utsname.h>
@@ -52,6 +54,9 @@
 #include "version.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+
+#define TCMUR_MIN_OPEN_FD 65536
+#define TCMUR_MAX_OPEN_FD 1048576
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
 /* tcmu log dir path */
@@ -754,6 +759,63 @@ static bool tcmu_logdir_create(const char *path)
 	return TRUE;
 }
 
+static void tcmu_set_max_fd_limit(void)
+{
+	struct rlimit old_rlim, new_rlim;
+	bool set = 0;
+
+	if (getrlimit(RLIMIT_NOFILE, &old_rlim) == -1) {
+		tcmu_err("failed to get max open fd limit: %m\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if (old_rlim.rlim_cur < TCMUR_MAX_OPEN_FD) {
+		new_rlim.rlim_cur = TCMUR_MAX_OPEN_FD;
+		if (old_rlim.rlim_max < TCMUR_MAX_OPEN_FD) {
+			new_rlim.rlim_max = TCMUR_MAX_OPEN_FD;
+		} else {
+			new_rlim.rlim_max = old_rlim.rlim_max;
+		}
+
+		set = 1;
+		if (setrlimit(RLIMIT_NOFILE, &new_rlim) == -1) {
+			tcmu_warn("failed to set max open fd to [soft: %lld hard: %lld] %m\n",
+				  (long long int)new_rlim.rlim_cur,
+				  (long long int)new_rlim.rlim_max);
+			set = 0;
+			if (old_rlim.rlim_cur < TCMUR_MIN_OPEN_FD ) {
+				new_rlim.rlim_cur = TCMUR_MIN_OPEN_FD;
+				if (old_rlim.rlim_max < TCMUR_MIN_OPEN_FD) {
+					new_rlim.rlim_max = TCMUR_MIN_OPEN_FD;
+				} else {
+					new_rlim.rlim_max = old_rlim.rlim_max;
+				}
+
+				set = 1;
+				if (setrlimit(RLIMIT_NOFILE, &new_rlim) == -1) {
+					tcmu_err("failed to set max open fd to [soft: %lld hard: %lld] %m\n",
+					         (long long int)new_rlim.rlim_cur,
+					         (long long int)new_rlim.rlim_max);
+
+					exit(EXIT_FAILURE);
+				}
+			}
+		}
+	}
+
+ 	if (set) {
+		tcmu_info("max open fd set to [soft: %lld hard: %lld]\n",
+	                  (long long int)new_rlim.rlim_cur,
+	                  (long long int)new_rlim.rlim_max);
+	} else {
+		tcmu_info("max open fd remain [soft: %lld hard: %lld]\n",
+		          (long long int)old_rlim.rlim_cur,
+		          (long long int)old_rlim.rlim_max);
+	}
+
+	return;
+}
+
 static void usage(void) {
 	printf("\nusage:\n");
 	printf("\ttcmu-runner [options]\n");
@@ -894,6 +956,8 @@ int main(int argc, char **argv)
 				NULL, // user data
 				NULL  // user date free func
 		);
+
+	tcmu_set_max_fd_limit();
 
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
