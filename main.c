@@ -790,6 +790,8 @@ int main(int argc, char **argv)
 	struct tcmu_config *cfg;
 
 	cfg = tcmu_config_new();
+	if (!cfg)
+		exit(1);
 	tcmu_load_config(cfg, NULL);
 	tcmu_set_log_level(cfg->log_level);
 
