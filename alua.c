@@ -522,8 +522,7 @@ int tcmu_transition_tgt_port_grp(struct tgt_port_grp *group, uint8_t new_state,
 			return SAM_STAT_CHECK_CONDITION;
 	}
 
-	ret = tcmu_set_alua_int_setting(group, "alua_access_status",
-					ALUA_STAT_ALTERED_BY_EXPLICIT_STPG);
+	ret = tcmu_set_alua_int_setting(group, "alua_access_status", alua_status);
 	if (ret)
 		tcmu_err("Could not set alua_access_status for group %s:%d\n",
 			 group->name, group->id);
@@ -605,7 +604,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 		 */
 		if (state != group->state) {
 			if (tcmu_transition_tgt_port_grp(group, state,
-							 TPGS_ALUA_IMPLICIT,
+							 ALUA_STAT_ALTERED_BY_IMPLICIT_ALUA,
 							 NULL))
 				tcmu_err("Could not perform implicit state change for group %u\n", group->id);
 		}
@@ -685,7 +684,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 
 			tcmu_dbg("Got STPG for group %u\n", id);
 			ret = tcmu_transition_tgt_port_grp(group, new_state,
-							   TPGS_ALUA_EXPLICIT,
+							   ALUA_STAT_ALTERED_BY_EXPLICIT_STPG,
 							   cmd->sense_buf);
 			if (ret) {
 				tcmu_err("Failing STPG for group %d\n", id);
