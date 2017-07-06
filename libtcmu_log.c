@@ -104,30 +104,6 @@ void tcmu_set_log_level(int level)
 	tcmu_log_level = to_syslog_level(level);
 }
 
-static void open_syslog(const char *ident, int option, int facility)
-{
-#define ID_MAX_LEN 16
-	char id[ID_MAX_LEN + 1] = {0}, path[128];
-	int fd, len = -1;
-
-	if (!ident) {
-		sprintf(path, "/proc/%d/comm", getpid());
-		fd = open(path, O_RDONLY);
-			if (fd < 0)
-				return;
-		len = read(fd, id, ID_MAX_LEN);
-		if (len < 0) {
-			close(fd);
-			return;
-		}
-		close(fd);
-	} else {
-		strncpy(id, ident, ID_MAX_LEN);
-	}
-
-	openlog(id, option, facility);
-}
-
 static inline uint8_t rb_get_pri(struct log_buf *logbuf, unsigned int cur)
 {
 	return logbuf->buf[cur][0];
@@ -304,7 +280,7 @@ static void close_fd(void *data)
 
 static int create_syslog_output(int pri, const char *ident)
 {
-	open_syslog(ident, 0 ,0);
+	openlog(ident, 0 ,0);
 	if (append_output(output_to_syslog, close_syslog, NULL,
 			  pri, TCMU_LOG_TO_SYSLOG, ident) < 0) {
 		closelog();
