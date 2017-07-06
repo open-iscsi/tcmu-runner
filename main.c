@@ -41,7 +41,7 @@
 
 #include <libkmod.h>
 #include <sys/utsname.h>
-#include <linux/target_core_user.h>
+#include "target_core_user_local.h"
 #include "darray.h"
 #include "tcmu-runner.h"
 #include "tcmur_aio.h"
