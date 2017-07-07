@@ -349,7 +349,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 {
 	rbd_image_info_t image_info;
 	char *pool, *name;
-	char *config;
+	char *config, *dev_cfg_dup;
 	struct tcmu_rbd_state *state;
 	uint64_t rbd_size;
 	int ret;
@@ -366,13 +366,19 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		return ret;
 	}
 
-	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
-	tcmu_dev_dbg(dev, "tcmu_rbd_open config %s\n", config);
+	dev_cfg_dup = strdup(tcmu_get_dev_cfgstring(dev));
+	config = dev_cfg_dup;
+	if (!config) {
+		ret = -ENOMEM;
+		goto free_state;
+	}
 
+	tcmu_dev_dbg(dev, "tcmu_rbd_open config %s\n", config);
+	config = strchr(config, '/');
 	if (!config) {
 		tcmu_dev_err(dev, "no configuration found in cfgstring\n");
 		ret = -EINVAL;
-		goto free_state;
+		goto free_config;
 	}
 	config += 1; /* get past '/' */
 
@@ -380,32 +386,32 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	if (!pool) {
 		tcmu_dev_err(dev, "Could not get pool name\n");
 		ret = -EINVAL;
-		goto free_state;
+		goto free_config;
 	}
 	state->pool_name = strdup(pool);
 	if (!state->pool_name) {
 		ret = -ENOMEM;
 		tcmu_dev_err(dev, "Could not copy pool name\n");
-		goto free_state;
+		goto free_config;
 	}
 
 	name = strtok(NULL, "/");
 	if (!name) {
 		tcmu_dev_err(dev, "Could not get image name\n");
 		ret = -EINVAL;
-		goto free_state;
+		goto free_config;
 	}
 
 	state->image_name = strdup(name);
 	if (!state->image_name) {
 		ret = -ENOMEM;
 		tcmu_dev_err(dev, "Could not copy image name\n");
-		goto free_state;
+		goto free_config;
 	}
 
 	ret = tcmu_rbd_image_open(dev);
 	if (ret < 0) {
-		goto free_state;
+		goto free_config;
 	}
 
 	ret = rbd_get_size(state->image, &rbd_size);
@@ -433,10 +439,13 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	tcmu_dev_dbg(dev, "config %s, size %lld\n", tcmu_get_dev_cfgstring(dev),
 		     rbd_size);
+	free(dev_cfg_dup);
 	return 0;
 
 stop_image:
 	tcmu_rbd_image_close(dev);
+free_config:
+	free(dev_cfg_dup);
 free_state:
 	tcmu_rbd_state_free(state);
 	return ret;
