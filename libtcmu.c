@@ -204,8 +204,8 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 	int ret, reply_cmd, version = info->genlhdr->version;
 	char buf[32];
 
-	//tcmu_err("cmd %d. Got header version %d. Supported %d.\n",
-	//	 cmd->c_id, info->genlhdr->version, TCMU_NL_VERSION);
+	tcmu_dbg("cmd %d. Got header version %d. Supported %d.\n",
+		 cmd->c_id, info->genlhdr->version, TCMU_NL_VERSION);
 
 	if (!info->attrs[TCMU_ATTR_MINOR] || !info->attrs[TCMU_ATTR_DEVICE]) {
 		tcmu_err("TCMU_ATTR_MINOR or TCMU_ATTR_DEVICE not set, dropping netlink command.\n");
@@ -492,7 +492,6 @@ static int add_device(struct tcmulib_context *ctx,
 err_munmap:
 	munmap(dev->map, dev->map_len);
 err_fd_close:
-	tcmu_err("close uio err\n");
 	close(dev->fd);
 err_free:
 	free(dev);
