@@ -28,12 +28,12 @@
 #include <dirent.h>
 #include <scsi/scsi.h>
 
-#include <linux/target_core_user.h>
 
 #include <libnl3/netlink/genl/genl.h>
 #include <libnl3/netlink/genl/mngt.h>
 #include <libnl3/netlink/genl/ctrl.h>
 
+#include "target_core_user_local.h"
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"

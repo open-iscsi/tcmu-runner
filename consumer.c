@@ -36,7 +36,7 @@
 #include <stdint.h>
 #include <scsi/scsi.h>
 #define _BITS_UIO_H
-#include <linux/target_core_user.h>
+#include "target_core_user_local.h"
 #include "libtcmu.h"
 #include "scsi_defs.h"
 
