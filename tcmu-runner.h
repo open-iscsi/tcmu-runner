@@ -39,6 +39,8 @@ typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
 typedef int (*flush_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
 typedef int (*handle_cmd_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
 
+struct tcmulib_cfg_info;
+
 struct tcmur_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */
@@ -60,6 +62,8 @@ struct tcmur_handler {
 	 * Suggest using asprintf().
 	 */
 	bool (*check_config)(const char *cfgstring, char **reason);
+
+	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
 	/* Per-device added/removed callbacks */
 	int (*open)(struct tcmu_device *dev);

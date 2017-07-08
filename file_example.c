@@ -41,6 +41,7 @@
 #include <scsi/scsi.h>
 
 #include "scsi_defs.h"
+#include "libtcmu.h"
 #include "tcmu-runner.h"
 
 struct file_state {
@@ -193,6 +194,18 @@ done:
 	return 0;
 }
 
+static int file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
+{
+	switch (cfg->type) {
+	case TCMULIB_CFG_DEV_SIZE:
+		return tcmu_update_num_lbas(dev, cfg->data.dev_size);
+	case TCMULIB_CFG_DEV_CFGSTR:
+	case TCMULIB_CFG_WRITE_CACHE:
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 static const char file_cfg_desc[] =
 	"The path to the file to use as a backstore.";
 
@@ -200,6 +213,7 @@ static struct tcmur_handler file_handler = {
 	.cfg_desc = file_cfg_desc,
 
 	.check_config = file_check_config,
+	.reconfig = file_reconfig,
 
 	.open = file_open,
 	.close = file_close,
