@@ -131,7 +131,7 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not connect to cluster. (Err %d)\n",
 			     ret);
-		goto rados_shutdown;
+		goto set_cluster_null;
 	}
 
 	ret = rados_ioctx_create(state->cluster, state->pool_name,
@@ -159,6 +159,7 @@ rados_destroy:
 	state->io_ctx = NULL;
 rados_shutdown:
 	rados_shutdown(state->cluster);
+set_cluster_null:
 	state->cluster = NULL;
 set_closed:
 	pthread_spin_lock(&state->lock);
