@@ -171,7 +171,7 @@ static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
 
 	entry->server = calloc(1, sizeof(gluster_hostdef));
 	if (!entry->server)
-		goto error;
+		goto free_entry;
 
 	entry->server->type = dst->server->type;
 
@@ -192,6 +192,10 @@ static int gluster_cache_add(gluster_server *dst, glfs_t *fs, char* cfgstring)
 
 	return 0;
 
+free_entry:
+	if (entry->volname)
+		free(entry->volname);
+	free(entry);
  error:
 	return -1;
 }
