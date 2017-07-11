@@ -653,6 +653,8 @@ struct tcmulib_context *tcmulib_initialize(
 		teardown_netlink(ctx->nl_sock);
 		darray_free(ctx->handlers);
 		darray_free(ctx->devices);
+		genl_unregister_family(&tcmu_ops);
+		free(ctx);
 		return NULL;
 	}
 
