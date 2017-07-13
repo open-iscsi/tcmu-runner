@@ -814,7 +814,7 @@ int main(int argc, char **argv)
 				         optarg, PATH_MAX - TCMU_LOG_FILENAME_MAX);
 			}
 			if (!tcmu_logdir_create(optarg)) {
-				exit(1);
+				goto err_out;
 			}
 			tcmu_log_dir = strdup(optarg);
 			break;
@@ -823,11 +823,11 @@ int main(int argc, char **argv)
 			break;
 		case 'V':
 			printf("tcmu-runner %s\n", TCMUR_VERSION);
-			exit(1);
+			goto err_out;
 		default:
 		case 'h':
 			usage();
-			exit(1);
+			goto err_out;
 		}
 	}
 
@@ -836,13 +836,13 @@ int main(int argc, char **argv)
 	ret = load_our_module();
 	if (ret < 0) {
 		tcmu_err("couldn't load module\n");
-		exit(1);
+		goto err_out;
 	}
 
 	ret = open_handlers();
 	if (ret < 0) {
 		tcmu_err("couldn't open handlers\n");
-		exit(1);
+		goto err_out;
 	}
 	tcmu_dbg("%d runner handlers found\n", ret);
 
@@ -874,13 +874,13 @@ int main(int argc, char **argv)
 	tcmulib_context = tcmulib_initialize(handlers.item, handlers.size);
 	if (!tcmulib_context) {
 		tcmu_err("tcmulib_initialize failed\n");
-		exit(1);
+		goto err_out;
 	}
 
 	ret = sigaction(SIGINT, &tcmu_sigaction, NULL);
 	if (ret) {
 		tcmu_err("couldn't set sigaction\n");
-		exit(1);
+		goto err_tcmulib_close;
 	}
 
 	/* Set up event for libtcmu */
@@ -904,7 +904,14 @@ int main(int argc, char **argv)
 	tcmu_dbg("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
+	tcmulib_close(tcmulib_context);
 	tcmu_config_destroy(cfg);
 
 	return 0;
+
+err_tcmulib_close:
+	tcmulib_close(tcmulib_context);
+err_out:
+	tcmu_config_destroy(cfg);
+	exit(1);
 }
