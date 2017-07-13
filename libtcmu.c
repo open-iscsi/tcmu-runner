@@ -311,7 +311,7 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 	ret = genl_ops_resolve(sock, &tcmu_ops);
 	if (ret < 0) {
 		tcmu_err("couldn't resolve ops, is target_core_user.ko loaded?\n");
-		goto err_close;
+		goto err_unregister;
 	}
 
 	ret = genl_ctrl_resolve_grp(sock, "TCM-USER", "config");
@@ -319,7 +319,7 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 	ret = nl_socket_add_membership(sock, ret);
 	if (ret < 0) {
 		tcmu_err("couldn't add membership\n");
-		goto err_close;
+		goto err_unregister;
 	}
 
 	/*
@@ -330,6 +330,8 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 
 	return sock;
 
+err_unregister:
+	genl_unregister_family(&tcmu_ops);
 err_close:
 	nl_close(sock);
 err_free:
