@@ -34,6 +34,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <glib.h>
+#include <glib-unix.h>
 #include <gio/gio.h>
 #include <getopt.h>
 #include <poll.h>
@@ -161,16 +162,15 @@ static int open_handlers(void)
 	return num_good;
 }
 
-static void sighandler(int signal)
+static gboolean sighandler(gpointer user_data)
 {
 	tcmulib_cleanup_all_cmdproc_threads();
 	tcmu_cancel_log_thread();
-	exit(1);
-}
 
-static struct sigaction tcmu_sigaction = {
-	.sa_handler = sighandler,
-};
+	g_main_loop_quit((GMainLoop*)user_data);
+
+	return G_SOURCE_CONTINUE;
+}
 
 gboolean tcmulib_callback(GIOChannel *source,
 			  GIOCondition condition,
@@ -877,9 +877,12 @@ int main(int argc, char **argv)
 		goto err_out;
 	}
 
-	ret = sigaction(SIGINT, &tcmu_sigaction, NULL);
-	if (ret) {
-		tcmu_err("couldn't set sigaction\n");
+	loop = g_main_loop_new(NULL, FALSE);
+	if(
+		g_unix_signal_add(SIGINT, sighandler, loop) <= 0 ||
+		g_unix_signal_add(SIGTERM, sighandler, loop) <= 0
+	) {
+		tcmu_err("couldn't setup signal handlers\n");
 		goto err_tcmulib_close;
 	}
 
@@ -898,7 +901,6 @@ int main(int argc, char **argv)
 				NULL  // user date free func
 		);
 
-	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 
 	tcmu_dbg("Exiting...\n");
