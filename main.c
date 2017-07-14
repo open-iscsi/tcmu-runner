@@ -130,16 +130,26 @@ static bool is_dbus_handler(struct tcmur_handler *handler)
 	return dbus_handler_index(handler) != -1;
 }
 
+static void free_dbus_handler(struct tcmur_handler *handler)
+{
+	g_free(handler->opaque);
+	g_free(handler->subtype);
+	g_free(handler->cfg_desc);
+	g_free(handler);
+}
+
 static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
 {
+	bool ret = false;
 	int i = dbus_handler_index(handler);
 
 	if( i >= 0 )
 	{
-		return tcmur_unregister_handler(handler);
+		ret = tcmur_unregister_handler(handler);
+		free_dbus_handler(handler);
 	}
 
-	return false;
+	return ret;
 }
 
 static int is_handler(const struct dirent *dirent)
@@ -378,8 +388,8 @@ on_handler_vanished(GDBusConnection *connection,
 			    g_variant_new("(bs)", FALSE, reason));
 		g_free(reason);
 	}
-	tcmur_unregister_dbus_handler(handler);
 	dbus_unexport_handler(handler);
+	tcmur_unregister_dbus_handler(handler);
 }
 
 static gboolean
@@ -404,6 +414,7 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 	handler->handle_cmd   = dbus_handler_handle_cmd;
 
 	info = g_new0(struct dbus_info, 1);
+	handler->opaque = info;
 	info->register_invocation = invocation;
 	info->watcher_id = g_bus_watch_name(G_BUS_TYPE_SYSTEM,
 					    bus_name,
@@ -412,8 +423,15 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 					    on_handler_vanished,
 					    handler,
 					    NULL);
+	if( info->watcher_id == 0 ) {
+		// probably an invalid name, roll back and report an error
+		free_dbus_handler(handler);
+
+		g_dbus_method_invocation_return_value(invocation,
+			g_variant_new("(bs)", FALSE,
+				      "failed to watch for DBus handler name"));
+	}
 	g_free(bus_name);
-	handler->opaque = info;
 	return TRUE;
 }
 
@@ -440,11 +458,9 @@ on_unregister_handler(TCMUService1HandlerManager1 *interface,
 	}
 
 	dbus_unexport_handler(handler);
+	g_bus_unwatch_name(info->watcher_id);
 	tcmur_unregister_dbus_handler(handler);
 
-	g_bus_unwatch_name(info->watcher_id);
-	g_free(info);
-	g_free(handler);
 	g_dbus_method_invocation_return_value(invocation,
 		g_variant_new("(bs)", TRUE, "succeeded"));
 	return TRUE;
