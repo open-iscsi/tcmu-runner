@@ -29,6 +29,7 @@
 #include "libtcmu.h"
 #include "version.h"
 #include "libtcmu_config.h"
+#include "libtcmu_log.h"
 
 typedef struct {
 	GIOChannel *gio;
