@@ -30,7 +30,6 @@ extern "C" {
 #include <sys/uio.h>
 
 #include "libtcmu_common.h"
-#include "libtcmu_log.h"
 
 enum tcmulib_cfg_type {
 	TCMULIB_CFG_DEV_CFGSTR,
