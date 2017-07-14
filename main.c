@@ -132,9 +132,9 @@ static bool is_dbus_handler(struct tcmur_handler *handler)
 
 static void free_dbus_handler(struct tcmur_handler *handler)
 {
-	g_free(handler->opaque);
-	g_free(handler->subtype);
-	g_free(handler->cfg_desc);
+	g_free((char*)handler->opaque);
+	g_free((char*)handler->subtype);
+	g_free((char*)handler->cfg_desc);
 	g_free(handler);
 }
 
