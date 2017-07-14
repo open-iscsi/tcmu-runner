@@ -59,6 +59,8 @@ static char *handler_path = DEFAULT_HANDLER_PATH;
 extern char *tcmu_log_dir;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
+// handlers registered via dbus are additionally kept track of in here
+darray(struct tcmur_handler *) g_runner_dbus_handlers = darray_new();
 
 static struct tcmur_handler *find_handler_by_subtype(gchar *subtype)
 {
@@ -89,6 +91,16 @@ int tcmur_register_handler(struct tcmur_handler *handler)
 	return 0;
 }
 
+static int tcmur_register_dbus_handler(struct tcmur_handler *handler)
+{
+	if( tcmur_register_handler(handler) != 0 ) {
+		return -1;
+	}
+
+	darray_append(g_runner_dbus_handlers, handler);
+	return 0;
+}
+
 bool tcmur_unregister_handler(struct tcmur_handler *handler)
 {
 	int i;
@@ -98,6 +110,35 @@ bool tcmur_unregister_handler(struct tcmur_handler *handler)
 			return true;
 		}
 	}
+	return false;
+}
+
+static int dbus_handler_index(struct tcmur_handler *handler)
+{
+	int i;
+	for (i = 0; i < darray_size(g_runner_dbus_handlers); i++) {
+		if (darray_item(g_runner_dbus_handlers, i) == handler) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static bool is_dbus_handler(struct tcmur_handler *handler)
+{
+	return dbus_handler_index(handler) != -1;
+}
+
+static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
+{
+	int i = dbus_handler_index(handler);
+
+	if( i >= 0 )
+	{
+		return tcmur_unregister_handler(handler);
+	}
+
 	return false;
 }
 
@@ -312,7 +353,7 @@ on_handler_appeared(GDBusConnection *connection,
 
 	if (info->register_invocation) {
 		info->connection = connection;
-		tcmur_register_handler(handler);
+		tcmur_register_dbus_handler(handler);
 		dbus_export_handler(handler, G_CALLBACK(on_dbus_check_config));
 		g_dbus_method_invocation_return_value(info->register_invocation,
 			    g_variant_new("(bs)", TRUE, "succeeded"));
@@ -337,7 +378,7 @@ on_handler_vanished(GDBusConnection *connection,
 			    g_variant_new("(bs)", FALSE, reason));
 		g_free(reason);
 	}
-	tcmur_unregister_handler(handler);
+	tcmur_unregister_dbus_handler(handler);
 	dbus_unexport_handler(handler);
 }
 
@@ -391,8 +432,16 @@ on_unregister_handler(TCMUService1HandlerManager1 *interface,
 				      "unknown subtype"));
 		return TRUE;
 	}
+	else if (!is_dbus_handler(handler) ) {
+		g_dbus_method_invocation_return_value(invocation,
+			g_variant_new("(bs)", FALSE,
+				      "cannot unregister internal handler"));
+		return TRUE;
+	}
+
 	dbus_unexport_handler(handler);
-	tcmur_unregister_handler(handler);
+	tcmur_unregister_dbus_handler(handler);
+
 	g_bus_unwatch_name(info->watcher_id);
 	g_free(info);
 	g_free(handler);
