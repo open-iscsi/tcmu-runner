@@ -358,7 +358,8 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 
 int tcmu_load_config(struct tcmu_config *cfg, const char *path)
 {
-	char buf[TCMU_MAX_CFG_FILE_SIZE];
+	char *buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
+	int res = 0;
 	int fd, len;
 
 	if (!path)
@@ -367,19 +368,23 @@ int tcmu_load_config(struct tcmu_config *cfg, const char *path)
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		tcmu_err("Failed to open file '%s'\n", path);
-		return -1;
+		res = -1;
+		goto out;
 	}
 
 	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
 	close(fd);
 	if (len < 0) {
 		tcmu_err("Failed to read file '%s'\n", path);
-		return -1;
+		res = -1;
+		goto out;
 	}
 
 	buf[len] = '\0';
 
 	tcmu_parse_options(cfg, buf, len);
 
-	return 0;
+out:
+	free(buf);
+	return res;
 }
