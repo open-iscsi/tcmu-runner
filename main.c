@@ -386,7 +386,7 @@ on_unregister_handler(TCMUService1HandlerManager1 *interface,
 		      gpointer user_data)
 {
 	struct tcmur_handler *handler = find_handler_by_subtype(subtype);
-	struct dbus_info *info = handler->opaque;
+	struct dbus_info *info = handler ? handler->opaque : NULL;
 
 	if (!handler) {
 		g_dbus_method_invocation_return_value(invocation,
