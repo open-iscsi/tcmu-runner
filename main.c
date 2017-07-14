@@ -109,12 +109,24 @@ bool tcmur_unregister_handler(struct tcmur_handler *handler)
 	return false;
 }
 
+static void free_dbus_handler(struct tcmur_handler *handler)
+{
+	g_free((char*)handler->opaque);
+	g_free((char*)handler->subtype);
+	g_free((char*)handler->cfg_desc);
+	g_free(handler);
+}
+
 static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
 {
 	bool ret = false;
 	assert(handler->_is_dbus_handler == true);
 
 	ret = tcmur_unregister_handler(handler);
+
+	if (ret == true) {
+		free_dbus_handler(handler);
+	}
 
 	return ret;
 }
@@ -356,8 +368,8 @@ on_handler_vanished(GDBusConnection *connection,
 			    g_variant_new("(bs)", FALSE, reason));
 		g_free(reason);
 	}
-	tcmur_unregister_dbus_handler(handler);
 	dbus_unexport_handler(handler);
+	tcmur_unregister_dbus_handler(handler);
 }
 
 static gboolean
@@ -392,8 +404,15 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 					    on_handler_vanished,
 					    handler,
 					    NULL);
+	if (info->watcher_id == 0) {
+		// probably an invalid name, roll back and report an error
+		free_dbus_handler(handler);
+
+		g_dbus_method_invocation_return_value(invocation,
+			g_variant_new("(bs)", FALSE,
+				      "failed to watch for DBus handler name"));
+	}
 	g_free(bus_name);
-	handler->opaque = info;
 	return TRUE;
 }
 
@@ -420,11 +439,9 @@ on_unregister_handler(TCMUService1HandlerManager1 *interface,
 	}
 
 	dbus_unexport_handler(handler);
+	g_bus_unwatch_name(info->watcher_id);
 	tcmur_unregister_dbus_handler(handler);
 
-	g_bus_unwatch_name(info->watcher_id);
-	g_free(info);
-	g_free(handler);
 	g_dbus_method_invocation_return_value(invocation,
 		g_variant_new("(bs)", TRUE, "succeeded"));
 	return TRUE;
@@ -596,7 +613,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
 
 	while (1) {
-                int completed = 0;
+		int completed = 0;
 		struct tcmulib_cmd *cmd;
 
 		tcmulib_processing_start(dev);
