@@ -1678,6 +1678,287 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return ret;
 }
 
+struct unmap_state {
+	pthread_mutex_t lock;
+	unsigned int refcount;
+};
+
+struct unmap_descriptor {
+	uint64_t offset;
+	uint64_t length;
+
+	struct tcmulib_cmd *origcmd;
+};
+
+static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd, int ret)
+{
+	struct unmap_descriptor *desc = ucmd->cmdstate;
+	struct tcmulib_cmd *origcmd = desc->origcmd;
+	struct unmap_state *state = origcmd->cmdstate;
+
+	free(desc);
+	free(ucmd);
+
+	pthread_mutex_lock(&state->lock);
+	if (--state->refcount > 0) {
+		pthread_mutex_unlock(&state->lock);
+		return;
+	}
+	pthread_mutex_unlock(&state->lock);
+
+	pthread_mutex_destroy(&state->lock);
+	free(state);
+
+	aio_command_finish(dev, origcmd, ret);
+}
+
+static int unmap_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *ucmd)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct unmap_descriptor *desc = ucmd->cmdstate;
+	uint64_t offset = desc->offset, length = desc->length;
+
+	ucmd->done = handle_unmap_cbk;
+
+	return rhandler->unmap(dev, ucmd, offset, length);
+}
+
+static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *origcmd,
+				 uint16_t bddl, uint8_t *par)
+{
+	struct unmap_state *state = origcmd->cmdstate;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t end_lba = tcmu_get_dev_num_lbas(dev) - 1;
+	uint8_t *sense = origcmd->sense_buf;
+	uint16_t offset = 0;
+	int ret, i = 0, refcount = 0;
+
+	/* The first descriptor list offset is 8 in Data-Out buffer */
+	par += 8;
+
+	pthread_mutex_lock(&state->lock);
+	while (bddl) {
+		struct unmap_descriptor *desc;
+		struct tcmulib_cmd *ucmd;
+		uint64_t lba;
+		uint32_t nlbas;
+
+		lba = be64toh(*((uint64_t *)&par[offset]));
+		nlbas = be32toh(*((uint32_t *)&par[offset + 8]));
+
+		tcmu_dev_dbg(dev, "Parameter list %d, lba: %llu, nlbas: %u\n",
+			     i++, lba, nlbas);
+
+		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
+			tcmu_err("Illegal parameter list LBA count %lu exceeds:%u\n",
+				 nlbas, VPD_MAX_UNMAP_LBA_COUNT);
+			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
+						  NULL);
+			goto state_unlock;
+		}
+
+		if (lba + nlbas - 1 > end_lba || lba + nlbas < lba) {
+			tcmu_err("Illegal parameter list (lba + nlbas) %llu "
+				 "exceeds last lba %llu\n",
+				 lba + nlbas - 1, end_lba);
+			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						  ASC_LBA_OUT_OF_RANGE,
+						  NULL);
+			goto state_unlock;
+		}
+
+		desc = calloc(1, sizeof(*desc));
+		if (!desc) {
+			tcmu_dev_err(dev, "Failed to calloc desc!\n");
+			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						  ASC_INTERNAL_TARGET_FAILURE,
+						  NULL);
+			goto state_unlock;
+		}
+
+		ucmd = calloc(1, sizeof(*ucmd));
+		if (!ucmd) {
+			tcmu_dev_err(dev, "Failed to calloc unmapcmd!\n");
+			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						  ASC_INTERNAL_TARGET_FAILURE,
+						  NULL);
+			free(desc);
+			goto state_unlock;
+		}
+
+		state->refcount++;
+
+		desc->origcmd = origcmd;
+		desc->offset = lba * block_size;
+		desc->length = nlbas * block_size;
+		ucmd->cmdstate = desc;
+
+		ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
+		if (ret != TCMU_ASYNC_HANDLED) {
+			free(ucmd);
+			free(desc);
+			goto state_unlock;
+		} else {
+			refcount++;
+		}
+
+		/* The unmap block descriptor data length is 16 */
+		offset += 16;
+		bddl -= 16;
+	}
+state_unlock:
+	pthread_mutex_unlock(&state->lock);
+
+	/* Will let the cbk to do the release */
+	if (refcount != 0)
+		return ret;
+
+	free(state);
+	return ret;
+}
+
+static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
+{
+	uint8_t *cdb = origcmd->cdb;
+	size_t copied, data_length = tcmu_get_xfer_length(cdb);
+	uint8_t *sense = origcmd->sense_buf;
+	struct unmap_state *state;
+	uint8_t *par;
+	uint16_t dl, bddl;
+	int ret;
+
+	/*
+	 * ANCHOR bit check
+	 *
+	 * The ANCHOR in the Logical Block Provisioning VPD page is not
+	 * supported, so the ANCHOR bit shouldn't be set here.
+	 */
+	if (cdb[1] & 0x01) {
+		tcmu_dev_err(dev, "Illegal request: anchor is not supported for now!\n");
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB,
+					   NULL);
+	}
+
+	/*
+	 * PARAMETER LIST LENGTH field.
+	 *
+	 * The PARAMETER LIST LENGTH field specifies the length in bytes of
+	 * the UNMAP parameter data that shall be sent from the application
+	 * client to the device server.
+	 *
+	 * A PARAMETER LIST LENGTH set to zero specifies that no data shall
+	 * be sent.
+	 */
+	if (!data_length) {
+		tcmu_dev_dbg(dev, "Data-Out Buffer length is zero, just return okay\n");
+		return SAM_STAT_GOOD;
+	}
+
+	/*
+	 * From sbc4r13, section 5.32.1 UNMAP command overview.
+	 *
+	 * The PARAMETER LIST LENGTH should be greater than eight,
+	 */
+	if (data_length < 8) {
+		tcmu_dev_err(dev, "Illegal parameter list length %llu and it should be >= 8\n",
+			     data_length);
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_PARAMETER_LIST_LENGTH_ERROR,
+					   NULL);
+	}
+
+	par = calloc(1, data_length);
+	if (!par) {
+		tcmu_dev_err(dev, "The state parameter is NULL!\n");
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE,
+					   NULL);
+
+	}
+	copied = tcmu_memcpy_from_iovec(par, data_length, origcmd->iovec,
+					origcmd->iov_cnt);
+	if (copied != data_length) {
+		tcmu_dev_err(dev, "Failed to copy the Data-Out Buffer !\n");
+		ret = tcmu_set_sense_data(origcmd->sense_buf, ILLEGAL_REQUEST,
+					  ASC_PARAMETER_LIST_LENGTH_ERROR,
+					  NULL);
+		goto out_free_par;
+	}
+
+	/*
+	 * If any UNMAP block descriptors in the UNMAP block descriptor
+	 * list are truncated due to the parameter list length in the CDB,
+	 * then that UNMAP block descriptor shall be ignored.
+	 *
+	 * So it will allow dl + 2 != data_length and bddl + 8 != data_length.
+	 */
+	dl = be16toh(*((uint16_t *)&par[0]));
+	bddl = be16toh(*((uint16_t *)&par[2]));
+
+	tcmu_dev_dbg(dev, "Data-Out Buffer Length: %zu, dl: %hu, bddl: %hu\n",
+		     data_length, dl, bddl);
+
+	/*
+	 * If the unmap block descriptor data length is not a multiple
+	 * of 16, then the last unmap block descriptor is incomplete
+	 * and shall be ignored.
+	 */
+	bddl &= ~0xF;
+
+	/*
+	 * If the UNMAP BLOCK DESCRIPTOR DATA LENGTH is set to zero, then
+	 * no unmap block descriptors are included in the UNMAP parameter
+	 * list.
+	 */
+	if (!bddl) {
+		ret = SAM_STAT_GOOD;
+		goto out_free_par;
+	}
+
+	if (bddl / 16 > VPD_MAX_UNMAP_BLOCK_DESC_COUNT) {
+		tcmu_dev_err(dev, "Illegal parameter list count %hu exceeds :%u\n",
+			     bddl / 16, VPD_MAX_UNMAP_BLOCK_DESC_COUNT);
+		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
+					  NULL);
+		goto out_free_par;
+	}
+
+	state = calloc(1, sizeof(*state));
+	if (!state) {
+		tcmu_dev_err(dev, "Failed to calloc memory for unmap_state!\n");
+		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					  ASC_INTERNAL_TARGET_FAILURE,
+					  NULL);
+		goto out_free_par;
+	}
+
+	ret = pthread_mutex_init(&state->lock, NULL);
+	if (ret == -1) {
+		tcmu_dev_err(dev, "Failed to init spin lock in state!\n");
+		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					  ASC_INTERNAL_TARGET_FAILURE,
+					  NULL);
+		goto out_free_state;
+	}
+
+	state->refcount = 0;
+	origcmd->cmdstate = state;
+
+	ret = handle_unmap_internal(dev, origcmd, bddl, par);
+
+	free(par);
+	return ret;
+
+out_free_state:
+	free(state);
+out_free_par:
+	free(par);
+	return ret;
+}
+
 /* command passthrough */
 static int passthrough_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
@@ -1753,6 +2034,9 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case WRITE_12:
 	case WRITE_16:
 		ret = handle_write(dev, cmd);
+		break;
+	case UNMAP:
+		ret = handle_unmap(dev, cmd);
 		break;
 	case SYNCHRONIZE_CACHE:
 	case SYNCHRONIZE_CACHE_16:
