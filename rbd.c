@@ -38,10 +38,10 @@
 #include <rbd/librbd.h>
 
 /*
- * rbd_lock_acquire exclusive lock support was added in librbd 0.1.11 (267)
+ * rbd_lock_acquire exclusive lock support was added in librbd 0.1.11
  */
-#if LIBRBD_VERSION_CODE > 266
-#define RBD_LOCK_ACQUIRE_SUPPORT 1
+#if LIBRBD_VERSION_CODE >= LIBRBD_VERSION(0, 1, 11)
+#define RBD_LOCK_ACQUIRE_SUPPORT
 #endif
 
 enum {
@@ -583,7 +583,6 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			  struct iovec *iov, size_t iov_cnt, size_t length,
 			  off_t offset)
 {
-
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
