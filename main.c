@@ -93,7 +93,7 @@ int tcmur_register_handler(struct tcmur_handler *handler)
 
 static int tcmur_register_dbus_handler(struct tcmur_handler *handler)
 {
-	if( tcmur_register_handler(handler) != 0 ) {
+	if (tcmur_register_handler(handler) != 0) {
 		return -1;
 	}
 
@@ -143,8 +143,7 @@ static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
 	bool ret = false;
 	int i = dbus_handler_index(handler);
 
-	if( i >= 0 )
-	{
+	if (i >= 0) {
 		ret = tcmur_unregister_handler(handler);
 		free_dbus_handler(handler);
 	}
@@ -423,7 +422,7 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 					    on_handler_vanished,
 					    handler,
 					    NULL);
-	if( info->watcher_id == 0 ) {
+	if (info->watcher_id == 0) {
 		// probably an invalid name, roll back and report an error
 		free_dbus_handler(handler);
 
@@ -450,7 +449,7 @@ on_unregister_handler(TCMUService1HandlerManager1 *interface,
 				      "unknown subtype"));
 		return TRUE;
 	}
-	else if (!is_dbus_handler(handler) ) {
+	else if (!is_dbus_handler(handler)) {
 		g_dbus_method_invocation_return_value(invocation,
 			g_variant_new("(bs)", FALSE,
 				      "cannot unregister internal handler"));
@@ -624,7 +623,7 @@ static void cmdproc_thread_cleanup(void *arg)
 
 static void *tcmur_cmdproc_thread(void *arg)
 {
-        int ret;
+	int ret;
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct pollfd pfd;
@@ -632,7 +631,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
 
 	while (1) {
-                int completed = 0;
+		int completed = 0;
 		struct tcmulib_cmd *cmd;
 
 		tcmulib_processing_start(dev);
@@ -943,10 +942,8 @@ int main(int argc, char **argv)
 	}
 
 	loop = g_main_loop_new(NULL, FALSE);
-	if(
-		g_unix_signal_add(SIGINT, sighandler, loop) <= 0 ||
-		g_unix_signal_add(SIGTERM, sighandler, loop) <= 0
-	) {
+	if (g_unix_signal_add(SIGINT, sighandler, loop) <= 0 ||
+	    g_unix_signal_add(SIGTERM, sighandler, loop) <= 0) {
 		tcmu_err("couldn't setup signal handlers\n");
 		goto err_tcmulib_close;
 	}
