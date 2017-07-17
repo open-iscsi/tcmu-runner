@@ -55,11 +55,6 @@ static int set_medium_error(uint8_t *sense)
 	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
 }
 
-static bool foo_check_config(const char *cfgstring, char **reason)
-{
-	 return true;
-}
-
 static int foo_open(struct tcmu_device *dev)
 {
 	/* open the backing file */
@@ -138,8 +133,6 @@ static struct tcmulib_handler foo_handler = {
 	.name = "Handler for foo devices (example code)",
 	.subtype = "foo",
 	.cfg_desc = "a description goes here",
-
-	.check_config = foo_check_config,
 
 	.added = foo_open,
 	.removed = foo_close,
