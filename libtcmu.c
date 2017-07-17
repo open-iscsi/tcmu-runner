@@ -544,7 +544,7 @@ static void remove_device(struct tcmulib_context *ctx,
 static int is_uio(const struct dirent *dirent)
 {
 	int fd;
-	char tmp_path[64];
+	char tmp_path[NAME_MAX];
 	char buf[256];
 	ssize_t ret;
 
@@ -587,7 +587,7 @@ static int open_devices(struct tcmulib_context *ctx)
 		return -1;
 
 	for (i = 0; i < num_devs; i++) {
-		char tmp_path[64];
+		char tmp_path[NAME_MAX];
 		char buf[256];
 		int fd;
 		int ret;
