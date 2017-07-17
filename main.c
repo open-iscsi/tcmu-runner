@@ -59,8 +59,6 @@ static char *handler_path = DEFAULT_HANDLER_PATH;
 extern char *tcmu_log_dir;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
-// handlers registered via dbus are additionally kept track of in here
-darray(struct tcmur_handler *) g_runner_dbus_handlers = darray_new();
 
 static struct tcmur_handler *find_handler_by_subtype(gchar *subtype)
 {
@@ -93,12 +91,8 @@ int tcmur_register_handler(struct tcmur_handler *handler)
 
 static int tcmur_register_dbus_handler(struct tcmur_handler *handler)
 {
-	if (tcmur_register_handler(handler) != 0) {
-		return -1;
-	}
-
-	darray_append(g_runner_dbus_handlers, handler);
-	return 0;
+	assert(handler->_is_dbus_handler == true);
+	return tcmur_register_handler(handler);
 }
 
 bool tcmur_unregister_handler(struct tcmur_handler *handler)
@@ -113,23 +107,6 @@ bool tcmur_unregister_handler(struct tcmur_handler *handler)
 	return false;
 }
 
-static int dbus_handler_index(struct tcmur_handler *handler)
-{
-	int i;
-	for (i = 0; i < darray_size(g_runner_dbus_handlers); i++) {
-		if (darray_item(g_runner_dbus_handlers, i) == handler) {
-			return i;
-		}
-	}
-
-	return -1;
-}
-
-static bool is_dbus_handler(struct tcmur_handler *handler)
-{
-	return dbus_handler_index(handler) != -1;
-}
-
 static void free_dbus_handler(struct tcmur_handler *handler)
 {
 	g_free((char*)handler->opaque);
@@ -141,10 +118,12 @@ static void free_dbus_handler(struct tcmur_handler *handler)
 static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
 {
 	bool ret = false;
-	int i = dbus_handler_index(handler);
 
-	if (i >= 0) {
-		ret = tcmur_unregister_handler(handler);
+	assert(handler->_is_dbus_handler == true);
+
+	ret = tcmur_unregister_handler(handler);
+
+	if (ret == true ) {
 		free_dbus_handler(handler);
 	}
 
@@ -414,6 +393,7 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 
 	info = g_new0(struct dbus_info, 1);
 	handler->opaque = info;
+	handler->_is_dbus_handler = 1;
 	info->register_invocation = invocation;
 	info->watcher_id = g_bus_watch_name(G_BUS_TYPE_SYSTEM,
 					    bus_name,
@@ -449,7 +429,7 @@ on_unregister_handler(TCMUService1HandlerManager1 *interface,
 				      "unknown subtype"));
 		return TRUE;
 	}
-	else if (!is_dbus_handler(handler)) {
+	else if (handler->_is_dbus_handler != 1) {
 		g_dbus_method_invocation_return_value(invocation,
 			g_variant_new("(bs)", FALSE,
 				      "cannot unregister internal handler"));
