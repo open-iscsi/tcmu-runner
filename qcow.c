@@ -1377,27 +1377,6 @@ static struct bdev_ops raw_ops = {
 
 /* TCMU QCOW Handler */
 
-static bool qcow_check_config(const char *cfgstring, char **reason)
-{
-	char *path;
-
-	path = strchr(cfgstring, '/');
-	if (!path) {
-		if (asprintf(reason, "No path found") == -1)
-			*reason = NULL;
-		return false;
-	}
-	path += 1; /* get past '/' */
-
-	if (access(path, R_OK|W_OK) == -1) {
-		if (asprintf(reason, "File not present, or not writable") == -1)
-			*reason = NULL;
-		return false;
-	}
-
-	return true; /* File exists and is writable */
-}
-
 static int qcow_open(struct tcmu_device *dev)
 {
 	struct bdev *bdev;
@@ -1500,8 +1479,6 @@ static struct tcmur_handler qcow_handler = {
 	.name = "QEMU Copy-On-Write image file",
 	.subtype = "qcow",
 	.cfg_desc = qcow_cfg_desc,
-
-	.check_config = qcow_check_config,
 
 	.open = qcow_open,
 	.close = qcow_close,

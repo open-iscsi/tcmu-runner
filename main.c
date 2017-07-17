@@ -34,6 +34,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <glib.h>
+#include <glib-unix.h>
 #include <gio/gio.h>
 #include <getopt.h>
 #include <poll.h>
@@ -88,6 +89,12 @@ int tcmur_register_handler(struct tcmur_handler *handler)
 	return 0;
 }
 
+static int tcmur_register_dbus_handler(struct tcmur_handler *handler)
+{
+	assert(handler->_is_dbus_handler == true);
+	return tcmur_register_handler(handler);
+}
+
 bool tcmur_unregister_handler(struct tcmur_handler *handler)
 {
 	int i;
@@ -98,6 +105,29 @@ bool tcmur_unregister_handler(struct tcmur_handler *handler)
 		}
 	}
 	return false;
+}
+
+static void free_dbus_handler(struct tcmur_handler *handler)
+{
+	g_free((char*)handler->opaque);
+	g_free((char*)handler->subtype);
+	g_free((char*)handler->cfg_desc);
+	g_free(handler);
+}
+
+static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
+{
+	bool ret = false;
+
+	assert(handler->_is_dbus_handler == true);
+
+	ret = tcmur_unregister_handler(handler);
+
+	if (ret == true ) {
+		free_dbus_handler(handler);
+	}
+
+	return ret;
 }
 
 static int is_handler(const struct dirent *dirent)
@@ -161,16 +191,15 @@ static int open_handlers(void)
 	return num_good;
 }
 
-static void sighandler(int signal)
+static gboolean sighandler(gpointer user_data)
 {
 	tcmulib_cleanup_all_cmdproc_threads();
 	tcmu_cancel_log_thread();
-	exit(1);
-}
 
-static struct sigaction tcmu_sigaction = {
-	.sa_handler = sighandler,
-};
+	g_main_loop_quit((GMainLoop*)user_data);
+
+	return G_SOURCE_CONTINUE;
+}
 
 gboolean tcmulib_callback(GIOChannel *source,
 			  GIOCondition condition,
@@ -312,7 +341,7 @@ on_handler_appeared(GDBusConnection *connection,
 
 	if (info->register_invocation) {
 		info->connection = connection;
-		tcmur_register_handler(handler);
+		tcmur_register_dbus_handler(handler);
 		dbus_export_handler(handler, G_CALLBACK(on_dbus_check_config));
 		g_dbus_method_invocation_return_value(info->register_invocation,
 			    g_variant_new("(bs)", TRUE, "succeeded"));
@@ -337,8 +366,8 @@ on_handler_vanished(GDBusConnection *connection,
 			    g_variant_new("(bs)", FALSE, reason));
 		g_free(reason);
 	}
-	tcmur_unregister_handler(handler);
 	dbus_unexport_handler(handler);
+	tcmur_unregister_dbus_handler(handler);
 }
 
 static gboolean
@@ -363,6 +392,8 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 	handler->handle_cmd   = dbus_handler_handle_cmd;
 
 	info = g_new0(struct dbus_info, 1);
+	handler->opaque = info;
+	handler->_is_dbus_handler = 1;
 	info->register_invocation = invocation;
 	info->watcher_id = g_bus_watch_name(G_BUS_TYPE_SYSTEM,
 					    bus_name,
@@ -371,8 +402,15 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 					    on_handler_vanished,
 					    handler,
 					    NULL);
+	if (info->watcher_id == 0) {
+		// probably an invalid name, roll back and report an error
+		free_dbus_handler(handler);
+
+		g_dbus_method_invocation_return_value(invocation,
+			g_variant_new("(bs)", FALSE,
+				      "failed to watch for DBus handler name"));
+	}
 	g_free(bus_name);
-	handler->opaque = info;
 	return TRUE;
 }
 
@@ -383,7 +421,7 @@ on_unregister_handler(TCMUService1HandlerManager1 *interface,
 		      gpointer user_data)
 {
 	struct tcmur_handler *handler = find_handler_by_subtype(subtype);
-	struct dbus_info *info = handler->opaque;
+	struct dbus_info *info = handler ? handler->opaque : NULL;
 
 	if (!handler) {
 		g_dbus_method_invocation_return_value(invocation,
@@ -391,11 +429,17 @@ on_unregister_handler(TCMUService1HandlerManager1 *interface,
 				      "unknown subtype"));
 		return TRUE;
 	}
+	else if (handler->_is_dbus_handler != 1) {
+		g_dbus_method_invocation_return_value(invocation,
+			g_variant_new("(bs)", FALSE,
+				      "cannot unregister internal handler"));
+		return TRUE;
+	}
+
 	dbus_unexport_handler(handler);
-	tcmur_unregister_handler(handler);
 	g_bus_unwatch_name(info->watcher_id);
-	g_free(info);
-	g_free(handler);
+	tcmur_unregister_dbus_handler(handler);
+
 	g_dbus_method_invocation_return_value(invocation,
 		g_variant_new("(bs)", TRUE, "succeeded"));
 	return TRUE;
@@ -559,7 +603,7 @@ static void cmdproc_thread_cleanup(void *arg)
 
 static void *tcmur_cmdproc_thread(void *arg)
 {
-        int ret;
+	int ret;
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct pollfd pfd;
@@ -567,7 +611,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
 
 	while (1) {
-                int completed = 0;
+		int completed = 0;
 		struct tcmulib_cmd *cmd;
 
 		tcmulib_processing_start(dev);
@@ -877,9 +921,10 @@ int main(int argc, char **argv)
 		goto err_out;
 	}
 
-	ret = sigaction(SIGINT, &tcmu_sigaction, NULL);
-	if (ret) {
-		tcmu_err("couldn't set sigaction\n");
+	loop = g_main_loop_new(NULL, FALSE);
+	if (g_unix_signal_add(SIGINT, sighandler, loop) <= 0 ||
+	    g_unix_signal_add(SIGTERM, sighandler, loop) <= 0) {
+		tcmu_err("couldn't setup signal handlers\n");
 		goto err_tcmulib_close;
 	}
 
@@ -898,7 +943,6 @@ int main(int argc, char **argv)
 				NULL  // user date free func
 		);
 
-	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 
 	tcmu_dbg("Exiting...\n");
@@ -906,6 +950,7 @@ int main(int argc, char **argv)
 	g_main_loop_unref(loop);
 	tcmulib_close(tcmulib_context);
 	tcmu_config_destroy(cfg);
+	darray_free(handlers);
 
 	return 0;
 

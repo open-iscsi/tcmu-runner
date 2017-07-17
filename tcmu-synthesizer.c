@@ -29,21 +29,12 @@
 #include "libtcmu.h"
 #include "version.h"
 #include "libtcmu_config.h"
+#include "libtcmu_log.h"
 
 typedef struct {
 	GIOChannel *gio;
 	int watcher_id;
 } syn_dev_t;
-
-static bool syn_check_config(const char *cfgstring, char **reason)
-{
-	tcmu_dbg("syn check config\n");
-	if (strcmp(cfgstring, "syn/null")) {
-		asprintf(reason, "invalid option");
-		return false;
-	}
-	return true;
-}
 
 static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
 			  struct iovec *iovec, size_t iov_cnt,
@@ -148,7 +139,6 @@ struct tcmulib_handler syn_handler = {
 	.cfg_desc = "valid options:\n"
 		    "null: a nop storage where R/W requests are completed "
 		    "immediately, like the null_blk device.",
-	.check_config = syn_check_config,
 	.added = syn_added,
 	.removed = syn_removed,
 };
