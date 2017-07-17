@@ -48,35 +48,6 @@ struct file_state {
 	int fd;
 };
 
-static bool file_check_config(const char *cfgstring, char **reason)
-{
-	char *path;
-	int fd;
-
-	path = strchr(cfgstring, '/');
-	if (!path) {
-		if (asprintf(reason, "No path found") == -1)
-			*reason = NULL;
-		return false;
-	}
-	path += 1; /* get past '/' */
-
-	if (access(path, W_OK) != -1)
-		return true; /* File exists and is writable */
-
-	/* We also support creating the file, so see if we can create it */
-	fd = creat(path, S_IRUSR | S_IWUSR);
-	if (fd == -1) {
-		if (asprintf(reason, "Could not create file") == -1)
-			*reason = NULL;
-		return false;
-	}
-
-	unlink(path);
-
-	return true;
-}
-
 static int file_open(struct tcmu_device *dev)
 {
 	struct file_state *state;
@@ -212,7 +183,6 @@ static const char file_cfg_desc[] =
 static struct tcmur_handler file_handler = {
 	.cfg_desc = file_cfg_desc,
 
-	.check_config = file_check_config,
 	.reconfig = file_reconfig,
 
 	.open = file_open,
