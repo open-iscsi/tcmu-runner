@@ -467,9 +467,9 @@ static int load_our_module(void)
 {
 	struct kmod_list *list = NULL, *itr;
 	struct kmod_ctx *ctx;
-	int ret;
 	struct stat sb;
 	struct utsname u;
+	int ret;
 
 	ctx = kmod_new(NULL, NULL);
 	if (!ctx) {
@@ -562,10 +562,10 @@ static void cmdproc_thread_cleanup(void *arg)
 
 static void *tcmur_cmdproc_thread(void *arg)
 {
-        int ret;
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct pollfd pfd;
+	int ret;
 
 	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
 
@@ -782,22 +782,24 @@ static struct option long_options[] = {
 
 int main(int argc, char **argv)
 {
-	int ret;
+	darray(struct tcmulib_handler) handlers = darray_new();
+	struct tcmulib_context *tcmulib_context;
+	struct tcmur_handler **tmp_r_handler;
 	GMainLoop *loop;
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
-	int c;
-	struct tcmulib_context *tcmulib_context;
-	darray(struct tcmulib_handler) handlers = darray_new();
-	struct tcmur_handler **tmp_r_handler;
+	int ret;
 
 	tcmu_cfg = tcmu_config_new();
 	if (!tcmu_cfg)
 		exit(1);
-	tcmu_load_config(tcmu_cfg, NULL);
+	ret = tcmu_load_config(tcmu_cfg, NULL);
+	if (ret == -1)
+		goto err_out;
 
 	while (1) {
 		int option_index = 0;
+		int c;
 
 		c = getopt_long(argc, argv, "dhlV",
 				long_options, &option_index);
