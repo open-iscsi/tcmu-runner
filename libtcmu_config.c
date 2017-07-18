@@ -415,21 +415,12 @@ void tcmu_config_destroy(struct tcmu_config *cfg)
 	cfg = NULL;
 }
 
-static void dyn_config_cleanup(void *arg)
-{
-	struct tcmu_config *cfg = arg;
-
-	tcmu_config_destroy(cfg);
-}
-
 #define BUF_LEN 1024
 static void *dyn_config_start(void *arg)
 {
 	struct tcmu_config *cfg = arg;
 	int monitor, wd, len;
 	char buf[BUF_LEN];
-
-	pthread_cleanup_push(dyn_config_cleanup, arg);
 
 	monitor = inotify_init();
 	if (monitor == -1) {
@@ -480,8 +471,6 @@ static void *dyn_config_start(void *arg)
 			p += sizeof(struct inotify_event) + event->len;
 		}
 	}
-
-	pthread_cleanup_pop(1);
 
 	return NULL;
 }
