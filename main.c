@@ -57,6 +57,8 @@ static char *handler_path = DEFAULT_HANDLER_PATH;
 /* tcmu log dir path */
 extern char *tcmu_log_dir;
 
+static struct tcmu_config *tcmu_cfg;
+
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
 static struct tcmur_handler *find_handler_by_subtype(gchar *subtype)
@@ -165,6 +167,7 @@ static void sighandler(int signal)
 {
 	tcmulib_cleanup_all_cmdproc_threads();
 	tcmu_cancel_log_thread();
+	tcmu_cancel_config_thread(tcmu_cfg);
 	exit(1);
 }
 
@@ -787,13 +790,11 @@ int main(int argc, char **argv)
 	struct tcmulib_context *tcmulib_context;
 	darray(struct tcmulib_handler) handlers = darray_new();
 	struct tcmur_handler **tmp_r_handler;
-	struct tcmu_config *cfg;
 
-	cfg = tcmu_config_new();
-	if (!cfg)
+	tcmu_cfg = tcmu_config_new();
+	if (!tcmu_cfg)
 		exit(1);
-	tcmu_load_config(cfg, NULL);
-	tcmu_set_log_level(cfg->log_level);
+	tcmu_load_config(tcmu_cfg, NULL);
 
 	while (1) {
 		int option_index = 0;
@@ -905,13 +906,13 @@ int main(int argc, char **argv)
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
 	tcmulib_close(tcmulib_context);
-	tcmu_config_destroy(cfg);
+	tcmu_config_destroy(tcmu_cfg);
 
 	return 0;
 
 err_tcmulib_close:
 	tcmulib_close(tcmulib_context);
 err_out:
-	tcmu_config_destroy(cfg);
+	tcmu_config_destroy(tcmu_cfg);
 	exit(1);
 }
