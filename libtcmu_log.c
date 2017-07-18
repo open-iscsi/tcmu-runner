@@ -311,7 +311,7 @@ static int output_to_fd(int pri, const char *timestamp,
 {
 	int fd = (intptr_t) data;
 	char *buf, *msg;
-	int count, ret, written, r, pid = 0;
+	int count, ret, written = 0, r, pid = 0;
 
 	if (fd < 0)
 		return -1;

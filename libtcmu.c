@@ -544,34 +544,37 @@ static void remove_device(struct tcmulib_context *ctx,
 static int is_uio(const struct dirent *dirent)
 {
 	int fd;
-	char tmp_path[64];
-	char buf[256];
-	ssize_t ret;
+	char *tmp_path;
+	char buf[256] = {'\0'};
+	ssize_t ret = 0;
 
 	if (strncmp(dirent->d_name, "uio", 3))
 		return 0;
 
-	snprintf(tmp_path, sizeof(tmp_path), "/sys/class/uio/%s/name", dirent->d_name);
+	if (asprintf(&tmp_path, "/sys/class/uio/%s/name", dirent->d_name) == -1)
+		return 0;
 
 	fd = open(tmp_path, O_RDONLY);
 	if (fd == -1)
-		return 0;
+		goto free_path;
 
 	ret = read(fd, buf, sizeof(buf));
 	if (ret <= 0 || ret >= sizeof(buf))
-		goto not_uio;
+		goto close;
 
 	buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
 
 	/* we only want uio devices whose name is a format we expect */
 	if (strncmp(buf, "tcm-user", 8))
-		goto not_uio;
+		goto close;
 
+	ret = 1;
+
+close:
 	close(fd);
-	return 1;
-not_uio:
-	close(fd);
-	return 0;
+free_path:
+	free(tmp_path);
+	return ret;
 }
 
 static int open_devices(struct tcmulib_context *ctx)
@@ -587,17 +590,19 @@ static int open_devices(struct tcmulib_context *ctx)
 		return -1;
 
 	for (i = 0; i < num_devs; i++) {
-		char tmp_path[64];
-		char buf[256];
+		char *tmp_path;
+		char buf[256] = {'\0'};
 		int fd;
 		int ret;
 
-		snprintf(tmp_path, sizeof(tmp_path), "/sys/class/uio/%s/name",
-			 dirent_list[i]->d_name);
+		if (asprintf(&tmp_path, "/sys/class/uio/%s/name",
+		             dirent_list[i]->d_name) == -1)
+			return -1;
 
 		fd = open(tmp_path, O_RDONLY);
 		if (fd == -1) {
 			tcmu_err("could not open %s!\n", tmp_path);
+			free(tmp_path);
 			continue;
 		}
 
@@ -605,8 +610,10 @@ static int open_devices(struct tcmulib_context *ctx)
 		close(fd);
 		if (ret <= 0 || ret >= sizeof(buf)) {
 			tcmu_err("read of %s had issues\n", tmp_path);
+			free(tmp_path);
 			continue;
 		}
+		free(tmp_path);
 		buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
 
 		ret = add_device(ctx, dirent_list[i]->d_name, buf);
