@@ -22,10 +22,9 @@
 struct tcmu_device;
 struct tcmulib_cmd;
 
-int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
-int tcmur_cmd_passthrough_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
-bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler);
-void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			    int ret);
+int tcmulib_handle_cmds(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
+int tcmulib_passthrough_cmds(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
+bool tcmulib_handler_is_passthrough_only(struct tcmur_handler *rhandler);
+void tcmulib_handle_cmd_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd, int ret);
 
 #endif /* __LIBTCMU_CMD_HANDLER_H */
