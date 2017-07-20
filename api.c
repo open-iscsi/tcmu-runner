@@ -293,6 +293,15 @@ int tcmu_emulate_std_inquiry(
 	 * Enable the XCOPY
 	 */
 	buf[5] = 0x08;
+	/*
+	  * Set SCCS for RTPG and STPG.spc4r22 6.27 6.35
+	  * The rtpg command is a service action of the MAINENANCE IN command,
+	  * and the stpg command is a service action of the MAINENANCE OUT command.
+	  * The MAINTENANCE IN and MAINTENANCE OUT service actions defined
+	  * only in SCC-2 apply only to logical units that return a device type of 0Ch
+	  * or the SCCS bit set to one in their standard INQUIRY data.
+	  */
+	buf[5] |= 0x80;
 	if (port)
 		buf[5] |= port->grp->tpgs;
 
