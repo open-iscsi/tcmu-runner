@@ -14,8 +14,8 @@
  * under the License.
 */
 
-#ifndef __TCMUR_CMD_HANDLER_H
-#define __TCMUR_CMD_HANDLER_H
+#ifndef __LIBTCMU_CMD_HANDLER_H
+#define __LIBTCMU_CMD_HANDLER_H
 
 #include <stdint.h>
 
@@ -28,4 +28,4 @@ bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler);
 void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			    int ret);
 
-#endif /* __TCMUR_CMD_HANDLER_H */
+#endif /* __LIBTCMU_CMD_HANDLER_H */

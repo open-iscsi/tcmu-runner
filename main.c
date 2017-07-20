@@ -45,7 +45,7 @@
 #include "darray.h"
 #include "tcmu-runner.h"
 #include "tcmur_device.h"
-#include "tcmur_cmd_handler.h"
+#include "libtcmu_cmd_handler.h"
 #include "libtcmu.h"
 #include "tcmuhandler-generated.h"
 #include "version.h"

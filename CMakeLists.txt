@@ -39,7 +39,7 @@ add_library(tcmu
   configfs.c
   api.c
   alua.c
-  tcmur_cmd_handler.c
+  libtcmu_cmd_handler.c
   libtcmu_aio.c
   libtcmu.c
   libtcmu-register.c
@@ -69,7 +69,7 @@ add_library(tcmu_static
   configfs.c
   api.c
   alua.c
-  tcmur_cmd_handler.c
+  libtcmu_cmd_handler.c
   libtcmu_aio.c
   libtcmu.c
   libtcmu-register.c
