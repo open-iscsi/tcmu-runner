@@ -877,7 +877,7 @@ int main(int argc, char **argv)
 	tcmulib_context = tcmulib_initialize(handlers.item, handlers.size);
 	if (!tcmulib_context) {
 		tcmu_err("tcmulib_initialize failed\n");
-		goto err_out;
+		goto err_free_handlers;
 	}
 
 	ret = sigaction(SIGINT, &tcmu_sigaction, NULL);
@@ -885,6 +885,8 @@ int main(int argc, char **argv)
 		tcmu_err("couldn't set sigaction\n");
 		goto err_tcmulib_close;
 	}
+
+	darray_free(handlers);
 
 	/* Set up event for libtcmu */
 	libtcmu_gio = g_io_channel_unix_new(tcmulib_get_master_fd(tcmulib_context));
@@ -914,6 +916,8 @@ int main(int argc, char **argv)
 
 err_tcmulib_close:
 	tcmulib_close(tcmulib_context);
+err_free_handlers:
+	darray_free(handlers);
 err_out:
 	tcmu_config_destroy(tcmu_cfg);
 	exit(1);
