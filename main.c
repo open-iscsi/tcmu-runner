@@ -647,10 +647,18 @@ static void *tcmur_cmdproc_thread(void *arg)
 		pfd.events = POLLIN;
 		pfd.revents = 0;
 
-		poll(&pfd, 1, -1);
+		/* Use ppoll instead poll to avoid poll call reschedules during signal
+		 * handling. If we were removing a device, then the uio device's memory
+		 * could be freed, but the poll would be rescheduled and end up accessing
+		 * the released device. */
+		ret = ppoll(&pfd, 1, NULL, NULL);
+		if (ret == -1) {
+			tcmu_err("ppoll() returned %d\n", ret);
+			break;
+		}
 
 		if (pfd.revents != POLLIN) {
-			tcmu_err("poll received unexpected revent: 0x%x\n", pfd.revents);
+			tcmu_err("ppoll received unexpected revent: 0x%x\n", pfd.revents);
 			break;
 		}
 	}

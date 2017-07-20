@@ -18,7 +18,8 @@
  * userspace passthrough devices.
  */
 
-#define _DEFAULT_SOURCE
+#define _GNU_SOURCE
+#define _BITS_UIO_H
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -31,11 +32,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <signal.h>
 #include <poll.h>
 
 #include <stdint.h>
 #include <scsi/scsi.h>
-#define _BITS_UIO_H
 #include "target_core_user_local.h"
 #include "libtcmu.h"
 #include "scsi_defs.h"
@@ -170,11 +171,14 @@ int main(int argc, char **argv)
 			pollfds[i+1].revents = 0;
 		}
 
-		ret = poll(pollfds, dev_array_len+1, -1);
-
-		if (ret <= 0) {
-			tcmu_err("poll() returned %d, exiting\n", ret);
-			exit(1);
+		/* Use ppoll instead poll to avoid poll call reschedules during signal
+		 * handling. If we were removing a device, then the uio device's memory
+		 * could be freed, but the poll would be rescheduled and end up accessing
+		 * the released device. */
+		ret = ppoll(pollfds, dev_array_len+1, NULL, NULL);
+		if (ret == -1) {
+			tcmu_err("ppoll() returned %d, exiting\n", ret);
+			exit(EXIT_FAILURE);
 		}
 
 		if (pollfds[0].revents) {
