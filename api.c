@@ -342,14 +342,19 @@ int tcmu_emulate_evpd_inquiry(
 		memset(data, 0, sizeof(data));
 
 		/* data[1] (page code) already 0 */
+		/*
+		  *  spc4r22 7.7.13 The supported VPD page list shall contain
+		  *  a list of all VPD page codes (see 7.7) implemented by the
+		  *  logical unit in ascending order beginning with page code 00h
+		  */
+		data[4] = 0x00;
+		data[5] = 0x80;
+		data[6] = 0x83;
+		data[7] = 0xb0;
+		data[8] = 0xb1;
+		data[9] = 0xb2;
 
-		data[4] = 0x80;
-		data[5] = 0x83;
-		data[6] = 0xb0;
-		data[7] = 0xb1;
-		data[8] = 0xb2;
-
-		data[3] = 5;
+		data[3] = 6;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 		return SAM_STAT_GOOD;
