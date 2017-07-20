@@ -17,7 +17,7 @@
 #ifndef __TCMUR_DEVICE_H
 #define __TCMUR_DEVICE_H
 
-#include "tcmur_aio.h"
+#include "libtcmu_aio.h"
 
 #define TCMUR_DEV_FORMATTING		0x01
 
