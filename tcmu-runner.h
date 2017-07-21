@@ -120,8 +120,9 @@ struct tcmur_handler {
 /*
  * Each tcmu-runner (tcmur) handler plugin must export the
  * following. It usually just calls tcmur_register_handler.
+ *
+ * int handler_init(void);
  */
-void tcmur_handler_init(void);
 
 /*
  * APIs for tcmur only

@@ -248,7 +248,6 @@ configure_file (
   "${PROJECT_SOURCE_DIR}/version.h"
   )
 
-
 install(FILES libtcmu.h libtcmu_common.h tcmu-runner.h
   DESTINATION include)
 install(FILES tcmu.conf
