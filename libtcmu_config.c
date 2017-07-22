@@ -370,27 +370,31 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 
 static int tcmu_reload_config(struct tcmu_config *cfg)
 {
-	char buf[TCMU_MAX_CFG_FILE_SIZE];
+	char *buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
+	int ret = -1;
 	int fd, len;
 
 	fd = open(cfg->path, O_RDONLY);
 	if (fd < 0) {
 		tcmu_err("Failed to open file '%s', %m\n", cfg->path);
-		return -1;
+		goto out;
 	}
 
 	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
 	close(fd);
 	if (len < 0) {
 		tcmu_err("Failed to read file '%s'\n", cfg->path);
-		return -1;
+		goto out;
 	}
 
 	buf[len] = '\0';
 
 	tcmu_parse_options(cfg, buf, len);
 
-	return 0;
+	ret = 0;
+out:
+	free(buf);
+	return ret;
 }
 
 void tcmu_config_destroy(struct tcmu_config *cfg)
@@ -411,21 +415,12 @@ void tcmu_config_destroy(struct tcmu_config *cfg)
 	cfg = NULL;
 }
 
-static void dyn_config_cleanup(void *arg)
-{
-	struct tcmu_config *cfg = arg;
-
-	tcmu_config_destroy(cfg);
-}
-
 #define BUF_LEN 1024
 static void *dyn_config_start(void *arg)
 {
 	struct tcmu_config *cfg = arg;
 	int monitor, wd, len;
 	char buf[BUF_LEN];
-
-	pthread_cleanup_push(dyn_config_cleanup, arg);
 
 	monitor = inotify_init();
 	if (monitor == -1) {
@@ -477,15 +472,13 @@ static void *dyn_config_start(void *arg)
 		}
 	}
 
-	pthread_cleanup_pop(1);
-
 	return NULL;
 }
 
 int tcmu_load_config(struct tcmu_config *cfg, const char *path)
 {
-	char buf[TCMU_MAX_CFG_FILE_SIZE];
-	int fd, len, ret;
+	char *buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
+	int fd, len, ret = -1;
 
 	if (!path)
 		path = "/etc/tcmu/tcmu.conf"; /* the default config file */
@@ -493,20 +486,20 @@ int tcmu_load_config(struct tcmu_config *cfg, const char *path)
 	cfg->path = strdup(path);
 	if (!cfg->path) {
 		tcmu_err("failed to copy path: %s\n", path);
-		return -1;
+		goto out;
 	}
 
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		tcmu_err("failed to open file '%s'\n", path);
-		return -1;
+		goto out;
 	}
 
 	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
 	close(fd);
 	if (len < 0) {
 		tcmu_err("Failed to read file '%s'\n", path);
-		return -1;
+		goto out;
 	}
 
 	buf[len] = '\0';
@@ -518,5 +511,8 @@ int tcmu_load_config(struct tcmu_config *cfg, const char *path)
 	if (ret)
 		tcmu_warn("Failed to start the dynamic config reloading feature!\n");
 
-	return 0;
+	ret = 0;
+out:
+	free(buf);
+	return ret;
 }

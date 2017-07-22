@@ -115,6 +115,15 @@ struct tcmur_handler {
 	int (*lock)(struct tcmu_device *dev);
 	int (*unlock)(struct tcmu_device *dev);
 	int (*has_lock)(struct tcmu_device *dev);
+
+	/*
+	 * internal field, don't touch this
+	 *
+	 * indicates to tcmu-runner whether this is an internal handler loaded
+	 * via dlopen or an external handler registered via dbus. In the
+	 * latter case opaque will point to a struct dbus_info.
+	 */
+	bool _is_dbus_handler;
 };
 
 /*
