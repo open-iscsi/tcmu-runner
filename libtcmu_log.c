@@ -497,21 +497,11 @@ static void *log_thread_start(void *arg)
 
 int tcmu_make_absolute_logfile(char *path, const char *filename)
 {
-	int ret;
-	int err_save = 0;
-
-	ret = snprintf(path, PATH_MAX, "%s/%s",
-	               tcmu_log_dir?tcmu_log_dir:TCMU_LOG_DIR_DEFAULT,
-	               filename);
-	if (ret < 0) {
-		err_save = errno;
-		tcmu_err("snprintf() failed: %m\n");
-		goto out;
-	}
-
-out:
-	errno = err_save;
-	return ret;
+	if (snprintf(path, PATH_MAX, "%s/%s",
+	             tcmu_log_dir ? tcmu_log_dir : TCMU_LOG_DIR_DEFAULT,
+	             filename) < 0)
+		return -errno;
+	return 0;
 }
 
 static struct log_buf *log_initialize(void)

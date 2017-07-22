@@ -436,7 +436,8 @@ static glfs_t* tcmu_create_glfs_object(struct tcmu_device *dev,
 
 	ret = tcmu_make_absolute_logfile(logfilepath, TCMU_GLFS_LOG_FILENAME);
 	if (ret < 0) {
-		tcmu_dev_err(dev, "tcmu_make_absolute_logfile failed: %m\n");
+		tcmu_dev_err(dev, "tcmu_make_absolute_logfile failed: %d\n",
+			     ret);
 		goto unref;
 	}
 
