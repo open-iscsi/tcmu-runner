@@ -136,6 +136,20 @@ set_directory_properties(
   "cscope.files;cscope.in.out;cscope.out;cscope.po.out"
   )
 
+# Stuff for building the null handler
+add_library(handler_null
+  SHARED
+  null.c
+  )
+set_target_properties(handler_null
+  PROPERTIES
+  PREFIX ""
+  )
+target_include_directories(handler_null
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  )
+
+
 # Stuff for building the file handler
 add_library(handler_file
   SHARED
