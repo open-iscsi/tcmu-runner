@@ -154,41 +154,6 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg)
 	/* add your new config options */
 }
 
-struct tcmu_config *tcmu_config_new(void)
-{
-	struct tcmu_config *cfg;
-
-	cfg = calloc(1, sizeof(*cfg));
-	if (cfg == NULL) {
-		tcmu_err("Alloc TCMU config failed!\n");
-		return NULL;
-	}
-
-	return cfg;
-}
-
-void tcmu_cancel_config_thread(struct tcmu_config *cfg)
-{
-	pthread_t thread_id = cfg->thread_id;
-	void *join_retval;
-	int ret;
-
-	ret = pthread_cancel(thread_id);
-	if (ret) {
-		tcmu_err("pthread_cancel failed with value %d\n", ret);
-		return;
-	}
-
-	pthread_join(thread_id, &join_retval);
-	if (ret) {
-		tcmu_err("pthread_join failed with value %d\n", ret);
-		return;
-	}
-
-	if (join_retval != PTHREAD_CANCELED)
-		tcmu_err("unexpected join retval: %p\n", join_retval);
-}
-
 #define TCMU_MAX_CFG_FILE_SIZE (2 * 1024 * 1024)
 static int tcmu_read_config(int fd, char *buf, int count)
 {
@@ -397,24 +362,6 @@ out:
 	return ret;
 }
 
-void tcmu_config_destroy(struct tcmu_config *cfg)
-{
-	struct tcmu_conf_option *opt;
-
-	if (!cfg)
-		return;
-
-	darray_foreach(opt, tcmu_options) {
-		if (opt->type == TCMU_OPT_STR)
-			free(opt->opt_str);
-	}
-
-	darray_free(tcmu_options);
-	free(cfg->path);
-	free(cfg);
-	cfg = NULL;
-}
-
 #define BUF_LEN 1024
 static void *dyn_config_start(void *arg)
 {
@@ -507,12 +454,77 @@ int tcmu_load_config(struct tcmu_config *cfg, const char *path)
 	tcmu_parse_options(cfg, buf, len);
 
 	/* If the dynamic reloading thread fails to start, it will fall back to static config */
-	ret = pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg);
-	if (ret)
+	if (pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg)) {
 		tcmu_warn("Failed to start the dynamic config reloading feature!\n");
-
+	} else {
+		cfg->is_dynamic = true;
+	}
 	ret = 0;
 out:
 	free(buf);
 	return ret;
+}
+
+struct tcmu_config *tcmu_setup_config(void)
+{
+	struct tcmu_config *cfg;
+
+	cfg = calloc(1, sizeof(*cfg));
+	if (cfg == NULL) {
+		tcmu_err("Alloc TCMU config failed!\n");
+		return NULL;
+	}
+
+	if (tcmu_load_config(cfg, NULL)) {
+		tcmu_err("Loading TCMU config failed!\n");
+		goto free_cfg;
+	}
+
+	return cfg;
+
+free_cfg:
+	free(cfg);
+	return NULL;
+}
+
+static void tcmu_cancel_config_thread(struct tcmu_config *cfg)
+{
+	pthread_t thread_id = cfg->thread_id;
+	void *join_retval;
+	int ret;
+
+	ret = pthread_cancel(thread_id);
+	if (ret) {
+		tcmu_err("pthread_cancel failed with value %d\n", ret);
+		return;
+	}
+
+	pthread_join(thread_id, &join_retval);
+	if (ret) {
+		tcmu_err("pthread_join failed with value %d\n", ret);
+		return;
+	}
+
+	if (join_retval != PTHREAD_CANCELED)
+		tcmu_err("unexpected join retval: %p\n", join_retval);
+}
+
+void tcmu_destroy_config(struct tcmu_config *cfg)
+{
+	struct tcmu_conf_option *opt;
+
+	if (!cfg)
+		return;
+
+	if (cfg->is_dynamic)
+		tcmu_cancel_config_thread(cfg);
+
+	darray_foreach(opt, tcmu_options) {
+		if (opt->type == TCMU_OPT_STR)
+			free(opt->opt_str);
+	}
+
+	darray_free(tcmu_options);
+	free(cfg->path);
+	free(cfg);
 }
