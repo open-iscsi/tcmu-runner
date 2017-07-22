@@ -38,8 +38,6 @@
 /* tcmu log dir path */
 char *tcmu_log_dir = NULL;
 
-pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 struct log_buf {
 	pthread_cond_t cond;
 	pthread_mutex_t lock;
@@ -65,10 +63,7 @@ struct log_output {
 };
 
 static int tcmu_log_level = TCMU_LOG_INFO;
-static struct log_buf *log_initialize(void);
-
 static struct log_buf *logbuf = NULL;
-static int initialized = false;
 
 /* covert log level from tcmu config to syslog */
 static inline int to_syslog_level(int level)
@@ -157,8 +152,11 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	if (!fmt)
 		return;
 
-	if (!initialized && !(logbuf = log_initialize()))
+	if (!logbuf) {
+		/* handle early log calls by config and deamon setup */
+		fprintf(stderr, fmt, args);
 		return;
+	}
 
 	pthread_mutex_lock(&logbuf->lock);
 
@@ -426,28 +424,6 @@ static bool log_buf_not_empty_output(struct log_buf *logbuf)
 	return true;
 }
 
-static void cancel_log_thread(pthread_t thread)
-{
-	void *join_retval;
-	int ret;
-
-	ret = pthread_cancel(thread);
-	if (ret) {
-		return;
-	}
-
-	pthread_join(thread, &join_retval);
-}
-
-void tcmu_cancel_log_thread(void)
-{
-	if (!logbuf) {
-		return;
-	}
-
-	cancel_log_thread(logbuf->thread_id);
-}
-
 static void log_cleanup(void *arg)
 {
 	struct log_buf *logbuf = arg;
@@ -504,22 +480,14 @@ int tcmu_make_absolute_logfile(char *path, const char *filename)
 	return 0;
 }
 
-static struct log_buf *log_initialize(void)
+int tcmu_setup_log(void)
 {
-	int ret;
-	pthread_mutex_lock(&g_mutex);
 	char logfilepath[PATH_MAX];
-
-	if (initialized && logbuf != NULL) {
-		pthread_mutex_unlock(&g_mutex);
-		return logbuf;
-	}
+	int ret;
 
 	logbuf = malloc(sizeof(struct log_buf));
-	if (!logbuf) {
-		pthread_mutex_unlock(&g_mutex);
-		return NULL;
-	}
+	if (!logbuf)
+		return -ENOMEM;
 
 	logbuf->thread_active = false;
 	logbuf->finish_initialize = false;
@@ -557,11 +525,24 @@ static struct log_buf *log_initialize(void)
 		pthread_cond_wait(&logbuf->cond, &logbuf->lock);
 	pthread_mutex_unlock(&logbuf->lock);
 
-	initialized = true;
-	pthread_mutex_unlock(&g_mutex);
-	return logbuf;
+	return 0;
 
 cleanup_log:
 	log_cleanup(logbuf);
-	return NULL;
+	return -ENOMEM;
+}
+
+void tcmu_destroy_log()
+{
+	pthread_t thread;
+	void *join_retval;
+
+	if (!logbuf)
+		return;
+
+	thread = logbuf->thread_id;
+	if (pthread_cancel(thread))
+		return;
+
+	pthread_join(thread, &join_retval);
 }
