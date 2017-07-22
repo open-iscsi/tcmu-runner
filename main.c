@@ -195,9 +195,6 @@ static int open_handlers(void)
 static gboolean sighandler(gpointer user_data)
 {
 	tcmulib_cleanup_all_cmdproc_threads();
-	tcmu_cancel_log_thread();
-	tcmu_cancel_config_thread(tcmu_cfg);
-
 	g_main_loop_quit((GMainLoop*)user_data);
 
 	return G_SOURCE_CONTINUE;
@@ -833,12 +830,9 @@ int main(int argc, char **argv)
 	guint reg_id;
 	int ret;
 
-	tcmu_cfg = tcmu_config_new();
+	tcmu_cfg = tcmu_setup_config();
 	if (!tcmu_cfg)
 		exit(1);
-	ret = tcmu_load_config(tcmu_cfg, NULL);
-	if (ret == -1)
-		goto err_out;
 
 	while (1) {
 		int option_index = 0;
@@ -860,7 +854,7 @@ int main(int argc, char **argv)
 				         optarg, PATH_MAX - TCMU_LOG_FILENAME_MAX);
 			}
 			if (!tcmu_logdir_create(optarg)) {
-				goto err_out;
+				goto destroy_config;
 			}
 			tcmu_log_dir = strdup(optarg);
 			break;
@@ -869,26 +863,29 @@ int main(int argc, char **argv)
 			break;
 		case 'V':
 			printf("tcmu-runner %s\n", TCMUR_VERSION);
-			goto err_out;
+			goto destroy_config;
 		default:
 		case 'h':
 			usage();
-			goto err_out;
+			goto destroy_config;
 		}
 	}
+
+	if (tcmu_setup_log())
+		goto destroy_config;
 
 	tcmu_dbg("handler path: %s\n", handler_path);
 
 	ret = load_our_module();
 	if (ret < 0) {
 		tcmu_err("couldn't load module\n");
-		goto err_out;
+		goto destroy_log;
 	}
 
 	ret = open_handlers();
 	if (ret < 0) {
 		tcmu_err("couldn't open handlers\n");
-		goto err_out;
+		goto destroy_log;
 	}
 	tcmu_dbg("%d runner handlers found\n", ret);
 
@@ -953,7 +950,9 @@ int main(int argc, char **argv)
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
 	tcmulib_close(tcmulib_context);
-	tcmu_config_destroy(tcmu_cfg);
+
+	tcmu_destroy_config(tcmu_cfg);
+	tcmu_destroy_log();
 	darray_free(handlers);
 
 	return 0;
@@ -962,7 +961,9 @@ err_tcmulib_close:
 	tcmulib_close(tcmulib_context);
 err_free_handlers:
 	darray_free(handlers);
-err_out:
-	tcmu_config_destroy(tcmu_cfg);
+destroy_log:
+	tcmu_destroy_log();
+destroy_config:
+	tcmu_destroy_config(tcmu_cfg);
 	exit(1);
 }

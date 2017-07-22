@@ -51,7 +51,8 @@ struct tcmu_device;
 
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
-void tcmu_cancel_log_thread(void);
+int tcmu_setup_log(void);
+void tcmu_destroy_log(void);
 
 void tcmu_err_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_warn_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);

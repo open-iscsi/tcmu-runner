@@ -201,11 +201,18 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if (tcmu_setup_log()) {
+		fprintf(stderr, "Could not setup tcmu logger.\n");
+		exit(1);
+	}
+
 	ctx = tcmulib_initialize(&syn_handler, 1);
 	if (!ctx) {
 		tcmu_err("tcmulib_initialize failed\n");
+		tcmu_destroy_log();
 		exit(1);
 	}
+
 	tcmulib_register(ctx);
 	/* Set up event for libtcmu */
 	libtcmu_gio = g_io_channel_unix_new(tcmulib_get_master_fd(ctx));
@@ -213,5 +220,6 @@ int main(int argc, char **argv)
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 	g_main_loop_unref(loop);
+	tcmu_destroy_log();
 	return 0;
 }
