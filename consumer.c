@@ -145,6 +145,11 @@ int main(int argc, char **argv)
 	int i;
 	int ret;
 
+	if (tcmu_setup_log()) {
+		fprintf(stderr, "Could not setup tcmu logger.\n");
+		exit(1);
+	}
+
 	/* If any TCMU devices that exist that match subtype,
 	   handler->added() will now be called from within
 	   tcmulib_initialize(). */
