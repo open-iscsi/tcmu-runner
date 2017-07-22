@@ -65,7 +65,7 @@ struct log_output {
 };
 
 static int tcmu_log_level = TCMU_LOG_INFO;
-static struct log_buf *tcmu_log_initialize(void);
+static struct log_buf *log_initialize(void);
 
 static struct log_buf *logbuf = NULL;
 static int initialized = false;
@@ -157,7 +157,7 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	if (!fmt)
 		return;
 
-	if (!initialized && !(logbuf = tcmu_log_initialize()))
+	if (!initialized && !(logbuf = log_initialize()))
 		return;
 
 	pthread_mutex_lock(&logbuf->lock);
@@ -448,7 +448,7 @@ void tcmu_cancel_log_thread(void)
 	cancel_log_thread(logbuf->thread_id);
 }
 
-static void log_thread_cleanup(void *arg)
+static void log_cleanup(void *arg)
 {
 	struct log_buf *logbuf = arg;
 	struct log_output *output;
@@ -456,7 +456,7 @@ static void log_thread_cleanup(void *arg)
 	pthread_cond_destroy(&logbuf->cond);
 	pthread_mutex_destroy(&logbuf->lock);
 
-	darray_foreach (output, logbuf->outputs) {
+	darray_foreach(output, logbuf->outputs) {
 		if (output->close_fn != NULL)
 			output->close_fn(output->data);
 		if (output->name != NULL)
@@ -472,7 +472,7 @@ static void *log_thread_start(void *arg)
 {
 	struct log_buf *logbuf = arg;
 
-	pthread_cleanup_push(log_thread_cleanup, arg);
+	pthread_cleanup_push(log_cleanup, arg);
 
 	pthread_mutex_lock(&logbuf->lock);
 	if(!logbuf->finish_initialize){
@@ -514,7 +514,7 @@ out:
 	return ret;
 }
 
-static struct log_buf *tcmu_log_initialize(void)
+static struct log_buf *log_initialize(void)
 {
 	int ret;
 	pthread_mutex_lock(&g_mutex);
@@ -551,8 +551,7 @@ static struct log_buf *tcmu_log_initialize(void)
 	ret = tcmu_make_absolute_logfile(logfilepath, TCMU_LOG_FILENAME);
 	if (ret < 0) {
 		fprintf(stderr, "tcmu_make_absolute_logfile failed\n");
-		free(logbuf);
-		return NULL;
+		goto cleanup_log;
 	}
 
 	ret = create_file_output(TCMU_LOG_DEBUG, logfilepath);
@@ -560,11 +559,8 @@ static struct log_buf *tcmu_log_initialize(void)
 		fprintf(stderr, "create file output error \n");
 
 	ret = pthread_create(&logbuf->thread_id, NULL, log_thread_start, logbuf);
-	if (ret) {
-		free(logbuf);
-		pthread_mutex_unlock(&g_mutex);
-		return NULL;
-	}
+	if (ret)
+		goto cleanup_log;
 
 	pthread_mutex_lock(&logbuf->lock);
 	while (!logbuf->finish_initialize)
@@ -574,4 +570,8 @@ static struct log_buf *tcmu_log_initialize(void)
 	initialized = true;
 	pthread_mutex_unlock(&g_mutex);
 	return logbuf;
+
+cleanup_log:
+	log_cleanup(logbuf);
+	return NULL;
 }
