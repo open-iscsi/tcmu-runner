@@ -304,6 +304,9 @@ static void tcmu_parse_option(char **cur, const char *end)
 		if (*r == '"' || *r == '\'')
 			*r = '\0';
 
+		if (option->opt_str)
+			/* free if this is reconfig */
+			free(option->opt_str);
 		option->opt_str = strdup(s);
 		break;
 	default:
