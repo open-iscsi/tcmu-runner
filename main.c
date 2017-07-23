@@ -830,7 +830,7 @@ int main(int argc, char **argv)
 	guint reg_id;
 	int ret;
 
-	tcmu_cfg = tcmu_setup_config();
+	tcmu_cfg = tcmu_setup_config(NULL);
 	if (!tcmu_cfg)
 		exit(1);
 

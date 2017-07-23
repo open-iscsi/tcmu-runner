@@ -78,14 +78,15 @@
  * system config reload thread daemon will try to update them for all the
  * tcmu-runner, consumer and tcmu-synthesizer daemons.
  */
+#include "ccan/list/list.h"
 
-static darray(struct tcmu_conf_option) tcmu_options = darray_new();
+static LIST_HEAD(tcmu_options);
 
 static struct tcmu_conf_option * tcmu_get_option(const char *key)
 {
 	struct tcmu_conf_option *option;
 
-	darray_foreach(option, tcmu_options) {
+	list_for_each(&tcmu_options, option, list) {
 		if (!strcmp(option->key, key))
 			return option;
 	}
@@ -201,19 +202,23 @@ static int tcmu_read_config(int fd, char *buf, int count)
 static struct tcmu_conf_option *
 tcmu_register_option(char *key, tcmu_option_type type)
 {
-	struct tcmu_conf_option option, *opt;
+	struct tcmu_conf_option *option;
 
-	option.key = key;
-	option.type = type;
+	option = calloc(1, sizeof(*option));
+	if (!option)
+		return NULL;
 
-	darray_append(tcmu_options, option);
+	option->key = strdup(key);
+	if (!option->key)
+		goto free_option;
+	option->type = type;
+	list_node_init(&option->list);
 
-	darray_foreach(opt, tcmu_options) {
-		if (!strcmp(opt->key, key))
-			return opt;
-	}
+	list_add_tail(&tcmu_options, &option->list);
+	return option;
 
-	tcmu_err("failed to register new option!\n");
+free_option:
+	free(option);
 	return NULL;
 }
 
@@ -299,6 +304,9 @@ static void tcmu_parse_option(char **cur, const char *end)
 		if (*r == '"' || *r == '\'')
 			*r = '\0';
 
+		if (option->opt_str)
+			/* free if this is reconfig */
+			free(option->opt_str);
 		option->opt_str = strdup(s);
 		break;
 	default:
@@ -333,23 +341,27 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 
 }
 
-static int tcmu_reload_config(struct tcmu_config *cfg)
+static int tcmu_load_config(struct tcmu_config *cfg)
 {
-	char *buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
 	int ret = -1;
 	int fd, len;
+	char *buf;
+
+	buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
+	if (!buf)
+		return -ENOMEM;
 
 	fd = open(cfg->path, O_RDONLY);
 	if (fd < 0) {
 		tcmu_err("Failed to open file '%s', %m\n", cfg->path);
-		goto out;
+		goto free_buf;
 	}
 
 	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
 	close(fd);
 	if (len < 0) {
 		tcmu_err("Failed to read file '%s'\n", cfg->path);
-		goto out;
+		goto free_buf;
 	}
 
 	buf[len] = '\0';
@@ -357,7 +369,7 @@ static int tcmu_reload_config(struct tcmu_config *cfg)
 	tcmu_parse_options(cfg, buf, len);
 
 	ret = 0;
-out:
+free_buf:
 	free(buf);
 	return ret;
 }
@@ -413,7 +425,7 @@ static void *dyn_config_start(void *arg)
 
 			/* Try to reload the config file */
 			if (event->mask & IN_MODIFY || event->mask & IN_IGNORED)
-				tcmu_reload_config(cfg);
+				tcmu_load_config(cfg);
 
 			p += sizeof(struct inotify_event) + event->len;
 		}
@@ -422,50 +434,7 @@ static void *dyn_config_start(void *arg)
 	return NULL;
 }
 
-int tcmu_load_config(struct tcmu_config *cfg, const char *path)
-{
-	char *buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
-	int fd, len, ret = -1;
-
-	if (!path)
-		path = "/etc/tcmu/tcmu.conf"; /* the default config file */
-
-	cfg->path = strdup(path);
-	if (!cfg->path) {
-		tcmu_err("failed to copy path: %s\n", path);
-		goto out;
-	}
-
-	fd = open(path, O_RDONLY);
-	if (fd < 0) {
-		tcmu_err("failed to open file '%s'\n", path);
-		goto out;
-	}
-
-	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
-	close(fd);
-	if (len < 0) {
-		tcmu_err("Failed to read file '%s'\n", path);
-		goto out;
-	}
-
-	buf[len] = '\0';
-
-	tcmu_parse_options(cfg, buf, len);
-
-	/* If the dynamic reloading thread fails to start, it will fall back to static config */
-	if (pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg)) {
-		tcmu_warn("Failed to start the dynamic config reloading feature!\n");
-	} else {
-		cfg->is_dynamic = true;
-	}
-	ret = 0;
-out:
-	free(buf);
-	return ret;
-}
-
-struct tcmu_config *tcmu_setup_config(void)
+struct tcmu_config *tcmu_setup_config(const char *path)
 {
 	struct tcmu_config *cfg;
 
@@ -475,13 +444,34 @@ struct tcmu_config *tcmu_setup_config(void)
 		return NULL;
 	}
 
-	if (tcmu_load_config(cfg, NULL)) {
-		tcmu_err("Loading TCMU config failed!\n");
+	if (!path)
+		path = "/etc/tcmu/tcmu.conf"; /* the default config file */
+
+	cfg->path = strdup(path);
+	if (!cfg->path) {
+		tcmu_err("failed to copy path: %s\n", path);
 		goto free_cfg;
+	}
+
+	if (tcmu_load_config(cfg)) {
+		tcmu_err("Loading TCMU config failed!\n");
+		goto free_path;
+	}
+
+	/*
+	 * f the dynamic reloading thread fails to start, it will fall
+	 * back to static config
+	 */
+	if (pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg)) {
+		tcmu_warn("Failed to start the dynamic config reloading feature!\n");
+	} else {
+		cfg->is_dynamic = true;
 	}
 
 	return cfg;
 
+free_path:
+	free(cfg->path);
 free_cfg:
 	free(cfg);
 	return NULL;
@@ -511,7 +501,7 @@ static void tcmu_cancel_config_thread(struct tcmu_config *cfg)
 
 void tcmu_destroy_config(struct tcmu_config *cfg)
 {
-	struct tcmu_conf_option *opt;
+	struct tcmu_conf_option *option, *next;
 
 	if (!cfg)
 		return;
@@ -519,12 +509,15 @@ void tcmu_destroy_config(struct tcmu_config *cfg)
 	if (cfg->is_dynamic)
 		tcmu_cancel_config_thread(cfg);
 
-	darray_foreach(opt, tcmu_options) {
-		if (opt->type == TCMU_OPT_STR)
-			free(opt->opt_str);
+	list_for_each_safe(&tcmu_options, option, next, list) {
+		list_del(&option->list);
+
+		if (option->type == TCMU_OPT_STR)
+			free(option->opt_str);
+		free(option->key);
+		free(option);
 	}
 
-	darray_free(tcmu_options);
 	free(cfg->path);
 	free(cfg);
 }
