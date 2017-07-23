@@ -154,7 +154,7 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 
 	if (!logbuf) {
 		/* handle early log calls by config and deamon setup */
-		fprintf(stderr, fmt, args);
+		vfprintf(stderr, fmt, args);
 		return;
 	}
 
