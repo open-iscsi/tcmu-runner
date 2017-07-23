@@ -341,7 +341,7 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 
 }
 
-static int tcmu_reload_config(struct tcmu_config *cfg)
+static int tcmu_load_config(struct tcmu_config *cfg)
 {
 	int ret = -1;
 	int fd, len;
@@ -425,51 +425,13 @@ static void *dyn_config_start(void *arg)
 
 			/* Try to reload the config file */
 			if (event->mask & IN_MODIFY || event->mask & IN_IGNORED)
-				tcmu_reload_config(cfg);
+				tcmu_load_config(cfg);
 
 			p += sizeof(struct inotify_event) + event->len;
 		}
 	}
 
 	return NULL;
-}
-
-static int tcmu_load_config(struct tcmu_config *cfg)
-{
-	int fd, len, ret = -1;
-	char *buf;
-
-	buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
-	if (!buf)
-		return -ENOMEM;
-
-	fd = open(cfg->path, O_RDONLY);
-	if (fd < 0) {
-		tcmu_err("failed to open file '%s'\n", cfg->path);
-		goto free_buf;
-	}
-
-	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
-	close(fd);
-	if (len < 0) {
-		tcmu_err("Failed to read file '%s'\n", cfg->path);
-		goto free_buf;
-	}
-
-	buf[len] = '\0';
-
-	tcmu_parse_options(cfg, buf, len);
-
-	/* If the dynamic reloading thread fails to start, it will fall back to static config */
-	if (pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg)) {
-		tcmu_warn("Failed to start the dynamic config reloading feature!\n");
-	} else {
-		cfg->is_dynamic = true;
-	}
-	ret = 0;
-free_buf:
-	free(buf);
-	return ret;
 }
 
 struct tcmu_config *tcmu_setup_config(const char *path)
@@ -494,6 +456,16 @@ struct tcmu_config *tcmu_setup_config(const char *path)
 	if (tcmu_load_config(cfg)) {
 		tcmu_err("Loading TCMU config failed!\n");
 		goto free_path;
+	}
+
+	/*
+	 * f the dynamic reloading thread fails to start, it will fall
+	 * back to static config
+	 */
+	if (pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg)) {
+		tcmu_warn("Failed to start the dynamic config reloading feature!\n");
+	} else {
+		cfg->is_dynamic = true;
 	}
 
 	return cfg;
