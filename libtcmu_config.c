@@ -78,14 +78,15 @@
  * system config reload thread daemon will try to update them for all the
  * tcmu-runner, consumer and tcmu-synthesizer daemons.
  */
+#include "ccan/list/list.h"
 
-static darray(struct tcmu_conf_option) tcmu_options = darray_new();
+static LIST_HEAD(tcmu_options);
 
 static struct tcmu_conf_option * tcmu_get_option(const char *key)
 {
 	struct tcmu_conf_option *option;
 
-	darray_foreach(option, tcmu_options) {
+	list_for_each(&tcmu_options, option, list) {
 		if (!strcmp(option->key, key))
 			return option;
 	}
@@ -201,19 +202,23 @@ static int tcmu_read_config(int fd, char *buf, int count)
 static struct tcmu_conf_option *
 tcmu_register_option(char *key, tcmu_option_type type)
 {
-	struct tcmu_conf_option option, *opt;
+	struct tcmu_conf_option *option;
 
-	option.key = key;
-	option.type = type;
+	option = calloc(1, sizeof(*option));
+	if (!option)
+		return NULL;
 
-	darray_append(tcmu_options, option);
+	option->key = strdup(key);
+	if (!option->key)
+		goto free_option;
+	option->type = type;
+	list_node_init(&option->list);
 
-	darray_foreach(opt, tcmu_options) {
-		if (!strcmp(opt->key, key))
-			return opt;
-	}
+	list_add_tail(&tcmu_options, &option->list);
+	return option;
 
-	tcmu_err("failed to register new option!\n");
+free_option:
+	free(option);
 	return NULL;
 }
 
@@ -511,7 +516,7 @@ static void tcmu_cancel_config_thread(struct tcmu_config *cfg)
 
 void tcmu_destroy_config(struct tcmu_config *cfg)
 {
-	struct tcmu_conf_option *opt;
+	struct tcmu_conf_option *option, *next;
 
 	if (!cfg)
 		return;
@@ -519,12 +524,15 @@ void tcmu_destroy_config(struct tcmu_config *cfg)
 	if (cfg->is_dynamic)
 		tcmu_cancel_config_thread(cfg);
 
-	darray_foreach(opt, tcmu_options) {
-		if (opt->type == TCMU_OPT_STR)
-			free(opt->opt_str);
+	list_for_each_safe(&tcmu_options, option, next, list) {
+		list_del(&option->list);
+
+		if (option->type == TCMU_OPT_STR)
+			free(option->opt_str);
+		free(option->key);
+		free(option);
 	}
 
-	darray_free(tcmu_options);
 	free(cfg->path);
 	free(cfg);
 }

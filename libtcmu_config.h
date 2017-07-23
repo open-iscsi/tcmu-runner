@@ -20,6 +20,8 @@
 #include <stdbool.h>
 #include <pthread.h>
 
+#include "ccan/list/list.h"
+
 struct tcmu_config {
 	pthread_t thread_id;
 	char *path;
@@ -56,6 +58,8 @@ typedef enum {
 } tcmu_option_type;
 
 struct tcmu_conf_option {
+	struct list_node list;
+
 	char *key;
 	tcmu_option_type type;
 	union {
