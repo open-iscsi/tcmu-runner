@@ -949,6 +949,7 @@ int main(int argc, char **argv)
 	tcmu_dbg("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
+	g_io_channel_shutdown(libtcmu_gio, TRUE, NULL);
 	tcmulib_close(tcmulib_context);
 
 	tcmu_destroy_config(tcmu_cfg);
