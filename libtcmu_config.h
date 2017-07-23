@@ -70,5 +70,5 @@ struct tcmu_conf_option {
 };
 
 void tcmu_destroy_config(struct tcmu_config *cfg);
-struct tcmu_config * tcmu_setup_config(void);
+struct tcmu_config * tcmu_setup_config(const char *path);
 #endif /* __TCMU_CONFIG_H */

@@ -343,21 +343,25 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 
 static int tcmu_reload_config(struct tcmu_config *cfg)
 {
-	char *buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
 	int ret = -1;
 	int fd, len;
+	char *buf;
+
+	buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
+	if (!buf)
+		return -ENOMEM;
 
 	fd = open(cfg->path, O_RDONLY);
 	if (fd < 0) {
 		tcmu_err("Failed to open file '%s', %m\n", cfg->path);
-		goto out;
+		goto free_buf;
 	}
 
 	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
 	close(fd);
 	if (len < 0) {
 		tcmu_err("Failed to read file '%s'\n", cfg->path);
-		goto out;
+		goto free_buf;
 	}
 
 	buf[len] = '\0';
@@ -365,7 +369,7 @@ static int tcmu_reload_config(struct tcmu_config *cfg)
 	tcmu_parse_options(cfg, buf, len);
 
 	ret = 0;
-out:
+free_buf:
 	free(buf);
 	return ret;
 }
@@ -430,31 +434,26 @@ static void *dyn_config_start(void *arg)
 	return NULL;
 }
 
-int tcmu_load_config(struct tcmu_config *cfg, const char *path)
+static int tcmu_load_config(struct tcmu_config *cfg)
 {
-	char *buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
 	int fd, len, ret = -1;
+	char *buf;
 
-	if (!path)
-		path = "/etc/tcmu/tcmu.conf"; /* the default config file */
+	buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
+	if (!buf)
+		return -ENOMEM;
 
-	cfg->path = strdup(path);
-	if (!cfg->path) {
-		tcmu_err("failed to copy path: %s\n", path);
-		goto out;
-	}
-
-	fd = open(path, O_RDONLY);
+	fd = open(cfg->path, O_RDONLY);
 	if (fd < 0) {
-		tcmu_err("failed to open file '%s'\n", path);
-		goto out;
+		tcmu_err("failed to open file '%s'\n", cfg->path);
+		goto free_buf;
 	}
 
 	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
 	close(fd);
 	if (len < 0) {
-		tcmu_err("Failed to read file '%s'\n", path);
-		goto out;
+		tcmu_err("Failed to read file '%s'\n", cfg->path);
+		goto free_buf;
 	}
 
 	buf[len] = '\0';
@@ -468,12 +467,12 @@ int tcmu_load_config(struct tcmu_config *cfg, const char *path)
 		cfg->is_dynamic = true;
 	}
 	ret = 0;
-out:
+free_buf:
 	free(buf);
 	return ret;
 }
 
-struct tcmu_config *tcmu_setup_config(void)
+struct tcmu_config *tcmu_setup_config(const char *path)
 {
 	struct tcmu_config *cfg;
 
@@ -483,13 +482,24 @@ struct tcmu_config *tcmu_setup_config(void)
 		return NULL;
 	}
 
-	if (tcmu_load_config(cfg, NULL)) {
-		tcmu_err("Loading TCMU config failed!\n");
+	if (!path)
+		path = "/etc/tcmu/tcmu.conf"; /* the default config file */
+
+	cfg->path = strdup(path);
+	if (!cfg->path) {
+		tcmu_err("failed to copy path: %s\n", path);
 		goto free_cfg;
+	}
+
+	if (tcmu_load_config(cfg)) {
+		tcmu_err("Loading TCMU config failed!\n");
+		goto free_path;
 	}
 
 	return cfg;
 
+free_path:
+	free(cfg->path);
 free_cfg:
 	free(cfg);
 	return NULL;
