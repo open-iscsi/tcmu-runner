@@ -954,7 +954,6 @@ int main(int argc, char **argv)
 
 	tcmu_destroy_config(tcmu_cfg);
 	tcmu_destroy_log();
-	darray_free(handlers);
 
 	return 0;
 
