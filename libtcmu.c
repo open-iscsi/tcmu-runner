@@ -208,7 +208,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 {
 	struct tcmulib_context *ctx = arg;
 	int ret, reply_cmd, version = info->genlhdr->version;
-	char buf[32];
+	char buf[256];
 
 	tcmu_dbg("cmd %d. Got header version %d. Supported %d.\n",
 		 cmd->c_id, info->genlhdr->version, TCMU_NL_VERSION);

@@ -62,7 +62,7 @@ struct tcmu_device {
 	uint32_t block_size;
 	uint32_t max_xfer_len;
 
-	char dev_name[16]; /* e.g. "uio14" */
+	char dev_name[256]; /* e.g. "uio14" */
 	char tcm_hba_name[16]; /* e.g. "user_8" */
 	char tcm_dev_name[128]; /* e.g. "backup2" */
 	char cfgstring[256];
