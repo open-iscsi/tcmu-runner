@@ -73,6 +73,11 @@
  *		TCMU_PARSE_CFG_INT(cfg, log_level);
  *		TCMU_CONF_CHECK_LOG_LEVEL(log_level);
  *	}
+ * 4, Then add your own free method in if it's a STR KEY:
+ *	static void tcmu_conf_free_str_keys(struct tcmu_config *cfg)
+ *	{
+ *		TCMU_FREE_CFG_STR_KEY(cfg, 'STR KEY');
+ *	}
  *
  * Note: For now, if the options have been changed in config file, the
  * system config reload thread daemon will try to update them for all the
@@ -120,16 +125,9 @@ do { \
 		cfg->key = strdup(option->opt_str); } \
 } while (0);
 
-#define TCMU_FREE_CFG_STR(cfg, key) \
+#define TCMU_FREE_CFG_STR_KEY(cfg, key) \
 do { \
-	struct tcmu_conf_option *option; \
-	cfg->key = NULL; \
-	darray_foreach(option, tcmu_options) { \
-		if (!strcmp(option->key, key)) { \
-			free(option->opt_str); \
-			break; \
-		} \
-	} \
+	free(cfg->key); \
 } while (0);
 
 #define TCMU_CONF_CHECK_LOG_LEVEL(key) \
@@ -153,6 +151,15 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg)
 	tcmu_set_log_level(cfg->log_level);
 
 	/* add your new config options */
+}
+
+static void tcmu_conf_free_str_keys(struct tcmu_config *cfg)
+{
+	/* add your str type config options
+	 *
+	 * For example:
+	 * TCMU_FREE_CFG_STR_KEY(cfg, 'STR KEY');
+	 */
 }
 
 #define TCMU_MAX_CFG_FILE_SIZE (2 * 1024 * 1024)
@@ -338,7 +345,6 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 
 	/* parse the options from tcmu_options[] to struct tcmu_config */
 	tcmu_conf_set_options(cfg);
-
 }
 
 static int tcmu_load_config(struct tcmu_config *cfg)
@@ -459,11 +465,11 @@ struct tcmu_config *tcmu_setup_config(const char *path)
 	}
 
 	/*
-	 * f the dynamic reloading thread fails to start, it will fall
+	 * If the dynamic reloading thread fails to start, it will fall
 	 * back to static config
 	 */
 	if (pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg)) {
-		tcmu_warn("Failed to start the dynamic config reloading feature!\n");
+		tcmu_warn("Dynamic config started failed, fallling back to static!\n");
 	} else {
 		cfg->is_dynamic = true;
 	}
@@ -518,6 +524,7 @@ void tcmu_destroy_config(struct tcmu_config *cfg)
 		free(option);
 	}
 
+	tcmu_conf_free_str_keys(cfg);
 	free(cfg->path);
 	free(cfg);
 }
