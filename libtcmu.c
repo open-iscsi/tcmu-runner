@@ -138,6 +138,12 @@ lookup_dev_by_name(struct tcmulib_context *ctx, char *dev_name, int *index)
 	darray_foreach(dev_ptr, ctx->devices) {
 		dev = *dev_ptr;
 		size_t len = strnlen(dev->dev_name, sizeof(dev->dev_name));
+		if (len == sizeof(dev->dev_name)) {
+			char err_dev[256];
+			snprintf(err_dev, sizeof(err_dev), dev->dev_name);
+			tcmu_err("uio device: %s, no null terminating byte\n", err_dev);
+			return NULL;
+		}
 
 		if (!strncmp(dev->dev_name, dev_name, len)) {
 			*index = i;
