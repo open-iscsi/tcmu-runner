@@ -1136,12 +1136,13 @@ static uint64_t get_cluster_offset(struct qcow_state *s, const uint64_t offset, 
 		l2_table_update(s, l2_table, l2_offset, l2_index, cluster_offset | s->cluster_copied);
 		s->set_refcount(s, cluster_offset, 1);
 	} else if (!(cluster_offset & s->cluster_copied) && allocate) {
-		tcmu_err("re-allocating shared cluster for writing\n");
-		/* refcount > 1 (the copied bit means refcount == 1)
-		 * need to make a new copy if this is for a write */
 		uint64_t old_offset = cluster_offset & s->cluster_mask;
 		// TODO what if this is compressed?
 		uint8_t *cow_buffer;
+
+		tcmu_err("re-allocating shared cluster for writing\n");
+		/* refcount > 1 (the copied bit means refcount == 1)
+		 * need to make a new copy if this is for a write */
 		if (!(cow_buffer = malloc(s->cluster_size)))
 			goto fail;
 		if (!(cluster_offset = qcow_cluster_alloc(s)))
