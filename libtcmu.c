@@ -138,6 +138,12 @@ lookup_dev_by_name(struct tcmulib_context *ctx, char *dev_name, int *index)
 	darray_foreach(dev_ptr, ctx->devices) {
 		dev = *dev_ptr;
 		size_t len = strnlen(dev->dev_name, sizeof(dev->dev_name));
+		if (len == sizeof(dev->dev_name)) {
+			char err_dev[256];
+			snprintf(err_dev, sizeof(err_dev), dev->dev_name);
+			tcmu_err("uio device: %s, no null terminating byte\n", err_dev);
+			return NULL;
+		}
 
 		if (!strncmp(dev->dev_name, dev_name, len)) {
 			*index = i;
@@ -202,7 +208,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 {
 	struct tcmulib_context *ctx = arg;
 	int ret, reply_cmd, version = info->genlhdr->version;
-	char buf[32];
+	char buf[256];
 
 	tcmu_dbg("cmd %d. Got header version %d. Supported %d.\n",
 		 cmd->c_id, info->genlhdr->version, TCMU_NL_VERSION);
