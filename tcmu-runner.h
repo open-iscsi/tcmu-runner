@@ -34,6 +34,8 @@ extern "C" {
 #include "libtcmu_common.h"
 #include "alua.h"
 
+#define CFGSTRING_MAX  (256 + 1 + 256 + PATH_MAX) /* glfs cfg ex: VOLNAME@HOSTNAME/PATH */
+
 typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
 		       struct iovec *, size_t, size_t, off_t);
 typedef int (*flush_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);

@@ -545,7 +545,7 @@ static int is_uio(const struct dirent *dirent)
 {
 	int fd;
 	char *tmp_path;
-	char buf[256] = {'\0'};
+	char buf[CFGSTRING_MAX] = {'\0'};
 	ssize_t ret = 0;
 
 	if (strncmp(dirent->d_name, "uio", 3))
@@ -591,7 +591,7 @@ static int open_devices(struct tcmulib_context *ctx)
 
 	for (i = 0; i < num_devs; i++) {
 		char *tmp_path;
-		char buf[256] = {'\0'};
+		char buf[CFGSTRING_MAX] = {'\0'};
 		int fd;
 		int ret;
 
