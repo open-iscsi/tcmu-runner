@@ -337,7 +337,7 @@ int tcmu_emulate_evpd_inquiry(
 	switch (cdb[2]) {
 	case 0x0: /* Supported VPD pages */
 	{
-		char data[9];
+		char data[16];
 
 		memset(data, 0, sizeof(data));
 
