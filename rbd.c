@@ -438,6 +438,8 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	tcmu_set_dev_max_xfer_len(dev, image_info.obj_size /
 				  tcmu_get_dev_block_size(dev));
 
+	tcmu_set_dev_write_cache_enabled(dev, 0);
+
 	tcmu_dev_dbg(dev, "config %s, size %lld\n", tcmu_get_dev_cfgstring(dev),
 		     rbd_size);
 	free(dev_cfg_dup);
