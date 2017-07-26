@@ -756,7 +756,8 @@ static void copy_to_response_buf(uint8_t *to_buf, size_t to_len,
 	memcpy(to_buf, from_buf, to_len > from_len ? from_len : to_len);
 }
 
-int handle_rwrecovery_page(uint8_t *ret_buf, size_t ret_buf_len)
+int handle_rwrecovery_page(struct tcmu_device *dev, uint8_t *ret_buf,
+			   size_t ret_buf_len)
 {
 	uint8_t buf[12];
 
@@ -768,20 +769,28 @@ int handle_rwrecovery_page(uint8_t *ret_buf, size_t ret_buf_len)
 	return 12;
 }
 
-int handle_cache_page(uint8_t *ret_buf, size_t ret_buf_len)
+int handle_cache_page(struct tcmu_device *dev, uint8_t *ret_buf,
+		      size_t ret_buf_len)
 {
 	uint8_t buf[20];
 
 	memset(buf, 0, sizeof(buf));
 	buf[0] = 0x8;
 	buf[1] = 0x12;
-	buf[2] = 0x4; // WCE=1
+
+	/*
+	 * If device supports a writeback cache then set writeback
+	 * cache enable (WCE)
+	 */
+	if (tcmu_get_dev_write_cache_enabled(dev))
+		buf[2] = 0x4;
 
 	copy_to_response_buf(ret_buf, ret_buf_len, buf, 20);
 	return 20;
 }
 
-static int handle_control_page(uint8_t *ret_buf, size_t ret_buf_len)
+static int handle_control_page(struct tcmu_device *dev, uint8_t *ret_buf,
+			       size_t ret_buf_len)
 {
 	uint8_t buf[12];
 
@@ -840,20 +849,21 @@ static int handle_control_page(uint8_t *ret_buf, size_t ret_buf_len)
 static struct mode_sense_handler {
 	uint8_t page;
 	uint8_t subpage;
-	int (*get)(uint8_t *buf, size_t buf_len);
+	int (*get)(struct tcmu_device *dev, uint8_t *buf, size_t buf_len);
 } modesense_handlers[] = {
 	{0x1, 0, handle_rwrecovery_page},
 	{0x8, 0, handle_cache_page},
 	{0xa, 0, handle_control_page},
 };
 
-static ssize_t handle_mode_sense(struct mode_sense_handler *handler,
+static ssize_t handle_mode_sense(struct tcmu_device *dev,
+				 struct mode_sense_handler *handler,
 				 uint8_t **buf, size_t alloc_len,
 				 size_t *used_len, bool sense_ten)
 {
 	int ret;
 
-	ret = handler->get(*buf, alloc_len - *used_len);
+	ret = handler->get(dev, *buf, alloc_len - *used_len);
 
 	if  (!sense_ten && (*used_len + ret >= 255))
 		return -EINVAL;
@@ -889,6 +899,7 @@ static ssize_t handle_mode_sense(struct mode_sense_handler *handler,
  * For TYPE_DISK only.
  */
 int tcmu_emulate_mode_sense(
+	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -926,7 +937,7 @@ int tcmu_emulate_mode_sense(
 
 	if (page_code == 0x3f) {
 		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
-			ret = handle_mode_sense(&modesense_handlers[i],
+			ret = handle_mode_sense(dev, &modesense_handlers[i],
 						&buf, alloc_len, &used_len,
 						sense_ten);
 			if (ret < 0)
@@ -938,7 +949,8 @@ int tcmu_emulate_mode_sense(
 		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
 			if (page_code == modesense_handlers[i].page &&
 			    subpage_code == modesense_handlers[i].subpage) {
-				ret = handle_mode_sense(&modesense_handlers[i],
+				ret = handle_mode_sense(dev,
+							&modesense_handlers[i],
 							&buf, alloc_len,
 							&used_len, sense_ten);
 				break;
@@ -974,6 +986,7 @@ fail:
  * For TYPE_DISK only.
  */
 int tcmu_emulate_mode_select(
+	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -1006,7 +1019,7 @@ int tcmu_emulate_mode_select(
 	for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
 		if (page_code == modesense_handlers[i].page
 		    && subpage_code == modesense_handlers[i].subpage) {
-			ret = modesense_handlers[i].get(&buf[hdr_len],
+			ret = modesense_handlers[i].get(dev, &buf[hdr_len],
 							sizeof(buf) - hdr_len);
 			if (ret <= 0)
 				return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
