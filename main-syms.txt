@@ -1,3 +1,4 @@
 {
 	tcmur_register_handler;
+	tcmur_handle_writesame;
 };
