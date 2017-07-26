@@ -397,6 +397,7 @@ int tcmu_emulate_evpd_inquiry(
 		char *ptr, *p, *wwn;
 		size_t len, used = 0;
 		uint16_t *tot_len = (uint16_t*) &data[2];
+		uint32_t padding;
 		bool next;
 		int i;
 
@@ -498,6 +499,56 @@ int tcmu_emulate_evpd_inquiry(
 		ptr[6] = (port->grp->id >> 8) & 0xff;
 		ptr[7] = port->grp->id & 0xff;
 		used += 8;
+		ptr += 8;
+
+		/* SCSI name */
+		ptr[0] = port->proto_id << 4;
+		ptr[0] |= 0x3; 	/* CODE SET = UTF-8 */
+		ptr[1] = 0x80; 	/* PIV=1 */
+		ptr[1] |= 0x10; /* ASSOCIATION = target port: 01b */
+		ptr[1] |= 0x8; 	/* DESIGNATOR TYPE = SCSI name string */
+		len = snprintf(&ptr[4], sizeof(data) - used - 4, "%s,t,0x%04x", port->wwn, port->tpgt);
+		len += 1;		/* Include  NULL terminator */
+		/*
+		 * The null-terminated, null-padded (see 4.4.2) SCSI
+		 * NAME STRING field contains a UTF-8 format string.
+		 * The number of bytes in the SCSI NAME STRING field
+		 * (i.e., the value in the DESIGNATOR LENGTH field)
+		 * shall be no larger than 256 and shall be a multiple
+		 * of four.
+		 */
+		padding = ((-len) & 3);
+		if (padding)
+			len += padding;
+		if (len > 256)
+			len=256;
+		ptr[3] = len;
+		used += len + 4;
+		ptr += len + 4;
+
+		/* Target device designator */
+		ptr[0] = port->proto_id << 4;
+		ptr[0] |= 0x3;	/* CODE SET = UTF-8 */
+		ptr[1] = 0x80;	/* PIV=1 */
+		ptr[1] |= 0x20;	/* ASSOCIATION = target device: 10b */
+		ptr[1] |= 0x8;	/* DESIGNATOR TYPE = SCSI name string */
+		len = snprintf(&ptr[4], sizeof(data) - used -4, "%s", port->wwn);
+		len +=1;		/* Include  NULL terminator */
+		/*
+		 * The null-terminated, null-padded (see 4.4.2) SCSI
+		 * NAME STRING field contains a UTF-8 format string.
+		 * The number of bytes in the SCSI NAME STRING field
+		 * (i.e., the value in the DESIGNATOR LENGTH field)
+		 * shall be no larger than 256 and shall be a multiple
+		 * of four.
+		 */
+		padding = ((-len) & 3);
+		if (padding)
+			len += padding;
+		if (len >256)
+			len = 256;
+		ptr[3] = len;
+		used += len + 4;
 
 finish_page83:
 		/* Done with descriptor list */
