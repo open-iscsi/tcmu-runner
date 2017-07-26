@@ -136,8 +136,10 @@ lookup_dev_by_name(struct tcmulib_context *ctx, char *dev_name, int *index)
 	*index = 0;
 
 	darray_foreach(dev_ptr, ctx->devices) {
+		size_t len;
+
 		dev = *dev_ptr;
-		size_t len = strnlen(dev->dev_name, sizeof(dev->dev_name));
+		len = strnlen(dev->dev_name, sizeof(dev->dev_name));
 
 		if (!strncmp(dev->dev_name, dev_name, len)) {
 			*index = i;

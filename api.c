@@ -394,11 +394,11 @@ int tcmu_emulate_evpd_inquiry(
 	case 0x83: /* Device identification */
 	{
 		char data[512];
-		char *ptr;
-		size_t used = 0;
-		char *wwn;
-		size_t len;
+		char *ptr, *p, *wwn;
+		size_t len, used = 0;
 		uint16_t *tot_len = (uint16_t*) &data[2];
+		bool next;
+		int i;
 
 		memset(data, 0, sizeof(data));
 
@@ -442,10 +442,8 @@ int tcmu_emulate_evpd_inquiry(
 		 * WWN, but this is what the kernel does, and it's nice for our
 		 * values to match.
 		 */
-		char *p = wwn;
-		bool next = true;
-		int i = 7;
-		for ( ; *p && i < 20; p++) {
+		next = true;
+		for (p = wwn, i = 7; *p && i < 20; p++) {
 			uint8_t val;
 
 			if (!char_to_hex(&val, *p))
