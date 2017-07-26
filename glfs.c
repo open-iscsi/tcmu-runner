@@ -489,6 +489,7 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 		return -ENOMEM;
 
 	tcmu_set_dev_private(dev, gfsp);
+	tcmu_set_dev_write_cache_enabled(dev, 1);
 
 	config = tcmu_get_path(dev);
 	if (!config) {
