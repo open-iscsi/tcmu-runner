@@ -280,8 +280,10 @@ tcmu_get_tgt_port_grp(struct tcmu_device *dev, const char *name)
 		group->status = ALUA_STAT_ALTERED_BY_EXPLICIT_STPG;
 	else if (!strcmp(str_val, "Altered by Implicit ALUA"))
 		group->status = ALUA_STAT_ALTERED_BY_IMPLICIT_ALUA;
-	else
+	else {
 		tcmu_err("Invalid ALUA status %s", str_val);
+		goto free_str_val;
+	}
 	free(str_val);
 
 	str_val = tcmu_get_alua_str_setting(group, "alua_access_type");
@@ -296,8 +298,10 @@ tcmu_get_tgt_port_grp(struct tcmu_device *dev, const char *name)
 		group->tpgs = TPGS_ALUA_EXPLICIT;
 	else if (!strcmp(str_val, "Implicit and Explicit"))
 		group->tpgs = (TPGS_ALUA_IMPLICIT | TPGS_ALUA_EXPLICIT);
-	else
+	else {
 		tcmu_err("Invalid ALUA type %s", str_val);
+		goto free_str_val;
+	}
 	free(str_val);
 
 	str_val = orig_str_val = tcmu_get_alua_str_setting(group, "members");
@@ -319,6 +323,8 @@ tcmu_get_tgt_port_grp(struct tcmu_device *dev, const char *name)
 	free(orig_str_val);
 	return group;
 
+free_str_val:
+	free(str_val);
 free_ports:
 	tcmu_release_tgt_ports(group);
 free_group:
