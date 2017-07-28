@@ -1406,7 +1406,7 @@ static int qcow_open(struct tcmu_device *dev)
 	tcmu_dbg("%s\n", tcmu_get_dev_cfgstring(dev));
 	tcmu_dbg("%s\n", config);
 
-	if (bdev_open(bdev, AT_FDCWD, config, O_RDWR) == -1)
+	if (bdev_open(bdev, AT_FDCWD, config, O_RDWR | O_SYNC) == -1)
 		goto err;
 	return 0;
 err:
