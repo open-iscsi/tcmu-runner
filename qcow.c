@@ -958,7 +958,7 @@ static int qcow2_set_refcount(struct qcow_state *s, uint64_t cluster_offset, uin
 			tcmu_err("refblock allocation failure\n");
 			return -1;
 		}
-		rc_table_update(s, rc_index, refblock_offset | s->cluster_copied);
+		rc_table_update(s, rc_index, refblock_offset);
 		qcow2_set_refcount(s, refblock_offset, 1);
 	}
 
