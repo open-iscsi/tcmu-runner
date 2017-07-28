@@ -28,14 +28,15 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
-#include "tcmur_aio.h"
+#include "libtcmu_aio.h"
+#include "libtcmu_cmd_handler.h"
 #include "tcmur_device.h"
-#include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
 #include "alua.h"
 
-void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			    int rc)
+void tcmulib_handle_cmd_complete(struct tcmu_device *dev,
+				 struct tcmulib_cmd *cmd,
+				 int rc)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 
@@ -54,7 +55,7 @@ static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	int wakeup;
 
 	track_aio_request_finish(tcmu_get_daemon_dev_private(dev), &wakeup);
-	tcmur_command_complete(dev, cmd, rc);
+	tcmulib_handle_cmd_complete(dev, cmd, rc);
 	if (wakeup)
 		tcmulib_processing_complete(dev);
 }
@@ -1693,7 +1694,7 @@ static int handle_passthrough(struct tcmu_device *dev,
 	return async_handle_cmd(dev, cmd, passthrough_work_fn);
 }
 
-bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler)
+bool tcmulib_handler_is_passthrough_only(struct tcmur_handler *rhandler)
 {
 	if (rhandler->write || rhandler->read || rhandler->flush)
 		return false;
@@ -1701,7 +1702,7 @@ bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler)
 	return true;
 }
 
-int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
+int tcmulib_passthrough_cmds(struct tcmu_device *dev,
 				  struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -1732,7 +1733,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	return ret;
 }
 
-static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int handle_cmds(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret = TCMU_NOT_HANDLED;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -1820,7 +1821,7 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return ret;
 }
 
-static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int handle_generic_cmds(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
 	struct iovec *iovec = cmd->iovec;
@@ -1889,7 +1890,7 @@ static bool command_is_generic(struct tcmulib_cmd *cmd)
 	}
 }
 
-int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+int tcmulib_handle_cmds(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -1912,7 +1913,7 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	/* Falls back to the runner's generic handle callout */
 	if (command_is_generic(cmd))
-		return handle_generic_cmd(dev, cmd);
+		return handle_generic_cmds(dev, cmd);
 	else
-		return tcmur_cmd_handler(dev, cmd);
+		return handle_cmds(dev, cmd);
 }

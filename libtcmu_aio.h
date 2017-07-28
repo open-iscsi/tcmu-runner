@@ -14,8 +14,8 @@
  * under the License.
  */
 
-#ifndef __TCMUR_AIO_H
-#define __TCMUR_AIO_H
+#ifndef __LIBTCMU_AIO_H
+#define __LIBTCMU_AIO_H
 
 #include <pthread.h>
 
@@ -55,4 +55,4 @@ int async_handle_cmd(struct tcmu_device *, struct tcmulib_cmd *,
 void track_aio_request_start(struct tcmur_device *);
 void track_aio_request_finish(struct tcmur_device *, int *);
 
-#endif /* __TCMUR_AIO_H */
+#endif /* __LIBTCMU_AIO_H */

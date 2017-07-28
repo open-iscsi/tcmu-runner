@@ -37,8 +37,8 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
-#include "tcmur_aio.h"
-#include "tcmur_cmd_handler.h"
+#include "libtcmu_aio.h"
+#include "libtcmu_cmd_handler.h"
 #include "tcmu-runner.h"
 
 #define TCMU_NL_VERSION 2

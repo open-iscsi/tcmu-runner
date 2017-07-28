@@ -38,6 +38,9 @@ add_library(tcmu
   SHARED
   configfs.c
   api.c
+  alua.c
+  libtcmu_cmd_handler.c
+  libtcmu_aio.c
   libtcmu.c
   libtcmu-register.c
   tcmuhandler-generated.c
@@ -65,6 +68,9 @@ install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 add_library(tcmu_static
   configfs.c
   api.c
+  alua.c
+  libtcmu_cmd_handler.c
+  libtcmu_aio.c
   libtcmu.c
   libtcmu-register.c
   tcmuhandler-generated.c
@@ -82,9 +88,6 @@ target_link_libraries(tcmu_static
 
 # Stuff for building the main binary
 add_executable(tcmu-runner
-  tcmur_cmd_handler.c
-  tcmur_aio.c
-  alua.c
   main.c
   tcmuhandler-generated.c
   )

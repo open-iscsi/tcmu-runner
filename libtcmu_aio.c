@@ -25,7 +25,7 @@
 #include "libtcmu.h"
 #include "libtcmu_priv.h"
 #include "tcmur_device.h"
-#include "tcmur_aio.h"
+#include "libtcmu_aio.h"
 #include "tcmu-runner.h"
 
 struct tcmu_work {
