@@ -789,34 +789,61 @@ int tcmu_emulate_read_capacity_16(
 	return SAM_STAT_GOOD;
 }
 
-int handle_rwrecovery_page(uint8_t *buf, size_t buf_len)
+static void copy_to_response_buf(uint8_t *to_buf, size_t to_len,
+				 uint8_t *from_buf, size_t from_len)
 {
-	if (buf_len < 12)
-		return -1;
+	if (!to_buf)
+		return;
+	/*
+	 * SPC 4r37: 4.3.5.6 Allocation length:
+	 *
+	 * The device server shall terminate transfers to the Data-In Buffer
+	 * when the number of bytes or blocks specified by the ALLOCATION
+	 * LENGTH field have been transferred or when all available data
+	 * have been transferred, whichever is less.
+	 */
+	memcpy(to_buf, from_buf, to_len > from_len ? from_len : to_len);
+}
 
+int handle_rwrecovery_page(struct tcmu_device *dev, uint8_t *ret_buf,
+			   size_t ret_buf_len)
+{
+	uint8_t buf[12];
+
+	memset(buf, 0, sizeof(buf));
 	buf[0] = 0x1;
 	buf[1] = 0xa;
 
+	copy_to_response_buf(ret_buf, ret_buf_len, buf, 12);
 	return 12;
 }
 
-int handle_cache_page(uint8_t *buf, size_t buf_len)
+int handle_cache_page(struct tcmu_device *dev, uint8_t *ret_buf,
+		      size_t ret_buf_len)
 {
-	if (buf_len < 20)
-		return -1;
+	uint8_t buf[20];
 
+	memset(buf, 0, sizeof(buf));
 	buf[0] = 0x8;
 	buf[1] = 0x12;
-	buf[2] = 0x4; // WCE=1
 
+	/*
+	 * If device supports a writeback cache then set writeback
+	 * cache enable (WCE)
+	 */
+	if (tcmu_get_dev_write_cache_enabled(dev))
+		buf[2] = 0x4;
+
+	copy_to_response_buf(ret_buf, ret_buf_len, buf, 20);
 	return 20;
 }
 
-static int handle_control_page(uint8_t *buf, size_t buf_len)
+static int handle_control_page(struct tcmu_device *dev, uint8_t *ret_buf,
+			       size_t ret_buf_len)
 {
-	if (buf_len < 12)
-		return -1;
+	uint8_t buf[12];
 
+	memset(buf, 0, sizeof(buf));
 	buf[0] = 0x0a;
 	buf[1] = 0x0a;
 
@@ -863,19 +890,57 @@ static int handle_control_page(uint8_t *buf, size_t buf_len)
 	buf[8] = 0xff;
 	buf[9] = 0xff;
 
+	copy_to_response_buf(ret_buf, ret_buf_len, buf, 12);
 	return 12;
 }
 
 
-static struct {
+static struct mode_sense_handler {
 	uint8_t page;
 	uint8_t subpage;
-	int (*get)(uint8_t *buf, size_t buf_len);
+	int (*get)(struct tcmu_device *dev, uint8_t *buf, size_t buf_len);
 } modesense_handlers[] = {
 	{0x1, 0, handle_rwrecovery_page},
 	{0x8, 0, handle_cache_page},
 	{0xa, 0, handle_control_page},
 };
+
+static ssize_t handle_mode_sense(struct tcmu_device *dev,
+				 struct mode_sense_handler *handler,
+				 uint8_t **buf, size_t alloc_len,
+				 size_t *used_len, bool sense_ten)
+{
+	int ret;
+
+	ret = handler->get(dev, *buf, alloc_len - *used_len);
+
+	if  (!sense_ten && (*used_len + ret >= 255))
+		return -EINVAL;
+
+	/*
+	 * SPC 4r37: 4.3.5.6 Allocation length:
+	 *
+	 * If the information being transferred to the Data-In Buffer includes
+	 * fields containing counts of the number of bytes in some or all of
+	 * the data (e.g., the PARAMETER DATA LENGTH field, the PAGE LENGTH
+	 * field, the DESCRIPTOR LENGTH field, the AVAILABLE DATA field),
+	 * then the contents of these fields shall not be altered to reflect
+	 * the truncation, if any, that results from an insufficient
+	 * ALLOCATION LENGTH value
+	 */
+	/*
+	 * Setup the buffer so to still loop over the handlers, but just
+	 * increment the used_len so we can return the
+	 * final value.
+	 */
+	if (*buf && (*used_len + ret >= alloc_len))
+		*buf = NULL;
+
+	*used_len += ret;
+	if (*buf)
+		*buf += ret;
+	return ret;
+}
 
 /*
  * Handle MODE_SENSE(6) and MODE_SENSE(10).
@@ -883,6 +948,7 @@ static struct {
  * For TYPE_DISK only.
  */
 int tcmu_emulate_mode_sense(
+	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -895,13 +961,23 @@ int tcmu_emulate_mode_sense(
 	int i;
 	int ret;
 	size_t used_len;
-	uint8_t buf[512];
-	bool got_sense = false;
+	uint8_t *buf;
+	uint8_t *orig_buf = NULL;
 
-	memset(buf, 0, sizeof(buf));
+	if (!alloc_len)
+		return SAM_STAT_GOOD;
 
 	/* Mode parameter header. Mode data length filled in at the end. */
 	used_len = sense_ten ? 8 : 4;
+	if (used_len > alloc_len)
+		goto fail;
+
+	buf = calloc(1, alloc_len);
+	if (!buf)
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+	orig_buf = buf;
+	buf += used_len;
 
 	/* Don't fill in device-specific parameter */
 	/* This helper fn doesn't support sw write protect (SWP) */
@@ -909,58 +985,48 @@ int tcmu_emulate_mode_sense(
 	/* Don't report block descriptors */
 
 	if (page_code == 0x3f) {
-		got_sense = true;
 		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
-			ret = modesense_handlers[i].get(&buf[used_len], sizeof(buf) - used_len);
-			if (ret <= 0)
-				break;
-
-			if  (sense_ten && (used_len + ret >= 255))
-				break;
-
-			if (used_len + ret > alloc_len)
-				break;
-
-			used_len += ret;
+			ret = handle_mode_sense(dev, &modesense_handlers[i],
+						&buf, alloc_len, &used_len,
+						sense_ten);
+			if (ret < 0)
+				goto free_buf;
 		}
-	}
-	else {
+	} else {
+		ret = 0;
+
 		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
-			if (page_code == modesense_handlers[i].page
-			    && subpage_code == modesense_handlers[i].subpage) {
-				ret = modesense_handlers[i].get(&buf[used_len],
-								sizeof(buf) - used_len);
-				if (ret <= 0)
-					break;
-
-				if  (!sense_ten && (used_len + ret >= 255))
-					break;
-
-				if (used_len + ret > alloc_len)
-					break;
-
-				used_len += ret;
-				got_sense = true;
+			if (page_code == modesense_handlers[i].page &&
+			    subpage_code == modesense_handlers[i].subpage) {
+				ret = handle_mode_sense(dev,
+							&modesense_handlers[i],
+							&buf, alloc_len,
+							&used_len, sense_ten);
 				break;
 			}
 		}
+
+		if (ret <= 0)
+			goto free_buf;
 	}
 
-	if (!got_sense)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-				    ASC_INVALID_FIELD_IN_CDB, NULL);
-
 	if (sense_ten) {
-		uint16_t *ptr = (uint16_t*) buf;
+		uint16_t *ptr = (uint16_t*) orig_buf;
 		*ptr = htobe16(used_len - 2);
 	}
 	else {
-		buf[0] = used_len - 1;
+		orig_buf[0] = used_len - 1;
 	}
 
-	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
-
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, orig_buf, alloc_len);
+	free(orig_buf);
 	return SAM_STAT_GOOD;
+
+free_buf:
+	free(orig_buf);
+fail:
+	return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+				   ASC_INVALID_FIELD_IN_CDB, NULL);
 }
 
 /*
@@ -969,6 +1035,7 @@ int tcmu_emulate_mode_sense(
  * For TYPE_DISK only.
  */
 int tcmu_emulate_mode_select(
+	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
@@ -1001,7 +1068,7 @@ int tcmu_emulate_mode_select(
 	for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
 		if (page_code == modesense_handlers[i].page
 		    && subpage_code == modesense_handlers[i].subpage) {
-			ret = modesense_handlers[i].get(&buf[hdr_len],
+			ret = modesense_handlers[i].get(dev, &buf[hdr_len],
 							sizeof(buf) - hdr_len);
 			if (ret <= 0)
 				return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,

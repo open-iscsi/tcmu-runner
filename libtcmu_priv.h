@@ -61,6 +61,7 @@ struct tcmu_device {
 	uint64_t num_lbas;
 	uint32_t block_size;
 	uint32_t max_xfer_len;
+	unsigned int  write_cache_enabled:1;
 
 	char dev_name[16]; /* e.g. "uio14" */
 	char tcm_hba_name[16]; /* e.g. "user_8" */

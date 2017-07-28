@@ -765,6 +765,16 @@ uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev)
 	return dev->max_xfer_len;
 }
 
+void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled)
+{
+	dev->write_cache_enabled = enabled;
+}
+
+bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev)
+{
+	return dev->write_cache_enabled;
+}
+
 int tcmu_get_dev_fd(struct tcmu_device *dev)
 {
 	return dev->fd;

@@ -66,6 +66,8 @@ static int file_open(struct tcmu_device *dev)
 	}
 	config += 1; /* get past '/' */
 
+	tcmu_set_dev_write_cache_enabled(dev, 1);
+
 	state->fd = open(config, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
 	if (state->fd == -1) {
 		tcmu_err("could not open %s: %m\n", config);
