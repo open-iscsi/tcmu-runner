@@ -572,8 +572,8 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 		return TCMU_NOT_HANDLED;
 
 	if (alloc_len < 4)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_CDB, NULL);
 
 	buf = calloc(1, alloc_len);
 	if (!buf)
