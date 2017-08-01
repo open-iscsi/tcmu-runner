@@ -38,6 +38,8 @@ typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
 		       struct iovec *, size_t, size_t, off_t);
 typedef int (*flush_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
 typedef int (*handle_cmd_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
+typedef int (*unmap_fn_t)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			  uint64_t off, uint64_t len);
 
 struct tcmulib_cfg_info;
 
@@ -112,6 +114,7 @@ struct tcmur_handler {
 	rw_fn_t write;
 	rw_fn_t read;
 	flush_fn_t flush;
+	unmap_fn_t unmap;
 	int (*lock)(struct tcmu_device *dev);
 	int (*unlock)(struct tcmu_device *dev);
 	int (*has_lock)(struct tcmu_device *dev);

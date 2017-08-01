@@ -334,6 +334,8 @@ int tcmu_emulate_evpd_inquiry(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+
 	switch (cdb[2]) {
 	case 0x0: /* Supported VPD pages */
 	{
@@ -626,6 +628,14 @@ finish_page83:
 		/* Optimal xfer length */
 		memcpy(&data[12], &val32, 4);
 
+		/* MAXIMUM UNMAP LBA COUNT */
+		val32 = htobe32(VPD_MAX_UNMAP_LBA_COUNT);
+		memcpy(&data[20], &val32, 4);
+
+		/* MAXIMUM UNMAP BLOCK DESCRIPTOR COUNT */
+		val32 = htobe32(VPD_MAX_UNMAP_BLOCK_DESC_COUNT);
+		memcpy(&data[24], &val32, 4);
+
 		/* MAXIMUM WRITE SAME LENGTH */
 		val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
 		memcpy(&data[36], &val64, 8);
@@ -681,6 +691,21 @@ finish_page83:
 		 */
 		val16 = htobe16(0x0004);
 		memcpy(&data[2], &val16, 2);
+
+		/*
+		 * The logical block provisioning read zeros (LBPRZ) field.
+		 *
+		 * The logical block data represented by unmapped LBAs is set to zeros
+		 */
+		data[5] = 0x04;
+
+		/*
+		 * The logical block provisioning unmap (LBPU) field.
+		 *
+		 * This will enable the UNMAP command for the device server.
+		 */
+		if (rhandler->unmap)
+			data[5] |= 0x80;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 		return SAM_STAT_GOOD;
@@ -781,6 +806,14 @@ int tcmu_emulate_read_capacity_16(
 
 	val32 = htobe32(block_size);
 	memcpy(&buf[8], &val32, 4);
+
+	/*
+	 * Logical Block Provisioning Management Enabled (LBPME) bit
+	 *
+	 * The LBPME bit sets to one and then the logical unit implements
+	 * logical block provisioning management
+	 */
+	buf[14] = 0x80;
 
 	/* all else is zero */
 

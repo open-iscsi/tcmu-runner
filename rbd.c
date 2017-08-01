@@ -44,6 +44,11 @@
 #define RBD_LOCK_ACQUIRE_SUPPORT
 #endif
 
+/* rbd_aio_discard added in 0.1.2 */
+#if LIBRBD_VERSION_CODE >= LIBRBD_VERSION(0, 1, 2)
+#define RBD_DISCARD_SUPPORT
+#endif
+
 enum {
 	TCMU_RBD_OPENING,
 	TCMU_RBD_OPENED,
@@ -632,6 +637,45 @@ out:
 	return SAM_STAT_TASK_SET_FULL;
 }
 
+#ifdef RBD_DISCARD_SUPPORT
+static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			  uint64_t off, uint64_t len)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct rbd_aio_cb *aio_cb;
+	rbd_completion_t completion;
+	ssize_t ret;
+
+	aio_cb = calloc(1, sizeof(*aio_cb));
+	if (!aio_cb) {
+		tcmu_dev_err(dev, "Could not allocate aio_cb.\n");
+		goto out;
+	}
+
+	aio_cb->dev = dev;
+	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->bounce_buffer = NULL;
+
+	ret = rbd_aio_create_completion
+		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
+	if (ret < 0)
+		goto out_free_aio_cb;
+
+	ret = rbd_aio_discard(state->image, off, len, completion);
+	if (ret < 0)
+		goto out_remove_tracked_aio;
+
+	return 0;
+
+out_remove_tracked_aio:
+	rbd_aio_release(completion);
+out_free_aio_cb:
+	free(aio_cb);
+out:
+	return SAM_STAT_TASK_SET_FULL;
+}
+#endif /* RBD_DISCARD_SUPPORT */
+
 #ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 
 static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -702,6 +746,9 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.write	       = tcmu_rbd_write,
 #ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 	.flush	       = tcmu_rbd_flush,
+#endif
+#ifdef RBD_DISCARD_SUPPORT
+	.unmap         = tcmu_rbd_unmap,
 #endif
 
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
