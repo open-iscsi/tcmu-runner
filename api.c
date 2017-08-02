@@ -629,7 +629,7 @@ finish_page83:
 		memcpy(&data[12], &val32, 4);
 
 		/* MAXIMUM UNMAP LBA COUNT */
-		val32 = htobe32(VPD_MAX_UNMAP_LBA_COUNT);
+		val32 = htobe32(max_xfer_length);
 		memcpy(&data[20], &val32, 4);
 
 		/* MAXIMUM UNMAP BLOCK DESCRIPTOR COUNT */
