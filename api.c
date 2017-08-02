@@ -610,15 +610,15 @@ finish_page83:
 		 * Daemons like runner may override the user requested
 		 * value due to device specific limits.
 		 */
-		if (dev->max_xfer_len) {
-			max_xfer_length = dev->max_xfer_len;
-		} else {
+		max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
+		if (!max_xfer_length) {
 			max_xfer_length = tcmu_get_attribute(dev,
 							     "hw_max_sectors");
 			if (max_xfer_length < 0) {
 				return tcmu_set_sense_data(sense,
-						HARDWARE_ERROR,
-						ASC_INTERNAL_TARGET_FAILURE, NULL);
+							   HARDWARE_ERROR,
+							   ASC_INTERNAL_TARGET_FAILURE,
+							   NULL);
 			}
 		}
 
@@ -629,7 +629,7 @@ finish_page83:
 		memcpy(&data[12], &val32, 4);
 
 		/* MAXIMUM UNMAP LBA COUNT */
-		val32 = htobe32(VPD_MAX_UNMAP_LBA_COUNT);
+		val32 = htobe32(max_xfer_length);
 		memcpy(&data[20], &val32, 4);
 
 		/* MAXIMUM UNMAP BLOCK DESCRIPTOR COUNT */

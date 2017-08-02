@@ -1738,6 +1738,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 
 	pthread_mutex_lock(&state->lock);
 	while (bddl) {
+		size_t max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
 		struct unmap_descriptor *desc;
 		struct tcmulib_cmd *ucmd;
 		uint64_t lba;
@@ -1749,9 +1750,9 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		tcmu_dev_dbg(dev, "Parameter list %d, lba: %llu, nlbas: %u\n",
 			     i++, lba, nlbas);
 
-		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
+		if (nlbas > max_xfer_length) {
 			tcmu_err("Illegal parameter list LBA count %lu exceeds:%u\n",
-				 nlbas, VPD_MAX_UNMAP_LBA_COUNT);
+				 nlbas, max_xfer_length);
 			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 						  NULL);
