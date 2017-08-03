@@ -568,7 +568,6 @@ finish_page83:
 	case 0xb0: /* Block Limits */
 	{
 		char data[64];
-		int block_size;
 		int max_xfer_length;
 		uint16_t val16;
 		uint32_t val32;
@@ -599,12 +598,6 @@ finish_page83:
 		 * It should be less than or equal to MAXIMUM TRANSFER LENGTH.
 		 */
 		data[5] = 0x01;
-
-		block_size = tcmu_get_attribute(dev, "hw_block_size");
-		if (block_size <= 0) {
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB, NULL);
-		}
 
 		/*
 		 * Daemons like runner may override the user requested
