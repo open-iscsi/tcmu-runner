@@ -1407,11 +1407,11 @@ static int qcow_open(struct tcmu_device *dev)
 	tcmu_dbg("%s\n", config);
 
 	/*
-	 * We do not implement flush, so set WCE=0 and do sync IO.
+	 * Force WCE=1 until we support reconfig for WCE
 	 */
-	tcmu_set_dev_write_cache_enabled(dev, 0);
+	tcmu_set_dev_write_cache_enabled(dev, 1);
 
-	if (bdev_open(bdev, AT_FDCWD, config, O_RDWR | O_SYNC) == -1)
+	if (bdev_open(bdev, AT_FDCWD, config, O_RDWR) == -1)
 		goto err;
 	return 0;
 err:
@@ -1479,6 +1479,23 @@ done:
 	return 0;
 }
 
+static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct bdev *bdev = tcmu_get_dev_private(dev);
+	int ret;
+
+	if (fsync(bdev->fd)) {
+		tcmu_dev_err(dev, "sync failed\n");
+		ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
+					  ASC_WRITE_ERROR, NULL);
+		goto done;
+	}
+	ret = SAM_STAT_GOOD;
+done:
+	cmd->done(dev, cmd, ret);
+	return 0;
+}
+
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";
 
 static struct tcmur_handler qcow_handler = {
@@ -1489,6 +1506,7 @@ static struct tcmur_handler qcow_handler = {
 	.open = qcow_open,
 	.close = qcow_close,
 	.write = qcow_write,
+	.flush = qcow_flush,
 	.read = qcow_read,
 	.nr_threads = 1,
 };
