@@ -808,6 +808,14 @@ int tcmu_emulate_read_capacity_16(
 	 */
 	buf[14] = 0x80;
 
+	/*
+	 * The logical block provisioning read zeros (LBPRZ) bit shall be
+	 * set to one if the LBPRZ field is set to xx1b in VPD B2. The
+	 * LBPRZ bit shall be set to zero if the LBPRZ field is not set
+	 * to xx1b.
+	 */
+	buf[14] |= 0x40;
+
 	/* all else is zero */
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
