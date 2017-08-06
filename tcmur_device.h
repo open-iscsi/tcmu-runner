@@ -19,7 +19,7 @@
 
 #include "tcmur_aio.h"
 
-#define TCMUR_DEV_FORMATTING		0x01
+#define TCMUR_DEV_FLAG_FORMATTING	0x01
 
 struct tcmur_device {
 	/* TCMUR_DEV flags */
