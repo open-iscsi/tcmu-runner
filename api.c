@@ -211,6 +211,7 @@ void tcmu_zero_iovec(struct iovec *iovec, size_t iov_cnt)
 		iov_cnt--;
 	}
 }
+
 /*
  * Copy data into an iovec, and consume the space in the iovec.
  *
@@ -505,10 +506,10 @@ int tcmu_emulate_evpd_inquiry(
 
 		/* SCSI name */
 		ptr[0] = port->proto_id << 4;
-		ptr[0] |= 0x3; 	/* CODE SET = UTF-8 */
-		ptr[1] = 0x80; 	/* PIV=1 */
+		ptr[0] |= 0x3;	/* CODE SET = UTF-8 */
+		ptr[1] = 0x80;	/* PIV=1 */
 		ptr[1] |= 0x10; /* ASSOCIATION = target port: 01b */
-		ptr[1] |= 0x8; 	/* DESIGNATOR TYPE = SCSI name string */
+		ptr[1] |= 0x8;	/* DESIGNATOR TYPE = SCSI name string */
 		len = snprintf(&ptr[4], sizeof(data) - used - 4, "%s,t,0x%04x", port->wwn, port->tpgt);
 		len += 1;		/* Include  NULL terminator */
 		/*
@@ -621,17 +622,19 @@ finish_page83:
 		/* Optimal xfer length */
 		memcpy(&data[12], &val32, 4);
 
-		/* MAXIMUM UNMAP LBA COUNT */
-		val32 = htobe32(max_xfer_length);
-		memcpy(&data[20], &val32, 4);
+		if (rhandler->unmap) {
+			/* MAXIMUM UNMAP LBA COUNT */
+			val32 = htobe32(max_xfer_length);
+			memcpy(&data[20], &val32, 4);
 
-		/* MAXIMUM UNMAP BLOCK DESCRIPTOR COUNT */
-		val32 = htobe32(VPD_MAX_UNMAP_BLOCK_DESC_COUNT);
-		memcpy(&data[24], &val32, 4);
+			/* MAXIMUM UNMAP BLOCK DESCRIPTOR COUNT */
+			val32 = htobe32(VPD_MAX_UNMAP_BLOCK_DESC_COUNT);
+			memcpy(&data[24], &val32, 4);
 
-		/* OPTIMAL UNMAP GRANULARITY */
-		val32 = htobe32(max_xfer_length);
-		memcpy(&data[28], &val32, 4);
+			/* OPTIMAL UNMAP GRANULARITY */
+			val32 = htobe32(max_xfer_length);
+			memcpy(&data[28], &val32, 4);
+		}
 
 		/* MAXIMUM WRITE SAME LENGTH */
 		val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
