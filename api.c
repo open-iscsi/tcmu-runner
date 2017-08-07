@@ -629,6 +629,10 @@ finish_page83:
 		val32 = htobe32(VPD_MAX_UNMAP_BLOCK_DESC_COUNT);
 		memcpy(&data[24], &val32, 4);
 
+		/* OPTIMAL UNMAP GRANULARITY */
+		val32 = htobe32(max_xfer_length);
+		memcpy(&data[28], &val32, 4);
+
 		/* MAXIMUM WRITE SAME LENGTH */
 		val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
 		memcpy(&data[36], &val64, 8);
