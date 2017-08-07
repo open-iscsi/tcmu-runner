@@ -637,7 +637,10 @@ finish_page83:
 		}
 
 		/* MAXIMUM WRITE SAME LENGTH */
-		val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
+		if (rhandler->unmap)
+			val64 = htobe64(max_xfer_length);
+		else
+			val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
 		memcpy(&data[36], &val64, 8);
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
