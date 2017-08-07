@@ -346,6 +346,7 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 				 struct tcmulib_cmd *cmd)
 {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	tcmur_writesame_fn_t write_same_fn = cmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint8_t *cdb = cmd->cdb;
@@ -353,6 +354,11 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 	uint32_t len = block_size * tcmu_get_xfer_length(cdb);
 
 	cmd->done = handle_generic_cbk;
+
+	if (rhandler->unmap && (cmd->cdb[1] & 0x08)) {
+		tcmu_dev_dbg(dev, "Do UNMAP in WRITE_SAME cmd!\n");
+		return rhandler->unmap(dev, cmd, off, len);
+	}
 
 	/*
 	 * Write contents of the logical block data(from the Data-Out Buffer)
