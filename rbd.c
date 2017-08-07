@@ -35,6 +35,7 @@
 #include "tcmu-runner.h"
 #include "tcmur_cmd_handler.h"
 #include "libtcmu.h"
+#include "tcmur_device.h"
 
 #include <rbd/librbd.h>
 
@@ -472,6 +473,19 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 	tcmu_rbd_state_free(state);
 }
 
+static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,
+					   struct tcmulib_cmd *cmd)
+{
+       tcmu_notify_lock_lost(dev);
+	/*
+	 * This will happen during failback normally, because
+	 * running IO is failed due to librbd's immediate blacklisting
+	 * during lock acquisition on a higher priority path.
+	 */
+	return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
+				   ASC_STATE_TRANSITION, NULL);
+}
+
 /*
  * NOTE: RBD async APIs almost always return 0 (success), except
  * when allocation (via new) fails - which is not caught. So,
@@ -493,10 +507,9 @@ static void rbd_finish_aio_read(rbd_completion_t completion,
 	rbd_aio_release(completion);
 
 	if (ret == -ESHUTDOWN) {
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     NOT_READY, ASC_PORT_IN_STANDBY,
-					     NULL);
+		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
 	} else if (ret < 0) {
+		tcmu_dev_err(dev, "Got fatal read error %d.\n", ret);
 		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
 					     MEDIUM_ERROR, ASC_READ_ERROR, NULL);
 	} else {
@@ -572,10 +585,9 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	rbd_aio_release(completion);
 
 	if (ret == -ESHUTDOWN) {
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     NOT_READY, ASC_PORT_IN_STANDBY,
-					     NULL);
+		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
 	} else if (ret < 0) {
+		tcmu_dev_err(dev, "Got fatal write error %d.\n", ret);
 		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
 					     MEDIUM_ERROR, ASC_WRITE_ERROR,
 					     NULL);
