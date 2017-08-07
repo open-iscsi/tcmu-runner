@@ -149,8 +149,17 @@ static int write_work_fn(struct tcmu_device *dev,
 }
 
 struct write_same {
-	uint64_t cur_lba;
-	uint64_t lba_cnt;
+	union {
+		struct {
+			uint64_t offset;
+			uint64_t length;
+		};
+
+		struct {
+			uint64_t cur_lba;
+			uint64_t lba_cnt;
+		};
+	};
 
 	struct iovec iovec;
 	size_t iov_cnt;
@@ -294,8 +303,31 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	return 0;
 }
 
+static void handle_ws_unmap_cbk(struct tcmu_device *dev,
+				struct tcmulib_cmd *cmd, int ret)
+{
+	struct write_same *write_same = cmd->cmdstate;
+
+	free(write_same);
+
+	aio_command_finish(dev, cmd, ret);
+}
+
+static int ws_unmap_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct write_same *write_same = cmd->cmdstate;
+	uint64_t offset = write_same->offset;
+	uint64_t length = write_same->length;
+
+	cmd->done = handle_ws_unmap_cbk;
+
+	return rhandler->unmap(dev, cmd, offset, length);
+}
+
 static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint8_t *cdb = cmd->cdb;
 	uint8_t *sense = cmd->sense_buf;
 	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
@@ -316,6 +348,24 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE,
 					   NULL);
+	}
+
+	if (rhandler->unmap && (cmd->cdb[1] & 0x08)) {
+		tcmu_dev_dbg(dev, "Do UNMAP in emulator WRITE_SAME cmd!\n");
+
+		write_same->offset = start_lba * block_size;
+		write_same->length = lba_cnt * block_size;
+		cmd->cmdstate = write_same;
+
+		ret = async_handle_cmd(dev, cmd, ws_unmap_work_fn);
+		if (ret != TCMU_ASYNC_HANDLED) {
+			tcmu_dev_err(dev, "Do UNMAP async failed\n");
+			free(write_same);
+			return tcmu_set_sense_data(sense, MEDIUM_ERROR,
+						   ASC_WRITE_ERROR,
+						   NULL);
+		}
+		return ret;
 	}
 
 	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
