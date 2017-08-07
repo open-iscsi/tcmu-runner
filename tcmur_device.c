@@ -24,6 +24,28 @@
 #include "libtcmu_common.h"
 #include "tcmur_device.h"
 
+/**
+ * tcmu_notify_lock_lost - notify runner the device instance has lost the lock
+ * @dev: device that has lost the lock
+ *
+ * Handlers should call this function when they detect they have lost
+ * the lock, so runner can re-acquire.
+ */
+void tcmu_notify_lock_lost(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+	pthread_mutex_lock(&rdev->state_lock);
+	tcmu_dev_err(dev, "Async lock drop. Old state %d\n", rdev->lock_state);
+	/*
+	 * We could be getting stale IO completions. If we are trying to
+	 * reaquire the lock do not change state.
+	 */
+	if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKING)
+		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+	pthread_mutex_unlock(&rdev->state_lock);
+}
+
 int tcmu_cancel_lock_thread(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);

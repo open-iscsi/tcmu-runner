@@ -61,5 +61,6 @@ struct tcmur_device {
 };
 
 int tcmu_cancel_lock_thread(struct tcmu_device *dev);
+void tcmu_notify_lock_lost(struct tcmu_device *dev);
 
 #endif
