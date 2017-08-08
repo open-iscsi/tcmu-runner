@@ -33,6 +33,7 @@
 #include <scsi/scsi.h>
 
 #include "tcmu-runner.h"
+#include "tcmur_cmd_handler.h"
 #include "libtcmu.h"
 
 #include <rbd/librbd.h>
@@ -47,6 +48,13 @@
 /* rbd_aio_discard added in 0.1.2 */
 #if LIBRBD_VERSION_CODE >= LIBRBD_VERSION(0, 1, 2)
 #define RBD_DISCARD_SUPPORT
+#endif
+
+/*
+ * rbd_aio_writesame support was added in librbd 1.12.0
+ */
+#if LIBRBD_VERSION_CODE >= LIBRBD_VERSION(1, 12, 0)
+#define RBD_WRITE_SAME_SUPPORT
 #endif
 
 enum {
@@ -718,6 +726,82 @@ out:
 
 #endif
 
+#ifdef RBD_WRITE_SAME_SUPPORT
+static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
+				  struct tcmulib_cmd *cmd,
+				  uint64_t off, uint64_t len,
+				  struct iovec *iov, size_t iov_cnt)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct rbd_aio_cb *aio_cb;
+	rbd_completion_t completion;
+	ssize_t ret;
+
+	aio_cb = calloc(1, sizeof(*aio_cb));
+	if (!aio_cb) {
+		tcmu_dev_err(dev, "Could not allocate aio_cb.\n");
+		goto out;
+	}
+
+	aio_cb->dev = dev;
+	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->length = tcmu_iovec_length(iov, iov_cnt);
+
+	aio_cb->bounce_buffer = malloc(aio_cb->length);
+	if (!aio_cb->bounce_buffer) {
+		tcmu_dev_err(dev, "Failed to allocate bounce buffer.\n");
+		goto out_free_aio_cb;
+	}
+
+	tcmu_memcpy_from_iovec(aio_cb->bounce_buffer, aio_cb->length, iov, iov_cnt);
+
+	ret = rbd_aio_create_completion
+		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
+	if (ret < 0)
+		goto out_free_bounce_buffer;
+
+	tcmu_dev_dbg(dev, "Start write same off:%llu, len:%llu\n", off, len);
+
+	ret = rbd_aio_writesame(state->image, off, len, aio_cb->bounce_buffer,
+				aio_cb->length, completion, 0);
+	if (ret < 0)
+		goto out_remove_tracked_aio;
+
+	return 0;
+
+out_remove_tracked_aio:
+	rbd_aio_release(completion);
+out_free_bounce_buffer:
+	free(aio_cb->bounce_buffer);
+out_free_aio_cb:
+	free(aio_cb);
+out:
+	return SAM_STAT_TASK_SET_FULL;
+}
+#endif /* RBD_WRITE_SAME_SUPPORT */
+
+/*
+ * Return scsi status or TCMU_NOT_HANDLED
+ */
+static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	uint8_t *cdb = cmd->cdb;
+	int ret;
+
+	switch(cdb[0]) {
+#ifdef RBD_WRITE_SAME_SUPPORT
+	case WRITE_SAME:
+	case WRITE_SAME_16:
+		ret = tcmur_handle_writesame(dev, cmd, tcmu_rbd_aio_writesame);
+		break;
+#endif
+	default:
+		ret = TCMU_NOT_HANDLED;
+	}
+
+	return ret;
+}
+
 /*
  * For backstore creation
  *
@@ -750,7 +834,7 @@ struct tcmur_handler tcmu_rbd_handler = {
 #ifdef RBD_DISCARD_SUPPORT
 	.unmap         = tcmu_rbd_unmap,
 #endif
-
+	.handle_cmd    = tcmu_rbd_handle_cmd,
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
 	.lock          = tcmu_rbd_lock,
 	.unlock        = tcmu_rbd_unlock,

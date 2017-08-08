@@ -637,7 +637,10 @@ finish_page83:
 		}
 
 		/* MAXIMUM WRITE SAME LENGTH */
-		val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
+		if (rhandler->unmap)
+			val64 = htobe64(max_xfer_length);
+		else
+			val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
 		memcpy(&data[36], &val64, 8);
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
@@ -700,12 +703,13 @@ finish_page83:
 		data[5] = 0x04;
 
 		/*
-		 * The logical block provisioning unmap (LBPU) field.
+		 * The logical block provisioning unmap (LBPU|LBPWS|LBPWS10) fields.
 		 *
-		 * This will enable the UNMAP command for the device server.
+		 * This will enable the UNMAP command for the device server and write
+		 * same(10|16) command.
 		 */
 		if (rhandler->unmap)
-			data[5] |= 0x80;
+			data[5] |= 0xe0;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 		return SAM_STAT_GOOD;
