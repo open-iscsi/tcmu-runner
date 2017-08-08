@@ -605,16 +605,6 @@ finish_page83:
 		 * value due to device specific limits.
 		 */
 		max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
-		if (!max_xfer_length) {
-			max_xfer_length = tcmu_get_attribute(dev,
-							     "hw_max_sectors");
-			if (max_xfer_length < 0) {
-				return tcmu_set_sense_data(sense,
-							   HARDWARE_ERROR,
-							   ASC_INTERNAL_TARGET_FAILURE,
-							   NULL);
-			}
-		}
 
 		val32 = htobe32(max_xfer_length);
 		/* Max xfer length */
