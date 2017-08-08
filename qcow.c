@@ -501,6 +501,11 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 		tcmu_err("Image size too big\n");
 		goto fail;
 	}
+	if (round_up(header.size, bdev->block_size) != header.size) {
+		tcmu_err("Image size is not an integer multiple"
+				 " of the block size\n");
+		goto fail;
+	}	
 	s->l1_size = l1_size;
 	s->l1_table_offset = header.l1_table_offset;
 
@@ -612,6 +617,11 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 		tcmu_err("Image size too big\n");
 		goto fail;
 	}
+	if (round_up(header.size, bdev->block_size) != header.size) {
+		tcmu_err("Image size is not an integer multiple"
+				 " of the block size\n");
+		goto fail;
+	}		
 	s->l1_size = l1_size;
 	// why did they add this to qcow2 ?
 	if (header.l1_size != s->l1_size) {
@@ -982,7 +992,6 @@ static int qcow2_set_refcount(struct qcow_state *s, uint64_t cluster_offset, uin
 static uint64_t qcow2_block_alloc(struct qcow_state *s, size_t size)
 {
 	uint64_t cluster;
-	uint64_t count;
 	int ret;
 
 	tcmu_dbg("  %s %zx\n", __func__, size);
@@ -990,23 +999,21 @@ static uint64_t qcow2_block_alloc(struct qcow_state *s, size_t size)
 	/* all allocations for qcow2 should be of the same size */
 	assert(size == s->cluster_size);
 
-	for (cluster = s->first_free_cluster; cluster < s->size; cluster += s->cluster_size) {
-		count = qcow2_get_refcount(s, cluster);
-		if (count == 0) {
-			ret = fallocate(s->fd, FALLOC_FL_ZERO_RANGE, cluster, s->cluster_size);
-			if (ret) {
-				tcmu_err("fallocate failed: %m\n");
-				return 0;
-			}
-			s->first_free_cluster = cluster + s->cluster_size;
-			// this causes a nasty loop
-			// qcow2_set_refcount(s, cluster, 1);
-			tcmu_dbg("  allocating cluster %d\n", cluster / s->cluster_size);
-			return cluster;
-		}
+	cluster = s->first_free_cluster;
+	while (qcow2_get_refcount(s, cluster)) {
+		cluster += s->cluster_size;
 	}
-	tcmu_err("no more free clusters in image file\n");
-	return 0;
+
+	ret = fallocate(s->fd, FALLOC_FL_ZERO_RANGE, cluster, s->cluster_size);
+	if (ret) {
+		tcmu_err("fallocate failed: %m\n");
+		return 0;
+	}
+	s->first_free_cluster = cluster + s->cluster_size;
+	// this causes a nasty loop
+	// qcow2_set_refcount(s, cluster, 1);
+	tcmu_dbg("  allocating cluster %d\n", cluster / s->cluster_size);
+	return cluster;
 }
 
 static int l2_table_update(struct qcow_state *s,
@@ -1284,6 +1291,11 @@ static ssize_t qcow_pwritev(struct bdev *bdev, struct iovec *iov, int iovcnt, of
 	assert(!(count & 511));
 	sector_count = count / 512;
 	sector_num = offset >> 9;
+
+	if (sector_num >= s->size / 512) {
+		return 0;
+	}
+	sector_count = min(sector_count, s->size / 512 - sector_num);
 
 	while (sector_count) {
 		sector_index = sector_num & (s->cluster_sectors - 1);
