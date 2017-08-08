@@ -634,6 +634,13 @@ finish_page83:
 			/* OPTIMAL UNMAP GRANULARITY */
 			val32 = htobe32(max_xfer_length);
 			memcpy(&data[28], &val32, 4);
+
+			/* UNMAP GRANULARITY ALIGNMENT */
+			val32 = htobe32(max_xfer_length);
+			memcpy(&data[32], &val32, 4);
+
+			/* UGAVALID: An unmap granularity alignment valid bit */
+			data[32] |= 0x80;
 		}
 
 		/* MAXIMUM WRITE SAME LENGTH */
