@@ -53,7 +53,7 @@
 /*
  * rbd_aio_writesame support was added in librbd 1.12.0
  */
-#if LIBRBD_VERSION_CODE >= LIBRBD_VERSION(1, 12, 0)
+#if LIBRBD_VERSION_CODE >= LIBRBD_VERSION(1, 12, 0) || LIBRBD_SUPPORTS_WRITESAME
 #define RBD_WRITE_SAME_SUPPORT
 #endif
 
