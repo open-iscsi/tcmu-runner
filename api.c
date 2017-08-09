@@ -847,7 +847,7 @@ static void copy_to_response_buf(uint8_t *to_buf, size_t to_len,
 	memcpy(to_buf, from_buf, to_len > from_len ? from_len : to_len);
 }
 
-int handle_rwrecovery_page(struct tcmu_device *dev, uint8_t *ret_buf,
+static int handle_rwrecovery_page(struct tcmu_device *dev, uint8_t *ret_buf,
 			   size_t ret_buf_len)
 {
 	uint8_t buf[12];
@@ -860,7 +860,7 @@ int handle_rwrecovery_page(struct tcmu_device *dev, uint8_t *ret_buf,
 	return 12;
 }
 
-int handle_cache_page(struct tcmu_device *dev, uint8_t *ret_buf,
+static int handle_cache_page(struct tcmu_device *dev, uint8_t *ret_buf,
 		      size_t ret_buf_len)
 {
 	uint8_t buf[20];
