@@ -438,7 +438,14 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			   tcmur_writesame_fn_t write_same_fn)
 {
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
+
+	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
+		ret = alua_implicit_transition(dev, cmd);
+		if (ret)
+			return ret;
+	}
 
 	ret = handle_writesame_check(dev, cmd);
 	if (ret)
@@ -2133,6 +2140,12 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	uint8_t *cdb = cmd->cdb;
+
+	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
+		ret = alua_implicit_transition(dev, cmd);
+		if (ret)
+			return ret;
+	}
 
 	track_aio_request_start(rdev);
 

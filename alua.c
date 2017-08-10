@@ -30,6 +30,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
+#include "tcmur_device.h"
 #include "target.h"
 #include "alua.h"
 
@@ -77,6 +78,7 @@ static void tcmu_free_tgt_port_grp(struct tgt_port_grp *group)
 static struct tgt_port_grp *
 tcmu_get_tgt_port_grp(struct tcmu_device *dev, const char *name)
 {
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tgt_port_grp *group;
 	struct tgt_port *port;
 	char *str_val, *orig_str_val, *member;
@@ -184,15 +186,25 @@ tcmu_get_tgt_port_grp(struct tcmu_device *dev, const char *name)
 	if (!str_val)
 		goto free_group;
 
-	if (!strcmp(str_val, "None"))
-		group->tpgs = TPGS_ALUA_NONE;
-	else if (!strcmp(str_val, "Implicit"))
+	if (!strcmp(str_val, "None")) {
+		/*
+		 * Assume user wanted to do active-active.
+		 * We still want the initiator to use RTPG and we
+		 * can manually change states, so report this as
+		 * implicit.
+		 */
+		rdev->failover_type = TMCUR_DEV_FAILOVER_ALL_ACTIVE;
+
 		group->tpgs = TPGS_ALUA_IMPLICIT;
-	else if (!strcmp(str_val, "Explicit"))
-		group->tpgs = TPGS_ALUA_EXPLICIT;
-	else if (!strcmp(str_val, "Implicit and Explicit"))
-		group->tpgs = (TPGS_ALUA_IMPLICIT | TPGS_ALUA_EXPLICIT);
-	else {
+	} else if (!strcmp(str_val, "Implicit")) {
+		rdev->failover_type = TMCUR_DEV_FAILOVER_IMPLICIT;
+
+		group->tpgs = TPGS_ALUA_IMPLICIT;
+	} else if (!strcmp(str_val, "Explicit") ||
+		   !strcmp(str_val, "Implicit and Explicit")) {
+		tcmu_dev_warn(dev, "Unsupported alua_access_type: Explicit failover not supported.\n");
+		goto free_str_val;
+	} else {
 		tcmu_dev_err(dev, "Invalid ALUA type %s", str_val);
 		goto free_str_val;
 	}
@@ -397,5 +409,24 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 
 	tcmu_memcpy_into_iovec(cmd->iovec, cmd->iov_cnt, buf, alloc_len);
 	free(buf);
+	return SAM_STAT_GOOD;
+}
+
+int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	int ret;
+
+	ret = rhandler->lock(dev);
+	switch (ret) {
+	case TCMUR_LOCK_BUSY:
+		return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
+					   ASC_STATE_TRANSITION, NULL);
+	case TCMUR_LOCK_FAILED:
+		return tcmu_set_sense_data(cmd->sense_buf,
+					   UNIT_ATTENTION,
+					   ASC_STATE_TRANSITION_FAILED, NULL);
+	}
+
 	return SAM_STAT_GOOD;
 }

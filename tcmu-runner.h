@@ -46,6 +46,7 @@ struct tcmulib_cfg_info;
 enum {
 	TCMUR_LOCK_SUCCESS,
 	TCMUR_LOCK_FAILED,
+	TCMUR_LOCK_BUSY,
 };
 
 struct tcmur_handler {
