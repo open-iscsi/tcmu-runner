@@ -2160,10 +2160,6 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case EXTENDED_COPY:
 		ret = handle_xcopy(dev, cmd);
 		break;
-	case RECEIVE_COPY_RESULTS:
-		if ((cdb[1] & 0x1f) == RCR_SA_OPERATING_PARAMETERS)
-			ret = handle_recv_copy_result(dev, cmd);
-		break;
 	case COMPARE_AND_WRITE:
 		ret = handle_caw(dev, cmd);
 		break;
@@ -2177,10 +2173,6 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		break;
 	case FORMAT_UNIT:
 		ret = handle_format_unit(dev, cmd);
-		break;
-	case MAINTENANCE_IN:
-		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
-			ret = handle_rtpg(dev, cmd);
 		break;
 	default:
 		ret = TCMU_NOT_HANDLED;
@@ -2214,7 +2206,7 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return ret;
 }
 
-static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
 	struct iovec *iovec = cmd->iovec;
@@ -2255,31 +2247,16 @@ static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case MODE_SELECT:
 	case MODE_SELECT_10:
 		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt, sense);
+	case RECEIVE_COPY_RESULTS:
+		if ((cdb[1] & 0x1f) == RCR_SA_OPERATING_PARAMETERS)
+			return handle_recv_copy_result(dev, cmd);
+		return TCMU_NOT_HANDLED;
+	case MAINTENANCE_IN:
+		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
+			return handle_rtpg(dev, cmd);
+		return TCMU_NOT_HANDLED;
 	default:
 		return TCMU_NOT_HANDLED;
-	}
-}
-
-static bool command_is_generic(struct tcmulib_cmd *cmd)
-{
-	uint8_t *cdb = cmd->cdb;
-
-	switch(cdb[0]) {
-	case INQUIRY:
-	case TEST_UNIT_READY:
-	case MODE_SENSE:
-	case MODE_SENSE_10:
-	case START_STOP:
-	case MODE_SELECT:
-	case MODE_SELECT_10:
-	case READ_CAPACITY:
-		return true;
-	case SERVICE_ACTION_IN_16:
-		if (cdb[1] == READ_CAPACITY_16)
-			return true;
-		/* fall through */
-	default:
-		return false;
 	}
 }
 
@@ -2320,8 +2297,8 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return ret;
 
 	/* Falls back to the runner's generic handle callout */
-	if (command_is_generic(cmd))
-		return handle_generic_cmd(dev, cmd);
-	else
-		return tcmur_cmd_handler(dev, cmd);
+	ret = handle_sync_cmd(dev, cmd);
+	if (ret == TCMU_NOT_HANDLED)
+		ret = tcmur_cmd_handler(dev, cmd);
+	return ret;
 }
