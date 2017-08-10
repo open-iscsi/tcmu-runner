@@ -21,9 +21,15 @@
 
 #define TCMUR_DEV_FLAG_FORMATTING	0x01
 
+enum {
+	TMCUR_DEV_FAILOVER_ALL_ACTIVE,
+	TMCUR_DEV_FAILOVER_IMPLICIT,
+};
+
 struct tcmur_device {
 	/* TCMUR_DEV flags */
 	uint32_t flags;
+	uint8_t failover_type;
 
 	/*
 	 * lock order:

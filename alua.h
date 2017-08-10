@@ -50,5 +50,6 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 struct tgt_port *tcmu_get_enabled_port(struct list_head *);
 int tcmu_get_tgt_port_grps(struct tcmu_device *, struct list_head *);
 void tcmu_release_tgt_port_grps(struct list_head *);
+int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
 #endif
