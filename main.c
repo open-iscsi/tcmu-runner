@@ -675,6 +675,7 @@ static int dev_added(struct tcmu_device *dev)
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev;
 	int32_t block_size, max_sectors;
+	uint32_t max_xfer_length;
 	int64_t dev_size;
 	int ret;
 
@@ -730,8 +731,13 @@ static int dev_added(struct tcmu_device *dev)
 	if (ret)
 		goto cleanup_aio_tracking;
 
-	/* Set the optimal unmap granularity to max xfer len */
-	tcmu_set_dev_opt_unmap_gran(dev, tcmu_get_dev_max_xfer_len(dev));
+	/*
+	 * Set the optimal unmap granularity and the alignment to
+	 * max xfer len
+	 */
+	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
+	tcmu_set_dev_opt_unmap_gran(dev, max_xfer_length);
+	tcmu_set_dev_unmap_gran_align(dev, max_xfer_length);
 
 	ret = tcmulib_start_cmdproc_thread(dev, tcmur_cmdproc_thread);
 	if (ret < 0)

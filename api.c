@@ -569,8 +569,9 @@ finish_page83:
 	case 0xb0: /* Block Limits */
 	{
 		char data[64];
-		int max_xfer_length;
-		int opt_unmap_gran;
+		uint32_t max_xfer_length;
+		uint32_t opt_unmap_gran;
+		uint32_t unmap_gran_align;
 		uint16_t val16;
 		uint32_t val32;
 		uint64_t val64;
@@ -628,7 +629,8 @@ finish_page83:
 			memcpy(&data[28], &val32, 4);
 
 			/* UNMAP GRANULARITY ALIGNMENT */
-			val32 = htobe32(max_xfer_length);
+			unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
+			val32 = htobe32(unmap_gran_align);
 			memcpy(&data[32], &val32, 4);
 
 			/* UGAVALID: An unmap granularity alignment valid bit */
