@@ -780,6 +780,21 @@ uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev)
 	return dev->opt_unmap_gran;
 }
 
+/**
+ * tcmu_set/get_dev_unmap_gran_align - set/get device's unmap granularity alignment
+ * @dev: tcmu device
+ * @len: unmap granularity alignment length in block_size sectors
+ */
+void tcmu_set_dev_unmap_gran_align(struct tcmu_device *dev, uint32_t len)
+{
+	dev->unmap_gran_align = len;
+}
+
+uint32_t tcmu_get_dev_unmap_gran_align(struct tcmu_device *dev)
+{
+	return dev->unmap_gran_align;
+}
+
 void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled)
 {
 	dev->write_cache_enabled = enabled;
