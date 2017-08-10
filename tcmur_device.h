@@ -80,4 +80,6 @@ void tcmu_notify_lock_lost(struct tcmu_device *dev);
 int __tcmu_reopen_dev(struct tcmu_device *dev);
 int tcmu_reopen_dev(struct tcmu_device *dev);
 
+int tcmu_acquire_dev_lock(struct tcmu_device *dev);
+
 #endif

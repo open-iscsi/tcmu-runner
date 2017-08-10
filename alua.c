@@ -414,40 +414,8 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 
 static void *alua_lock_thread_fn(void *arg)
 {
-	struct tcmu_device *dev = arg;
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	int ret;
-
-	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
-	ret = aio_wait_for_empty_queue(rdev);
-	if (ret) {
-		tcmu_dev_err(dev, "Could not flush queue while performing lock operation. Err %d\n",
-			     ret);
-		pthread_mutex_lock(&rdev->state_lock);
-		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
-		pthread_mutex_unlock(&rdev->state_lock);
-		return NULL;
-	}
-
-	ret = rhandler->lock(dev);
-
-	pthread_mutex_lock(&rdev->state_lock);
-	switch (ret) {
-	case TCMUR_LOCK_BUSY:
-		rdev->lock_state = TCMUR_DEV_LOCK_LOCKING;
-		break;
-	case TCMUR_LOCK_FAILED:
-		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
-		break;
-	case TCMUR_LOCK_SUCCESS:
-		rdev->lock_state = TCMUR_DEV_LOCK_LOCKED;
-		break;
-	}
-
-	tcmu_dev_dbg(dev, "lock thread done. lock state %d\n", rdev->lock_state);
 	/* TODO: set UA based on bgly's patches */
-	pthread_mutex_unlock(&rdev->state_lock);
+	tcmu_acquire_dev_lock(arg);
 	return NULL;
 }
 
