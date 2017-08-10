@@ -95,30 +95,43 @@ static void free_iovec(struct tcmulib_cmd *cmd)
 	cmd->iovec = NULL;
 }
 
+static inline int check_lbas(struct tcmu_device *dev,
+			     uint64_t start_lba, uint64_t lba_cnt)
+{
+	uint64_t dev_last_lba = tcmu_get_dev_num_lbas(dev);
+
+	if (start_lba + lba_cnt > dev_last_lba || start_lba + lba_cnt < start_lba) {
+		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %llu, xfer len %lu)\n",
+			     dev_last_lba, start_lba, lba_cnt);
+		return -1;
+	}
+
+	return SAM_STAT_GOOD;
+}
+
 static int check_lba_and_length(struct tcmu_device *dev,
 				struct tcmulib_cmd *cmd, uint32_t sectors)
 {
 	uint8_t *cdb = cmd->cdb;
-	uint64_t lba = tcmu_get_lba(cdb);
-	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	uint64_t start_lba = tcmu_get_lba(cdb);
 	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
+	uint8_t *sense = cmd->sense_buf;
+	int ret;
 
 	if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
 		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
 			     iov_length, sectors, tcmu_get_dev_block_size(dev));
 
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 	}
 
-	if (lba + sectors > num_lbas || lba + sectors < lba) {
-		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %llu, xfer len %lu)\n",
-			     num_lbas, lba, sectors);
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+	ret = check_lbas(dev, start_lba, sectors);
+	if (ret)
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE, NULL);
-	}
 
-	return SAM_STAT_GOOD;
+	return 0;
 }
 
 static void handle_generic_cbk(struct tcmu_device *dev,
@@ -244,8 +257,8 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t start_lba = tcmu_get_lba(cdb);
-	uint64_t dev_last_lba = tcmu_get_dev_num_lbas(dev);
 	uint32_t max_ws_len;
+	int ret;
 
 	if (cmd->iov_cnt != 1 || cmd->iovec->iov_len != block_size) {
 		tcmu_dev_err(dev, "Illegal Data-Out: iov_cnt %u length: %u\n",
@@ -289,13 +302,10 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	 * The logical block address plus the number of blocks shouldn't
 	 * exceeds the capacity of the medium
 	 */
-	if (start_lba + lba_cnt > dev_last_lba) {
-		tcmu_dev_err(dev, "lba %llu plus blocks %lu exceeds the dev capacity %llu\n",
-			     start_lba, lba_cnt, dev_last_lba);
+	ret = check_lbas(dev, start_lba, lba_cnt);
+	if (ret)
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE,
-					   NULL);
-	}
+					   ASC_LBA_OUT_OF_RANGE, NULL);
 
 	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba:: %hu, last lba: %llu\n",
 		     start_lba, lba_cnt, start_lba + lba_cnt - 1);
@@ -1828,7 +1838,6 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 {
 	struct unmap_state *state = origcmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint64_t end_lba = tcmu_get_dev_num_lbas(dev) - 1;
 	uint8_t *sense = origcmd->sense_buf;
 	uint16_t offset = 0;
 	int ret, i = 0, refcount = 0;
@@ -1859,15 +1868,10 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			goto state_unlock;
 		}
 
-		if (lba + nlbas - 1 > end_lba || lba + nlbas < lba) {
-			tcmu_err("Illegal parameter list (lba + nlbas) %llu "
-				 "exceeds last lba %llu\n",
-				 lba + nlbas - 1, end_lba);
-			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						  ASC_LBA_OUT_OF_RANGE,
-						  NULL);
-			goto state_unlock;
-		}
+		ret = check_lbas(dev, lba, nlbas);
+		if (ret)
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_LBA_OUT_OF_RANGE, NULL);
 
 		desc = calloc(1, sizeof(*desc));
 		if (!desc) {
