@@ -337,7 +337,10 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	if (orig_owner)
 		free(orig_owner);
 
-	return ret;
+	if (ret)
+		return TCMUR_LOCK_FAILED;
+	else
+		return TCMUR_LOCK_SUCCESS;
 }
 
 #endif
