@@ -570,6 +570,7 @@ finish_page83:
 	{
 		char data[64];
 		int max_xfer_length;
+		int opt_unmap_gran;
 		uint16_t val16;
 		uint32_t val32;
 		uint64_t val64;
@@ -622,7 +623,8 @@ finish_page83:
 			memcpy(&data[24], &val32, 4);
 
 			/* OPTIMAL UNMAP GRANULARITY */
-			val32 = htobe32(max_xfer_length);
+			opt_unmap_gran = tcmu_get_dev_opt_unmap_gran(dev);
+			val32 = htobe32(opt_unmap_gran);
 			memcpy(&data[28], &val32, 4);
 
 			/* UNMAP GRANULARITY ALIGNMENT */

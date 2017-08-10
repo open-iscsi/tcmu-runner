@@ -730,6 +730,9 @@ static int dev_added(struct tcmu_device *dev)
 	if (ret)
 		goto cleanup_aio_tracking;
 
+	/* Set the optimal unmap granularity to max xfer len */
+	tcmu_set_dev_opt_unmap_gran(dev, tcmu_get_dev_max_xfer_len(dev));
+
 	ret = tcmulib_start_cmdproc_thread(dev, tcmur_cmdproc_thread);
 	if (ret < 0)
 		goto close_dev;
