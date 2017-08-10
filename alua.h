@@ -22,22 +22,6 @@
 struct tcmu_device;
 struct tcmulibc_cmd;
 
-struct tgt_port {
-	uint16_t rel_port_id;
-	uint8_t proto_id;
-	char *wwn;
-
-	/* LIO settings */
-	char *fabric;
-	bool enabled;
-	/* configfs tpgt */
-	uint16_t tpgt;
-
-	struct tgt_port_grp *grp;
-	/* entry on group's tgt_ports list */
-	struct list_node entry;
-};
-
 struct tgt_port_grp {
 	/* ALUA spec values */
 	uint8_t state;
