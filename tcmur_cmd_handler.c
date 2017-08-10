@@ -1748,23 +1748,6 @@ clear_format:
 }
 
 /* ALUA */
-static int handle_stpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
-{
-	struct list_head group_list;
-	int ret;
-
-	list_head_init(&group_list);
-
-	ret = tcmu_get_tgt_port_grps(dev, &group_list);
-	if (ret)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
-
-	ret = tcmu_emulate_set_tgt_port_grps(dev, &group_list, cmd);
-	tcmu_release_tgt_port_grps(&group_list);
-	return ret;
-}
-
 static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct list_head group_list;
@@ -2203,10 +2186,6 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case MAINTENANCE_IN:
 		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
 			ret = handle_rtpg(dev, cmd);
-		break;
-	case MAINTENANCE_OUT:
-		if (cdb[1] == MO_SET_TARGET_PGS)
-			ret = handle_stpg(dev, cmd);
 		break;
 	default:
 		ret = TCMU_NOT_HANDLED;

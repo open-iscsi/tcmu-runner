@@ -116,8 +116,6 @@ struct tcmur_handler {
 	flush_fn_t flush;
 	unmap_fn_t unmap;
 	int (*lock)(struct tcmu_device *dev);
-	int (*unlock)(struct tcmu_device *dev);
-	int (*has_lock)(struct tcmu_device *dev);
 
 	/*
 	 * internal field, don't touch this

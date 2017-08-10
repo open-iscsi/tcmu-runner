@@ -60,9 +60,6 @@ struct tgt_port_grp {
 	struct list_head tgt_ports;
 };
 
-int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
-				   struct list_head *group_list,
-				   struct tcmulib_cmd *cmd);
 int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 				      struct list_head *group_list,
 				      struct tcmulib_cmd *cmd);
