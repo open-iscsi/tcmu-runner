@@ -340,12 +340,6 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	return ret;
 }
 
-static int tcmu_rbd_unlock(struct tcmu_device *dev)
-{
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	return rbd_lock_release(state->image);
-}
-
 #endif
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
@@ -837,8 +831,6 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.handle_cmd    = tcmu_rbd_handle_cmd,
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
 	.lock          = tcmu_rbd_lock,
-	.unlock        = tcmu_rbd_unlock,
-	.has_lock      = tcmu_rbd_has_lock,
 #endif
 };
 

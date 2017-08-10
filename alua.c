@@ -75,17 +75,6 @@ static int tcmu_get_alua_int_setting(struct tgt_port_grp *group,
 	return tcmu_get_cfgfs_int(path);
 }
 
-static int tcmu_set_alua_int_setting(struct tgt_port_grp *group,
-				     const char *setting, int val)
-{
-	char path[PATH_MAX];
-
-	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/alua/%s/%s",
-		 group->dev->tcm_hba_name, group->dev->tcm_dev_name,
-		 group->name, setting);
-	return tcmu_set_cfgfs_ul(path, val);
-}
-
 static void tcmu_free_tgt_port(struct tgt_port *port)
 {
 	if (port->wwn)
@@ -428,135 +417,6 @@ struct tgt_port *tcmu_get_enabled_port(struct list_head *group_list)
 	return NULL;
 }
 
-static bool alua_check_sup_state(uint8_t state, uint8_t sup)
-{
-	switch (state) {
-	case ALUA_ACCESS_STATE_OPTIMIZED:
-		if (sup & ALUA_SUP_OPTIMIZED)
-			return true;
-		return false;
-	case ALUA_ACCESS_STATE_NON_OPTIMIZED:
-		if (sup & ALUA_SUP_NON_OPTIMIZED)
-			return true;
-		return false;
-	case ALUA_ACCESS_STATE_STANDBY:
-		if (sup & ALUA_SUP_STANDBY)
-			return true;
-		return false;
-	case ALUA_ACCESS_STATE_UNAVAILABLE:
-		if (sup & ALUA_SUP_UNAVAILABLE)
-			return true;
-		return false;
-	case ALUA_ACCESS_STATE_OFFLINE:
-		/*
-		 * TODO: support secondary states
-		 */
-		return false;
-	}
-
-	return false;
-}
-
-static int tcmu_do_transition(struct tcmu_device *dev,
-			      struct tgt_port_grp *group, uint8_t new_state,
-			      uint8_t *sense)
-{
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	int ret;
-
-	switch (new_state) {
-	case ALUA_ACCESS_STATE_OPTIMIZED:
-	case ALUA_ACCESS_STATE_NON_OPTIMIZED:
-		if (rhandler->lock && rhandler->lock(dev))
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_STPG_CMD_FAILED, NULL);
-		/* TODO for ESX set remote ports to standby */
-		return SAM_STAT_GOOD;
-	case ALUA_ACCESS_STATE_STANDBY:
-	case ALUA_ACCESS_STATE_UNAVAILABLE:
-	case ALUA_ACCESS_STATE_OFFLINE:
-		if (rhandler->unlock) {
-			ret = rhandler->unlock(dev);
-			if (ret < 0)
-				/*
-				 * Return success even though we failed. The initiator
-				 * will send a STPG to the port it wants to activate,
-				 * and that node will grab the lock from us if it hasn't
-				 * already.
-				 */
-				tcmu_dev_err(dev, "Could not release lock. (Err %d)\n",
-					     ret);
-		}
-		return SAM_STAT_GOOD;
-	}
-
-	return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-				   ASC_INVALID_FIELD_IN_PARAMETER_LIST, NULL);
-}
-
-int tcmu_transition_tgt_port_grp(struct tgt_port_grp *group, uint8_t new_state,
-				 uint8_t alua_status, uint8_t *sense)
-{
-	struct tcmu_device *dev = group->dev;
-	int ret;
-
-	tcmu_dev_dbg(dev, "transition group %u new state %u old state %u sup 0x%x\n",
-		 group->id, new_state, group->state, group->supported_states);
-
-	if (!alua_check_sup_state(new_state, group->supported_states)) {
-		if (sense)
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-						   NULL);
-		else
-			return SAM_STAT_CHECK_CONDITION;
-	}
-
-	if (sense) {
-		ret = tcmu_do_transition(dev, group, new_state, sense);
-		if (ret != SAM_STAT_GOOD)
-			return ret;
-	}
-
-	ret = tcmu_set_alua_int_setting(group, "alua_access_state", new_state);
-	if (ret) {
-		tcmu_dev_err(dev, "Could not change kernel state to %u\n", new_state);
-		if (sense)
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_STPG_CMD_FAILED, NULL);
-		else
-			return SAM_STAT_CHECK_CONDITION;
-	}
-
-	ret = tcmu_set_alua_int_setting(group, "alua_access_status", alua_status);
-	if (ret)
-		tcmu_dev_err(dev, "Could not set alua_access_status for group %s:%d\n",
-			 group->name, group->id);
-
-	group->state = new_state;
-	group->status = alua_status;
-	return SAM_STAT_GOOD;
-}
-
-static int tcmu_report_state(struct tcmu_device *dev,
-			     struct tgt_port_grp *group)
-{
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	int ret;
-
-	/* TODO: For ESX return remote ports */
-
-	if (!rhandler->has_lock)
-		return group->state;
-
-	ret = rhandler->has_lock(dev);
-	if (ret <= 0) {
-		return ALUA_ACCESS_STATE_STANDBY;
-	} else {
-		return ALUA_ACCESS_STATE_OPTIMIZED;
-	}
-}
-
 int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 				      struct list_head *group_list,
 				      struct tcmulib_cmd *cmd)
@@ -566,7 +426,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	int ext_hdr = cmd->cdb[1] & 0x20;
 	uint32_t off = 4, ret_data_len = 0, ret32;
 	uint32_t alloc_len = tcmu_get_xfer_length(cmd->cdb);
-	uint8_t *buf, state;
+	uint8_t *buf;
 
 	if (!tcmu_get_enabled_port(group_list))
 		return TCMU_NOT_HANDLED;
@@ -603,19 +463,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 		if (group->pref)
 			buf[off] = 0x80;
 
-		state = tcmu_report_state(dev, group);
-		/*
-		 * Some handlers are not able to async update state,
-		 * so check it now and update.
-		 */
-		if (state != group->state) {
-			if (tcmu_transition_tgt_port_grp(group, state,
-							 ALUA_STAT_ALTERED_BY_IMPLICIT_ALUA,
-							 NULL))
-				tcmu_dev_err(dev, "Could not perform implicit state change for group %u\n", group->id);
-		}
-
-		buf[off++] |= state;
+		buf[off++] |= group->state;
 		buf[off++] |= group->supported_states;
 		buf[off++] = (group->id >> 8) & 0xff;
 		buf[off++] = group->id & 0xff;
@@ -644,76 +492,4 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	tcmu_memcpy_into_iovec(cmd->iovec, cmd->iov_cnt, buf, alloc_len);
 	free(buf);
 	return SAM_STAT_GOOD;
-}
-
-int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
-				   struct list_head *group_list,
-				   struct tcmulib_cmd *cmd)
-{
-	struct tgt_port_grp *group;
-	uint32_t off = 4, param_list_len = tcmu_get_xfer_length(cmd->cdb);
-	uint16_t id, tmp_id;
-	char *buf, new_state;
-	int found, ret = SAM_STAT_GOOD;
-
-	if (!tcmu_get_enabled_port(group_list))
-		return TCMU_NOT_HANDLED;
-
-	if (!param_list_len)
-		return SAM_STAT_GOOD;
-
-	buf = calloc(1, param_list_len);
-	if (!buf)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
-
-	if (tcmu_memcpy_from_iovec(buf, param_list_len, cmd->iovec,
-				   cmd->iov_cnt) != param_list_len) {
-		ret = tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
-		goto free_buf;
-	}
-
-	while (off < param_list_len) {
-		new_state = buf[off++] & 0x0f;
-		/* reserved */
-		off++;
-		memcpy(&tmp_id, &buf[off], sizeof(tmp_id));
-		id = be16toh(tmp_id);
-		off += 2;
-
-		found = 0;
-		list_for_each(group_list, group, entry) {
-			if (group->id != id)
-				continue;
-
-			tcmu_dev_dbg(dev, "Got STPG for group %u\n", id);
-			ret = tcmu_transition_tgt_port_grp(group, new_state,
-							   ALUA_STAT_ALTERED_BY_EXPLICIT_STPG,
-							   cmd->sense_buf);
-			if (ret) {
-				tcmu_dev_err(dev, "Failing STPG for group %d\n", id);
-				goto free_buf;
-			}
-			found = 1;
-			break;
-		}
-
-		if (!found) {
-			/*
-			 * Could not find what error code to return in
-			 * SCSI spec.
-			 */
-			tcmu_dev_err(dev, "Could not find group for %u for STPG\n", id);
-			ret = tcmu_set_sense_data(cmd->sense_buf,
-					HARDWARE_ERROR,
-					ASC_STPG_CMD_FAILED, NULL);
-			break;
-		}
-	}
-
-free_buf:
-	free(buf);
-	return ret;
 }
