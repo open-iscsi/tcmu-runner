@@ -28,6 +28,7 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
+#include "libtcmu_common.h"
 #include "tcmur_aio.h"
 #include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
@@ -95,30 +96,43 @@ static void free_iovec(struct tcmulib_cmd *cmd)
 	cmd->iovec = NULL;
 }
 
+static inline int check_lbas(struct tcmu_device *dev,
+			     uint64_t start_lba, uint64_t lba_cnt)
+{
+	uint64_t dev_last_lba = tcmu_get_dev_num_lbas(dev);
+
+	if (start_lba + lba_cnt > dev_last_lba || start_lba + lba_cnt < start_lba) {
+		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %llu, xfer len %lu)\n",
+			     dev_last_lba, start_lba, lba_cnt);
+		return -1;
+	}
+
+	return SAM_STAT_GOOD;
+}
+
 static int check_lba_and_length(struct tcmu_device *dev,
 				struct tcmulib_cmd *cmd, uint32_t sectors)
 {
 	uint8_t *cdb = cmd->cdb;
-	uint64_t lba = tcmu_get_lba(cdb);
-	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	uint64_t start_lba = tcmu_get_lba(cdb);
 	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
+	uint8_t *sense = cmd->sense_buf;
+	int ret;
 
 	if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
 		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
 			     iov_length, sectors, tcmu_get_dev_block_size(dev));
 
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 	}
 
-	if (lba + sectors > num_lbas || lba + sectors < lba) {
-		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %llu, xfer len %lu)\n",
-			     num_lbas, lba, sectors);
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+	ret = check_lbas(dev, start_lba, sectors);
+	if (ret)
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE, NULL);
-	}
 
-	return SAM_STAT_GOOD;
+	return 0;
 }
 
 static void handle_generic_cbk(struct tcmu_device *dev,
@@ -244,8 +258,8 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t start_lba = tcmu_get_lba(cdb);
-	uint64_t dev_last_lba = tcmu_get_dev_num_lbas(dev);
 	uint32_t max_ws_len;
+	int ret;
 
 	if (cmd->iov_cnt != 1 || cmd->iovec->iov_len != block_size) {
 		tcmu_dev_err(dev, "Illegal Data-Out: iov_cnt %u length: %u\n",
@@ -289,13 +303,10 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	 * The logical block address plus the number of blocks shouldn't
 	 * exceeds the capacity of the medium
 	 */
-	if (start_lba + lba_cnt > dev_last_lba) {
-		tcmu_dev_err(dev, "lba %llu plus blocks %lu exceeds the dev capacity %llu\n",
-			     start_lba, lba_cnt, dev_last_lba);
+	ret = check_lbas(dev, start_lba, lba_cnt);
+	if (ret)
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE,
-					   NULL);
-	}
+					   ASC_LBA_OUT_OF_RANGE, NULL);
 
 	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba:: %hu, last lba: %llu\n",
 		     start_lba, lba_cnt, start_lba + lba_cnt - 1);
@@ -691,7 +702,7 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 
 static int xcopy_gen_naa_ieee(struct tcmu_device *udev, uint8_t *wwn)
 {
-	char *buf, *p, ch;
+	char *buf, *p;
 	bool next = true;
 	int ind = 0;
 
@@ -716,16 +727,9 @@ static int xcopy_gen_naa_ieee(struct tcmu_device *udev, uint8_t *wwn)
 	 * per device uniqeness.
 	 */
 	for (; *p && ind < XCOPY_NAA_IEEE_REGEX_LEN; p++) {
-		int val;
+		uint8_t val;
 
-		ch = *p;
-		if ((ch >= '0') && (ch <= '9'))
-			val = ch - '0';
-		else if ((ch >= 'a') && (ch <= 'f'))
-			val = ch - 'a' + 10;
-		else if ((ch >= 'A') && (ch <= 'F'))
-			val = ch - 'A' + 10;
-		else
+		if (!char_to_hex(&val, *p))
 			continue;
 
 		if (next) {
@@ -1828,80 +1832,106 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 {
 	struct unmap_state *state = origcmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint64_t end_lba = tcmu_get_dev_num_lbas(dev) - 1;
 	uint8_t *sense = origcmd->sense_buf;
+	uint32_t opt_unmap_gran;
+	uint32_t unmap_gran_align, mask;
 	uint16_t offset = 0;
-	int ret, i = 0, refcount = 0;
+	int ret, i = 0, j, refcount = 0;
+
+	/* OPTIMAL UNMAP GRANULARITY */
+	opt_unmap_gran = tcmu_get_dev_opt_unmap_gran(dev);
+
+	/* UNMAP GRANULARITY ALIGNMENT */
+	unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
+	mask = unmap_gran_align - 1;
+	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %lu, UNMAP GRANULARITY ALIGNMENT: %lu\n",
+		     opt_unmap_gran, unmap_gran_align);
 
 	/* The first descriptor list offset is 8 in Data-Out buffer */
 	par += 8;
 
 	pthread_mutex_lock(&state->lock);
 	while (bddl) {
-		size_t max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
 		struct unmap_descriptor *desc;
 		struct tcmulib_cmd *ucmd;
 		uint64_t lba;
-		uint32_t nlbas;
+		uint32_t nlbas, lbas;
 
 		lba = be64toh(*((uint64_t *)&par[offset]));
 		nlbas = be32toh(*((uint32_t *)&par[offset + 8]));
 
-		tcmu_dev_dbg(dev, "Parameter list %d, lba: %llu, nlbas: %u\n",
-			     i++, lba, nlbas);
+		tcmu_dev_dbg(dev, "Parameter list %d, start lba: %llu, end lba: %llu, nlbas: %u\n",
+			     i++, lba, lba + nlbas - 1, nlbas);
 
-		if (nlbas > max_xfer_length) {
+		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
 			tcmu_err("Illegal parameter list LBA count %lu exceeds:%u\n",
-				 nlbas, max_xfer_length);
+				 nlbas, VPD_MAX_UNMAP_LBA_COUNT);
 			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 						  NULL);
 			goto state_unlock;
 		}
 
-		if (lba + nlbas - 1 > end_lba || lba + nlbas < lba) {
-			tcmu_err("Illegal parameter list (lba + nlbas) %llu "
-				 "exceeds last lba %llu\n",
-				 lba + nlbas - 1, end_lba);
-			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						  ASC_LBA_OUT_OF_RANGE,
-						  NULL);
-			goto state_unlock;
-		}
+		ret = check_lbas(dev, lba, nlbas);
+		if (ret)
+			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						   ASC_LBA_OUT_OF_RANGE, NULL);
 
-		desc = calloc(1, sizeof(*desc));
-		if (!desc) {
-			tcmu_dev_err(dev, "Failed to calloc desc!\n");
-			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
-			goto state_unlock;
-		}
+		/*
+		 * Align the start lba of a unmap request and split the
+		 * large num blocks into OPTIMAL UNMAP GRANULARITY size.
+		 *
+		 * NOTE: here we always asumme the OPTIMAL UNMAP GRANULARITY
+		 * equals to UNMAP GRANULARITY ALIGNMENT, if not in feature
+		 * and following align and split algorithm should be changed.
+		 */
+		lbas = opt_unmap_gran - (lba & mask);
+		lbas = min(lbas, nlbas);
+		j = 0;
 
-		ucmd = calloc(1, sizeof(*ucmd));
-		if (!ucmd) {
-			tcmu_dev_err(dev, "Failed to calloc unmapcmd!\n");
-			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
-			free(desc);
-			goto state_unlock;
-		}
+		while (nlbas) {
+			desc = calloc(1, sizeof(*desc));
+			if (!desc) {
+				tcmu_dev_err(dev, "Failed to calloc desc!\n");
+				ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						ASC_INTERNAL_TARGET_FAILURE,
+						NULL);
+				goto state_unlock;
+			}
 
-		state->refcount++;
+			ucmd = calloc(1, sizeof(*ucmd));
+			if (!ucmd) {
+				tcmu_dev_err(dev, "Failed to calloc unmapcmd!\n");
+				ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						ASC_INTERNAL_TARGET_FAILURE,
+						NULL);
+				free(desc);
+				goto state_unlock;
+			}
 
-		desc->origcmd = origcmd;
-		desc->offset = lba * block_size;
-		desc->length = nlbas * block_size;
-		ucmd->cmdstate = desc;
+			state->refcount++;
 
-		ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
-		if (ret != TCMU_ASYNC_HANDLED) {
-			free(ucmd);
-			free(desc);
-			goto state_unlock;
-		} else {
-			refcount++;
+			desc->origcmd = origcmd;
+			desc->offset = lba * block_size;
+			desc->length = lbas * block_size;
+			ucmd->cmdstate = desc;
+
+			tcmu_dev_dbg(dev, "Split %d: start lba: %llu, end lba: %llu, lbas: %u\n",
+				     j++, lba, lba + lbas - 1, lbas);
+
+			ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
+			if (ret != TCMU_ASYNC_HANDLED) {
+				free(ucmd);
+				free(desc);
+				goto state_unlock;
+			} else {
+				refcount++;
+			}
+
+			nlbas -= lbas;
+			lba += lbas;
+
+			lbas = min(opt_unmap_gran, nlbas);
 		}
 
 		/* The unmap block descriptor data length is 16 */

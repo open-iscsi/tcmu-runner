@@ -39,6 +39,8 @@ struct tcmulib_cmd;
 #define CFGFS_ROOT "/sys/kernel/config/target"
 #define CFGFS_CORE CFGFS_ROOT"/core"
 
+/* Temporarily limit this to 32M */
+#define VPD_MAX_UNMAP_LBA_COUNT            (32 * 1024 * 1024)
 #define VPD_MAX_UNMAP_BLOCK_DESC_COUNT     0x04
 
 #define max(a, b) ({			\
@@ -100,6 +102,10 @@ void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size);
 uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev);
 void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev);
+void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev);
+void tcmu_set_dev_unmap_gran_align(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_get_dev_unmap_gran_align(struct tcmu_device *dev);
 void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled);
 bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
@@ -122,6 +128,7 @@ void tcmu_zero_iovec(struct iovec *iovec, size_t iov_cnt);
 size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src, size_t len);
 size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec, size_t iov_cnt);
 size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
+bool char_to_hex(unsigned char *val, char c);
 
 /* Basic implementations of mandatory SCSI commands */
 int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info);

@@ -310,7 +310,7 @@ int tcmu_emulate_std_inquiry(
 }
 
 /* This func from CCAN str/hex/hex.c. Public Domain */
-static bool char_to_hex(unsigned char *val, char c)
+bool char_to_hex(unsigned char *val, char c)
 {
 	if (c >= '0' && c <= '9') {
 		*val = c - '0';
@@ -569,7 +569,9 @@ finish_page83:
 	case 0xb0: /* Block Limits */
 	{
 		char data[64];
-		int max_xfer_length;
+		uint32_t max_xfer_length;
+		uint32_t opt_unmap_gran;
+		uint32_t unmap_gran_align;
 		uint16_t val16;
 		uint32_t val32;
 		uint64_t val64;
@@ -614,7 +616,7 @@ finish_page83:
 
 		if (rhandler->unmap) {
 			/* MAXIMUM UNMAP LBA COUNT */
-			val32 = htobe32(max_xfer_length);
+			val32 = htobe32(VPD_MAX_UNMAP_LBA_COUNT);
 			memcpy(&data[20], &val32, 4);
 
 			/* MAXIMUM UNMAP BLOCK DESCRIPTOR COUNT */
@@ -622,11 +624,13 @@ finish_page83:
 			memcpy(&data[24], &val32, 4);
 
 			/* OPTIMAL UNMAP GRANULARITY */
-			val32 = htobe32(max_xfer_length);
+			opt_unmap_gran = tcmu_get_dev_opt_unmap_gran(dev);
+			val32 = htobe32(opt_unmap_gran);
 			memcpy(&data[28], &val32, 4);
 
 			/* UNMAP GRANULARITY ALIGNMENT */
-			val32 = htobe32(max_xfer_length);
+			unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
+			val32 = htobe32(unmap_gran_align);
 			memcpy(&data[32], &val32, 4);
 
 			/* UGAVALID: An unmap granularity alignment valid bit */
