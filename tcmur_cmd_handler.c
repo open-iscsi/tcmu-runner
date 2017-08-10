@@ -702,7 +702,7 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 
 static int xcopy_gen_naa_ieee(struct tcmu_device *udev, uint8_t *wwn)
 {
-	char *buf, *p, ch;
+	char *buf, *p;
 	bool next = true;
 	int ind = 0;
 
@@ -727,16 +727,9 @@ static int xcopy_gen_naa_ieee(struct tcmu_device *udev, uint8_t *wwn)
 	 * per device uniqeness.
 	 */
 	for (; *p && ind < XCOPY_NAA_IEEE_REGEX_LEN; p++) {
-		int val;
+		uint8_t val;
 
-		ch = *p;
-		if ((ch >= '0') && (ch <= '9'))
-			val = ch - '0';
-		else if ((ch >= 'a') && (ch <= 'f'))
-			val = ch - 'a' + 10;
-		else if ((ch >= 'A') && (ch <= 'F'))
-			val = ch - 'A' + 10;
-		else
+		if (!char_to_hex(&val, *p))
 			continue;
 
 		if (next) {

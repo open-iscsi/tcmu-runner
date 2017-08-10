@@ -310,7 +310,7 @@ int tcmu_emulate_std_inquiry(
 }
 
 /* This func from CCAN str/hex/hex.c. Public Domain */
-static bool char_to_hex(unsigned char *val, char c)
+bool char_to_hex(unsigned char *val, char c)
 {
 	if (c >= '0' && c <= '9') {
 		*val = c - '0';
