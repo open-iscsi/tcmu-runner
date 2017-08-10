@@ -189,6 +189,7 @@ set_closed:
  * 0 = client is not owner.
  * 1 = client is owner.
  * -ESHUTDOWN/-EBLACKLISTED(-108) = client is blacklisted.
+ * -ETIMEDOUT = rados osd op timeout has expired.
  * -EIO = misc error.
  */
 static int tcmu_rbd_has_lock(struct tcmu_device *dev)
@@ -197,7 +198,7 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	int ret, is_owner;
 
 	ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
-	if (ret == -ESHUTDOWN) {
+	if (ret == -ESHUTDOWN || ret == -ETIMEDOUT) {
 		return ret;
 	} else if (ret < 0) {
 		/* let initiator figure things out */
@@ -243,6 +244,7 @@ static int tcmu_rbd_image_reopen(struct tcmu_device *dev)
  * Returns:
  * 0 = lock has been broken.
  * -EAGAIN = retryable error
+ * -ETIMEDOUT = could not complete operation in rados osd op timeout seconds.
  * -EIO = hard failure.
  */
 static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
@@ -260,7 +262,10 @@ static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
 
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get lock owners %d\n", ret);
-		return -EAGAIN;
+		if (ret == -ETIMEDOUT)
+			return ret;
+		else
+			return -EAGAIN;
 	}
 
 	if (lock_mode != RBD_LOCK_MODE_EXCLUSIVE) {
@@ -281,6 +286,9 @@ static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not break lock from %s. (Err %d)\n",
 			     owners[0], ret);
+		if (ret == -ETIMEDOUT)
+			return ret;
+
 		ret = -EAGAIN;
 		if (!*orig_owner) {
 			*orig_owner = strdup(owners[0]);
@@ -312,15 +320,17 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 		} else if (ret == -ESHUTDOWN) {
 			ret = tcmu_rbd_image_reopen(dev);
 			continue;
+		} else if (ret == -ETIMEDOUT) {
+			break;
 		} else if (ret < 0) {
 			sleep(1);
 			continue;
 		}
 
 		ret = tcmu_rbd_lock_break(dev, &orig_owner);
-		if (ret == -EIO)
+		if (ret == -EIO || ret == -ETIMEDOUT) {
 			break;
-		else if (ret == -EAGAIN) {
+		} else if (ret == -EAGAIN) {
 			sleep(1);
 			continue;
 		}
@@ -328,6 +338,8 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 		ret = rbd_lock_acquire(state->image, RBD_LOCK_MODE_EXCLUSIVE);
 		if (!ret) {
 			tcmu_dev_warn(dev, "Acquired exclusive lock.\n");
+			break;
+		} else if (ret == -ETIMEDOUT) {
 			break;
 		}
 
@@ -338,7 +350,9 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	if (orig_owner)
 		free(orig_owner);
 
-	if (ret)
+	if (ret == -ETIMEDOUT)
+		return TCMUR_LOCK_NOTCONN;
+	else if (ret)
 		return TCMUR_LOCK_FAILED;
 	else
 		return TCMUR_LOCK_SUCCESS;
@@ -487,6 +501,32 @@ static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,
 }
 
 /*
+ * TODO: Check timers.
+ * The rados osd op timeout must be longer than the timeouts to detect
+ * unreachable OSDs (osd heartbeat grace + osd heartbeat interval) or
+ * we will end up failing the transport connection when we just needed
+ * to try a different OSD.
+ */
+static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev,
+					struct tcmulib_cmd *cmd)
+{
+	tcmu_dev_err(dev, "Timing out cmd.\n");
+	tcmu_notify_conn_lost(dev);
+
+	/*
+	 * TODO: For AA, we will want to kill the ceph tcp connections
+	 * with LINGER on and set to 0, so there are no TCP retries,
+	 * and we need something on the OSD side to drop requests
+	 * that end up reaching it after the initiator's failover/recovery
+	 * timeout. For implicit and explicit FO, we will just disable
+	 * the iscsi port, and let the initiator switch paths which will
+	 * result in us getting blacklisted, so fail with a retryable
+	 * error.
+	 */
+	return SAM_STAT_BUSY;
+}
+
+/*
  * NOTE: RBD async APIs almost always return 0 (success), except
  * when allocation (via new) fails - which is not caught. So,
  * the only errno we've to bother about as of now are memory
@@ -506,7 +546,9 @@ static void rbd_finish_aio_read(rbd_completion_t completion,
 	ret = rbd_aio_get_return_value(completion);
 	rbd_aio_release(completion);
 
-	if (ret == -ESHUTDOWN) {
+	if (ret == -ETIMEDOUT) {
+		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev, tcmulib_cmd);
+	} else 	if (ret == -ESHUTDOWN) {
 		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal read error %d.\n", ret);
@@ -584,7 +626,9 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	ret = rbd_aio_get_return_value(completion);
 	rbd_aio_release(completion);
 
-	if (ret == -ESHUTDOWN) {
+	if (ret == -ETIMEDOUT) {
+		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev, tcmulib_cmd);
+	} else if (ret == -ESHUTDOWN) {
 		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal write error %d.\n", ret);
