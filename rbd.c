@@ -65,6 +65,7 @@ struct tcmu_rbd_state {
 
 	char *image_name;
 	char *pool_name;
+	char *osd_op_timeout;
 };
 
 struct rbd_aio_cb {
@@ -102,6 +103,14 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	/* Fow now, we will only read /etc/ceph/ceph.conf */
 	rados_conf_read_file(state->cluster, NULL);
 	rados_conf_set(state->cluster, "rbd_cache", "false");
+	if (state->osd_op_timeout) {
+		ret = rados_conf_set(state->cluster, "rados_osd_op_timeout",
+				     state->osd_op_timeout);
+		if (ret < 0) {
+			tcmu_dev_err(dev, "Could not set rados osd op timeout to %s (Err %d. Failover may be delayed.)\n",
+				     state->osd_op_timeout, ret);
+		}
+	}
 
 	ret = rados_connect(state->cluster);
 	if (ret < 0) {
@@ -294,6 +303,8 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 {
+	if (state->osd_op_timeout)
+		free(state->osd_op_timeout);
 	if (state->image_name)
 		free(state->image_name);
 	if (state->pool_name)
@@ -304,7 +315,7 @@ static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 static int tcmu_rbd_open(struct tcmu_device *dev)
 {
 	rbd_image_info_t image_info;
-	char *pool, *name;
+	char *pool, *name, *next_opt;
 	char *config, *dev_cfg_dup;
 	struct tcmu_rbd_state *state;
 	uint64_t rbd_size;
@@ -356,6 +367,20 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		ret = -ENOMEM;
 		tcmu_dev_err(dev, "Could not copy image name\n");
 		goto free_config;
+	}
+
+	/* The next options are optional */
+	next_opt = strtok(NULL, "/");
+	if (next_opt) {
+		if (!strncmp(next_opt, "osd_op_timeout=", 15)) {
+			state->osd_op_timeout = strdup(next_opt + 15);
+			if (!state->osd_op_timeout ||
+			    !strlen(state->osd_op_timeout)) {
+				ret = -ENOMEM;
+				tcmu_dev_err(dev, "Could not copy osd op timeout.\n");
+				goto free_config;
+			}
+		}
 	}
 
 	ret = tcmu_rbd_image_open(dev);
@@ -783,7 +808,7 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  *
  * Specify poolname/devicename, e.g,
  *
- * $ targetcli create /backstores/user:rbd/test 2G rbd/test
+ * $ targetcli create /backstores/user:rbd/test 2G rbd/test/osd_op_timeout=30
  *
  * poolname must be the name of an existing rados pool.
  *
@@ -791,7 +816,7 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  */
 static const char tcmu_rbd_cfg_desc[] =
 	"RBD config string is of the form:\n"
-	"poolname/devicename\n"
+	"poolname/devicename/optional osd_op_timeout=N secs\n"
 	"where:\n"
 	"poolname:	Existing RADOS pool\n"
 	"devicename:	Name of the RBD image\n";
