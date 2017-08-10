@@ -412,21 +412,74 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	return SAM_STAT_GOOD;
 }
 
-int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static void *alua_lock_thread_fn(void *arg)
 {
+	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
 
-	ret = rhandler->lock(dev);
-	switch (ret) {
-	case TCMUR_LOCK_BUSY:
-		return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
-					   ASC_STATE_TRANSITION, NULL);
-	case TCMUR_LOCK_FAILED:
-		return tcmu_set_sense_data(cmd->sense_buf,
-					   UNIT_ATTENTION,
-					   ASC_STATE_TRANSITION_FAILED, NULL);
+	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
+	ret = aio_wait_for_empty_queue(rdev);
+	if (ret) {
+		tcmu_dev_err(dev, "Could not flush queue while performing lock operation. Err %d\n",
+			     ret);
+		pthread_mutex_lock(&rdev->state_lock);
+		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+		pthread_mutex_unlock(&rdev->state_lock);
+		return NULL;
 	}
 
-	return SAM_STAT_GOOD;
+	ret = rhandler->lock(dev);
+
+	pthread_mutex_lock(&rdev->state_lock);
+	switch (ret) {
+	case TCMUR_LOCK_BUSY:
+		rdev->lock_state = TCMUR_DEV_LOCK_LOCKING;
+		break;
+	case TCMUR_LOCK_FAILED:
+		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+		break;
+	case TCMUR_LOCK_SUCCESS:
+		rdev->lock_state = TCMUR_DEV_LOCK_LOCKED;
+		break;
+	}
+
+	tcmu_dev_dbg(dev, "lock thread done. lock state %d\n", rdev->lock_state);
+	/* TODO: set UA based on bgly's patches */
+	pthread_mutex_unlock(&rdev->state_lock);
+	return NULL;
+}
+
+int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	int ret = SAM_STAT_GOOD;
+
+	pthread_mutex_lock(&rdev->state_lock);
+	tcmu_dev_dbg(dev, "lock state %d\n", rdev->lock_state);
+	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED) {
+		goto done;
+	} else if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKING) {
+		ret = tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
+					  ASC_STATE_TRANSITION, NULL);
+		goto done;
+	}
+
+	rdev->lock_state = TCMUR_DEV_LOCK_LOCKING;
+	/*
+	 * The initiator is going to be queueing commands, so do this
+	 * in the background to avoid command timeouts.
+	 */
+	if (pthread_create(&rdev->lock_thread, NULL, alua_lock_thread_fn,
+			   dev)) {
+		tcmu_dev_err(dev, "Could not start implicit transition thread.\n");
+		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
+					  ASC_STATE_TRANSITION_FAILED, NULL);
+	}
+
+done:
+	pthread_mutex_unlock(&rdev->state_lock);
+	return ret;
 }
