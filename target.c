@@ -28,7 +28,18 @@
 
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
+#include "tcmur_device.h"
 #include "target.h"
+#include "alua.h"
+
+static int tcmu_set_tpgt_int(struct tgt_port *port, const char *name, int val)
+{
+	char path[PATH_MAX];
+
+	snprintf(path, sizeof(path), CFGFS_ROOT"/%s/%s/tpgt_%hu/%s",
+		 port->fabric, port->wwn, port->tpgt, name);
+	return tcmu_set_cfgfs_ul(path, val);
+}
 
 static int tcmu_get_tpgt_int(struct tgt_port *port, const char *name)
 {
@@ -121,4 +132,73 @@ struct tgt_port *tcmu_get_tgt_port(char *member_str)
 free_port:
 	tcmu_free_tgt_port(port);
 	return NULL;
+}
+
+/*
+ * Disable the target tpg to avoid flip flopping between paths
+ * (transport path is ok so multipath layer switches to it, but
+ * then sends IO only for it to fail due to the handler not
+ * being able to reach its backend).
+ */
+static int tcmu_reset_tpg(struct tcmu_device *dev, struct tgt_port *port)
+{
+	int ret;
+
+	/*
+	 * This will return when all running commands have completed at
+	 * the target layer.
+	 */
+	tcmu_dev_dbg(dev, "Disabling %s/%s/tpgt_%hu.\n", port->fabric,
+		     port->wwn, port->tpgt);
+	ret = tcmu_set_tpgt_int(port, "enable", 0);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not disable %s/%s/tpgt_%hu (err %d).\n",
+			     ret, port->fabric, port->wwn, port->tpgt);
+		return ret;
+	}
+
+	tcmu_dev_info(dev, "Disabled %s/%s/tpgt_%hu.\n", port->fabric,
+		      port->wwn, port->tpgt);
+
+	ret = tcmu_reopen_dev(dev);
+	if (ret) {
+		tcmu_dev_err(dev, "Could not reset device. (err %d).\n", ret);
+		return ret;
+	}
+
+	ret = tcmu_set_tpgt_int(port, "enable", 1);
+	if (ret) {
+		tcmu_dev_err(dev, "Could not enable %s/%s/tpgt_%hu (err %d).\n",
+			     ret, port->fabric, port->wwn, port->tpgt);
+	} else {
+		tcmu_dev_info(dev, "Enabled %s/%s/tpgt_%hu.\n", port->fabric,
+			      port->wwn, port->tpgt);
+	}
+
+	return ret;
+}
+
+void tcmu_reset_tpgs(struct tcmu_device *dev)
+{
+	struct list_head group_list;
+	struct tgt_port_grp *group;
+	struct tgt_port *port;
+	int ret;
+
+	list_head_init(&group_list);
+	ret = tcmu_get_tgt_port_grps(dev, &group_list);
+	if (ret) {
+		tcmu_dev_err(dev, "Could not find any tpgs.\n");
+		return;
+	}
+
+	list_for_each(&group_list, group, entry) {
+		list_for_each(&group->tgt_ports, port, entry) {
+			if (port->enabled) {
+				tcmu_reset_tpg(dev, port);
+			}
+		}
+	}
+
+	tcmu_release_tgt_port_grps(&group_list);
 }

@@ -596,10 +596,29 @@ static void cmdproc_thread_cleanup(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	bool is_open = false;
 
+	pthread_mutex_lock(&rdev->state_lock);
+	rdev->flags |= TCMUR_DEV_FLAG_SHUTTING_DOWN;
+	pthread_mutex_unlock(&rdev->state_lock);
+
+	/*
+	 * The lock thread can fire off the recovery thread, so make sure
+	 * it is done first.
+	 */
 	tcmu_cancel_lock_thread(dev);
+	tcmu_cancel_recovery_thread(dev);
 
-	rhandler->close(dev);
+	pthread_mutex_lock(&rdev->state_lock);
+	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {
+		rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
+		is_open = true;
+	}
+	pthread_mutex_unlock(&rdev->state_lock);
+
+	if (is_open)
+		rhandler->close(dev);
 }
 
 static void *tcmur_cmdproc_thread(void *arg)
