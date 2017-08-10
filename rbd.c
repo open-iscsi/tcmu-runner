@@ -58,13 +58,6 @@
 #define RBD_WRITE_SAME_SUPPORT
 #endif
 
-enum {
-	TCMU_RBD_OPENING,
-	TCMU_RBD_OPENED,
-	TCMU_RBD_CLOSING,
-	TCMU_RBD_CLOSED,
-};
-
 struct tcmu_rbd_state {
 	rados_t cluster;
 	rados_ioctx_t io_ctx;
@@ -72,9 +65,6 @@ struct tcmu_rbd_state {
 
 	char *image_name;
 	char *pool_name;
-
-	pthread_spinlock_t lock;	/* protect state */
-	int state;
 };
 
 struct rbd_aio_cb {
@@ -89,15 +79,6 @@ static void tcmu_rbd_image_close(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 
-	pthread_spin_lock(&state->lock);
-	if (state->state != TCMU_RBD_OPENED) {
-		tcmu_dev_dbg(dev, "skipping close. state %d\n", state->state);
-		pthread_spin_unlock(&state->lock);
-		return;
-	}
-	state->state = TCMU_RBD_CLOSING;
-	pthread_spin_unlock(&state->lock);
-
 	rbd_close(state->image);
 	rados_ioctx_destroy(state->io_ctx);
 	rados_shutdown(state->cluster);
@@ -105,10 +86,6 @@ static void tcmu_rbd_image_close(struct tcmu_device *dev)
 	state->cluster = NULL;
 	state->io_ctx = NULL;
 	state->image = NULL;
-
-	pthread_spin_lock(&state->lock);
-	state->state = TCMU_RBD_CLOSED;
-	pthread_spin_unlock(&state->lock);
 }
 
 static int tcmu_rbd_image_open(struct tcmu_device *dev)
@@ -116,25 +93,10 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	int ret;
 
-	pthread_spin_lock(&state->lock);
-	if (state->state == TCMU_RBD_OPENED) {
-		tcmu_dev_dbg(dev, "skipping open. Already opened\n");
-		pthread_spin_unlock(&state->lock);
-		return 0;
-	}
-
-	if (state->state != TCMU_RBD_CLOSED) {
-		tcmu_dev_dbg(dev, "skipping open. state %d\n", state->state);
-		pthread_spin_unlock(&state->lock);
-		return -EBUSY;
-	}
-	state->state = TCMU_RBD_OPENING;
-	pthread_spin_unlock(&state->lock);
-
 	ret = rados_create(&state->cluster, NULL);
 	if (ret < 0) {
 		tcmu_dev_dbg(dev, "Could not create cluster. (Err %d)\n", ret);
-		goto set_closed;
+		return ret;
 	}
 
 	/* Fow now, we will only read /etc/ceph/ceph.conf */
@@ -162,10 +124,6 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 			     state->image_name, ret);
 		goto rados_destroy;
 	}
-
-	pthread_spin_lock(&state->lock);
-	state->state = TCMU_RBD_OPENED;
-	pthread_spin_unlock(&state->lock);
 	return 0;
 
 rados_destroy:
@@ -175,10 +133,6 @@ rados_shutdown:
 	rados_shutdown(state->cluster);
 set_cluster_null:
 	state->cluster = NULL;
-set_closed:
-	pthread_spin_lock(&state->lock);
-	state->state = TCMU_RBD_CLOSED;
-	pthread_spin_unlock(&state->lock);
 	return ret;
 }
 
@@ -211,25 +165,6 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "Not owner\n");
 
 	return 0;
-}
-
-static int tcmu_rbd_image_reopen(struct tcmu_device *dev)
-{
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	int ret;
-
-	tcmu_rbd_image_close(dev);
-	ret = tcmu_rbd_image_open(dev);
-
-	if (!ret) {
-		tcmu_dev_warn(dev, "image %s/%s was blacklisted. Successfully reopened.\n",
-			      state->pool_name, state->image_name);
-	} else {
-		tcmu_dev_warn(dev, "image %s/%s was blacklisted. Reopen failed with error %d.\n",
-			      state->pool_name, state->image_name, ret);
-	}
-
-	return ret;
 }
 
 /**
@@ -317,10 +252,7 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 		if (ret == 1) {
 			ret = 0;
 			break;
-		} else if (ret == -ESHUTDOWN) {
-			ret = tcmu_rbd_image_reopen(dev);
-			continue;
-		} else if (ret == -ETIMEDOUT) {
+		} else if (ret == -ETIMEDOUT ||  ret == -ESHUTDOWN) {
 			break;
 		} else if (ret < 0) {
 			sleep(1);
@@ -350,7 +282,7 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	if (orig_owner)
 		free(orig_owner);
 
-	if (ret == -ETIMEDOUT)
+	if (ret == -ETIMEDOUT || ret == -ESHUTDOWN)
 		return TCMUR_LOCK_NOTCONN;
 	else if (ret)
 		return TCMUR_LOCK_FAILED;
@@ -362,8 +294,6 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 {
-	pthread_spin_destroy(&state->lock);
-
 	if (state->image_name)
 		free(state->image_name);
 	if (state->pool_name)
@@ -383,14 +313,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	state = calloc(1, sizeof(*state));
 	if (!state)
 		return -ENOMEM;
-	state->state = TCMU_RBD_CLOSED;
 	tcmu_set_dev_private(dev, state);
-
-	ret = pthread_spin_init(&state->lock, 0);
-	if (ret != 0) {
-		free(state);
-		return ret;
-	}
 
 	dev_cfg_dup = strdup(tcmu_get_dev_cfgstring(dev));
 	config = dev_cfg_dup;
