@@ -608,7 +608,7 @@ static void cmdproc_thread_cleanup(void *arg)
 	 * it is done first.
 	 */
 	tcmu_cancel_lock_thread(dev);
-	tcmu_cancel_recovery_thread(dev);
+	tcmu_cancel_recovery(dev);
 
 	pthread_mutex_lock(&rdev->state_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {

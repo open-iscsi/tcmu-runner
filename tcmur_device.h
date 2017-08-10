@@ -65,12 +65,14 @@ struct tcmur_device {
 	pthread_mutex_t format_lock; /* for atomic format operations */
 };
 
-int tcmu_cancel_recovery_thread(struct tcmu_device *dev);
+bool tcmu_dev_in_recovery(struct tcmu_device *dev);
+int tcmu_cancel_recovery(struct tcmu_device *dev);
 int tcmu_cancel_lock_thread(struct tcmu_device *dev);
 
 void tcmu_notify_conn_lost(struct tcmu_device *dev);
 void tcmu_notify_lock_lost(struct tcmu_device *dev);
 
+int __tcmu_reopen_dev(struct tcmu_device *dev);
 int tcmu_reopen_dev(struct tcmu_device *dev);
 
 #endif

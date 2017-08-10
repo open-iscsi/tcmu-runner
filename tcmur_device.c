@@ -20,6 +20,7 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
@@ -27,14 +28,22 @@
 #include "tcmur_device.h"
 #include "target.h"
 
+bool tcmu_dev_in_recovery(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	int in_recov = false;
+
+	pthread_mutex_lock(&rdev->state_lock);
+	if (rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY)
+		in_recov = true;
+	pthread_mutex_unlock(&rdev->state_lock);
+	return in_recov;
+}
+
 /*
- * tcmu_reopen_dev - close and open device.
- * @dev: device to reopen
- *
- * This function assumes when it is run new commands are not queued to the
- * handler while it is running.
+ * TCMUR_DEV_FLAG_IN_RECOVERY must be set before calling
  */
-int tcmu_reopen_dev(struct tcmu_device *dev)
+int __tcmu_reopen_dev(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -42,13 +51,14 @@ int tcmu_reopen_dev(struct tcmu_device *dev)
 
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	ret = aio_wait_for_empty_queue(rdev);
-	if (ret)
-		return ret;
 
 	pthread_mutex_lock(&rdev->state_lock);
+	if (ret)
+		goto done;
+
 	if (rdev->flags & TCMUR_DEV_FLAG_SHUTTING_DOWN) {
-		pthread_mutex_unlock(&rdev->state_lock);
-		return 0;
+		ret = 0;
+		goto done;
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 
@@ -84,15 +94,36 @@ int tcmu_reopen_dev(struct tcmu_device *dev)
 		pthread_mutex_lock(&rdev->state_lock);
 		if (!ret) {
 			rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
-			rdev->flags &= ~TCMUR_DEV_FLAG_IN_RECOVERY;
 		}
 	}
+
+done:
+	rdev->flags &= ~TCMUR_DEV_FLAG_IN_RECOVERY;
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	return ret;
 }
 
-int tcmu_cancel_recovery_thread(struct tcmu_device *dev)
+/*
+ * tcmu_reopen_dev - close and open device.
+ * @dev: device to reopen
+ */
+int tcmu_reopen_dev(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+	pthread_mutex_lock(&rdev->state_lock);
+	if (rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY) {
+		pthread_mutex_unlock(&rdev->state_lock);
+		return -EBUSY;
+	}
+	rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
+	pthread_mutex_unlock(&rdev->state_lock);
+
+	return __tcmu_reopen_dev(dev);
+}
+
+int tcmu_cancel_recovery(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	void *join_retval;
@@ -112,9 +143,21 @@ int tcmu_cancel_recovery_thread(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "Waiting on recovery thread\n");
 
 	ret = pthread_join(rdev->recovery_thread, &join_retval);
-	if (ret) {
-		tcmu_dev_err(dev, "pthread_join failed with value %d\n", ret);
+	if (ret)
+		 tcmu_dev_err(dev, "pthread_join failed with value %d\n", ret);
+
+	/*
+	 * Wait for reopen calls from non conn lost events like
+	 * reconfigure and lock.
+	 */
+	pthread_mutex_lock(&rdev->state_lock);
+	while (rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY) {
+		pthread_mutex_unlock(&rdev->state_lock);
+		sleep(1);
+		pthread_mutex_lock(&rdev->state_lock);
 	}
+	pthread_mutex_unlock(&rdev->state_lock);
+
 	return ret;
 }
 

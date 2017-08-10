@@ -160,7 +160,7 @@ static int tcmu_reset_tpg(struct tcmu_device *dev, struct tgt_port *port)
 	tcmu_dev_info(dev, "Disabled %s/%s/tpgt_%hu.\n", port->fabric,
 		      port->wwn, port->tpgt);
 
-	ret = tcmu_reopen_dev(dev);
+	ret = __tcmu_reopen_dev(dev);
 	if (ret) {
 		tcmu_dev_err(dev, "Could not reset device. (err %d).\n", ret);
 		return ret;
