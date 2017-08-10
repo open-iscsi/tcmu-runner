@@ -241,7 +241,66 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev)
 	 */
 	tcmu_dev_dbg(dev, "Waiting on lock thread\n");
 	ret = pthread_join(rdev->lock_thread, &join_retval);
-	if (ret)
+	/*
+	 * We may be called from the lock thread to reopen the device.
+	 */
+	if (ret != EDEADLK)
 		tcmu_dev_err(dev, "pthread_join failed with value %d\n", ret);
+	return ret;
+}
+
+int tcmu_acquire_dev_lock(struct tcmu_device *dev)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	int ret, retries = 0, new_state = TCMUR_DEV_LOCK_UNLOCKED;
+
+	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
+	if (aio_wait_for_empty_queue(rdev)) {
+		tcmu_dev_err(dev, "Not able to flush queue before taking lock.\n");
+		ret = TCMUR_LOCK_FAILED;
+		goto done;
+	}
+
+retry:
+	tcmu_dev_dbg(dev, "lock call state %d retries %d\n",
+		     rdev->lock_state, retries);
+
+	ret = rhandler->lock(dev);
+	switch (ret) {
+	case TCMUR_LOCK_BUSY:
+		new_state = TCMUR_DEV_LOCK_LOCKING;
+		break;
+	case TCMUR_LOCK_FAILED:
+		new_state = TCMUR_DEV_LOCK_UNLOCKED;
+		break;
+	case TCMUR_LOCK_SUCCESS:
+		new_state = TCMUR_DEV_LOCK_LOCKED;
+		break;
+	case TCMUR_LOCK_NOTCONN:
+		/*
+		 * Try to reconnect to the backend device. If this
+		 * fails then go into recovery, so the initaitor
+		 * can drop down to another path.
+		 */
+		tcmu_dev_dbg(dev, "Try to reopen device.\n");
+		if (retries < 1 && !tcmu_reopen_dev(dev)) {
+			retries++;
+			goto retry;
+		}
+
+		tcmu_dev_dbg(dev, "Fail handler device connection.\n");
+		tcmu_notify_conn_lost(dev);
+		new_state = TCMUR_DEV_LOCK_UNLOCKED;
+		break;
+	}
+
+done:
+	/* TODO: set UA based on bgly's patches */
+	pthread_mutex_lock(&rdev->state_lock);
+	rdev->lock_state = new_state;
+	tcmu_dev_dbg(dev, "lock call done. lock state %d\n", rdev->lock_state);
+	pthread_mutex_unlock(&rdev->state_lock);
+
 	return ret;
 }
