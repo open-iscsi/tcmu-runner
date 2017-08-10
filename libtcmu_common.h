@@ -100,6 +100,8 @@ void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size);
 uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev);
 void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev);
+void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev);
 void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled);
 bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);

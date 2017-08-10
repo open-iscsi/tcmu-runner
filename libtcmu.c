@@ -765,6 +765,21 @@ uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev)
 	return dev->max_xfer_len;
 }
 
+/**
+ * tcmu_set/get_dev_opt_unmap_gran - set/get device's optimal unmap granularity
+ * @dev: tcmu device
+ * @len: optimal unmap granularity length in block_size sectors
+ */
+void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len)
+{
+	dev->opt_unmap_gran = len;
+}
+
+uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev)
+{
+	return dev->opt_unmap_gran;
+}
+
 void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled)
 {
 	dev->write_cache_enabled = enabled;
