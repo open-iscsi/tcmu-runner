@@ -28,6 +28,7 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
+#include "libtcmu_common.h"
 #include "tcmur_aio.h"
 #include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
@@ -1839,29 +1840,39 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 	struct unmap_state *state = origcmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint8_t *sense = origcmd->sense_buf;
+	uint32_t opt_unmap_gran;
+	uint32_t unmap_gran_align, mask;
 	uint16_t offset = 0;
-	int ret, i = 0, refcount = 0;
+	int ret, i = 0, j, refcount = 0;
+
+	/* OPTIMAL UNMAP GRANULARITY */
+	opt_unmap_gran = tcmu_get_dev_opt_unmap_gran(dev);
+
+	/* UNMAP GRANULARITY ALIGNMENT */
+	unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
+	mask = unmap_gran_align - 1;
+	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %lu, UNMAP GRANULARITY ALIGNMENT: %lu\n",
+		     opt_unmap_gran, unmap_gran_align);
 
 	/* The first descriptor list offset is 8 in Data-Out buffer */
 	par += 8;
 
 	pthread_mutex_lock(&state->lock);
 	while (bddl) {
-		size_t max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
 		struct unmap_descriptor *desc;
 		struct tcmulib_cmd *ucmd;
 		uint64_t lba;
-		uint32_t nlbas;
+		uint32_t nlbas, lbas;
 
 		lba = be64toh(*((uint64_t *)&par[offset]));
 		nlbas = be32toh(*((uint32_t *)&par[offset + 8]));
 
-		tcmu_dev_dbg(dev, "Parameter list %d, lba: %llu, nlbas: %u\n",
-			     i++, lba, nlbas);
+		tcmu_dev_dbg(dev, "Parameter list %d, start lba: %llu, end lba: %llu, nlbas: %u\n",
+			     i++, lba, lba + nlbas - 1, nlbas);
 
-		if (nlbas > max_xfer_length) {
+		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
 			tcmu_err("Illegal parameter list LBA count %lu exceeds:%u\n",
-				 nlbas, max_xfer_length);
+				 nlbas, VPD_MAX_UNMAP_LBA_COUNT);
 			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 						  NULL);
@@ -1873,39 +1884,61 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						   ASC_LBA_OUT_OF_RANGE, NULL);
 
-		desc = calloc(1, sizeof(*desc));
-		if (!desc) {
-			tcmu_dev_err(dev, "Failed to calloc desc!\n");
-			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
-			goto state_unlock;
-		}
+		/*
+		 * Align the start lba of a unmap request and split the
+		 * large num blocks into OPTIMAL UNMAP GRANULARITY size.
+		 *
+		 * NOTE: here we always asumme the OPTIMAL UNMAP GRANULARITY
+		 * equals to UNMAP GRANULARITY ALIGNMENT, if not in feature
+		 * and following align and split algorithm should be changed.
+		 */
+		lbas = opt_unmap_gran - (lba & mask);
+		lbas = min(lbas, nlbas);
+		j = 0;
 
-		ucmd = calloc(1, sizeof(*ucmd));
-		if (!ucmd) {
-			tcmu_dev_err(dev, "Failed to calloc unmapcmd!\n");
-			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
-			free(desc);
-			goto state_unlock;
-		}
+		while (nlbas) {
+			desc = calloc(1, sizeof(*desc));
+			if (!desc) {
+				tcmu_dev_err(dev, "Failed to calloc desc!\n");
+				ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						ASC_INTERNAL_TARGET_FAILURE,
+						NULL);
+				goto state_unlock;
+			}
 
-		state->refcount++;
+			ucmd = calloc(1, sizeof(*ucmd));
+			if (!ucmd) {
+				tcmu_dev_err(dev, "Failed to calloc unmapcmd!\n");
+				ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						ASC_INTERNAL_TARGET_FAILURE,
+						NULL);
+				free(desc);
+				goto state_unlock;
+			}
 
-		desc->origcmd = origcmd;
-		desc->offset = lba * block_size;
-		desc->length = nlbas * block_size;
-		ucmd->cmdstate = desc;
+			state->refcount++;
 
-		ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
-		if (ret != TCMU_ASYNC_HANDLED) {
-			free(ucmd);
-			free(desc);
-			goto state_unlock;
-		} else {
-			refcount++;
+			desc->origcmd = origcmd;
+			desc->offset = lba * block_size;
+			desc->length = lbas * block_size;
+			ucmd->cmdstate = desc;
+
+			tcmu_dev_dbg(dev, "Split %d: start lba: %llu, end lba: %llu, lbas: %u\n",
+				     j++, lba, lba + lbas - 1, lbas);
+
+			ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
+			if (ret != TCMU_ASYNC_HANDLED) {
+				free(ucmd);
+				free(desc);
+				goto state_unlock;
+			} else {
+				refcount++;
+			}
+
+			nlbas -= lbas;
+			lba += lbas;
+
+			lbas = min(opt_unmap_gran, nlbas);
 		}
 
 		/* The unmap block descriptor data length is 16 */

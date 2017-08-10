@@ -616,7 +616,7 @@ finish_page83:
 
 		if (rhandler->unmap) {
 			/* MAXIMUM UNMAP LBA COUNT */
-			val32 = htobe32(max_xfer_length);
+			val32 = htobe32(VPD_MAX_UNMAP_LBA_COUNT);
 			memcpy(&data[20], &val32, 4);
 
 			/* MAXIMUM UNMAP BLOCK DESCRIPTOR COUNT */

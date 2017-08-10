@@ -39,6 +39,8 @@ struct tcmulib_cmd;
 #define CFGFS_ROOT "/sys/kernel/config/target"
 #define CFGFS_CORE CFGFS_ROOT"/core"
 
+/* Temporarily limit this to 32M */
+#define VPD_MAX_UNMAP_LBA_COUNT            (32 * 1024 * 1024)
 #define VPD_MAX_UNMAP_BLOCK_DESC_COUNT     0x04
 
 #define max(a, b) ({			\
