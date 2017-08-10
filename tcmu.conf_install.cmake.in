@@ -1,0 +1,3 @@
+if (NOT EXISTS "/etc/tcmu/tcmu.conf")
+	file(INSTALL "${PROJECT_SOURCE_DIR}/tcmu.conf" DESTINATION "/etc/tcmu")
+endif()

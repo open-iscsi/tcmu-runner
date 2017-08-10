@@ -248,10 +248,14 @@ configure_file (
   "${PROJECT_SOURCE_DIR}/version.h"
   )
 
+configure_file (
+  "${PROJECT_SOURCE_DIR}/tcmu.conf_install.cmake.in"
+  "${PROJECT_SOURCE_DIR}/tcmu.conf_install.cmake"
+  )
+install(SCRIPT tcmu.conf_install.cmake)
+
 install(FILES libtcmu.h libtcmu_common.h tcmu-runner.h
   DESTINATION include)
-install(FILES tcmu.conf
-  DESTINATION /etc/tcmu)
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
