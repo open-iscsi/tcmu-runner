@@ -1882,8 +1882,11 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		 * large num blocks into OPTIMAL UNMAP GRANULARITY size.
 		 *
 		 * NOTE: here we always asumme the OPTIMAL UNMAP GRANULARITY
-		 * equals to UNMAP GRANULARITY ALIGNMENT, if not in feature
-		 * and following align and split algorithm should be changed.
+		 * equals to UNMAP GRANULARITY ALIGNMENT to simplify the
+		 * calculate algorithm, but in future for some new devices
+		 * who could support and they must have different values
+		 * to make the unmap to be more efficient, the following
+		 * align and split calculate algorithm should be changed.
 		 */
 		lbas = opt_unmap_gran - (lba & mask);
 		lbas = min(lbas, nlbas);
