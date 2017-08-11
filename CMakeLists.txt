@@ -84,6 +84,7 @@ target_link_libraries(tcmu_static
 add_executable(tcmu-runner
   tcmur_cmd_handler.c
   tcmur_aio.c
+  target.c
   alua.c
   main.c
   tcmuhandler-generated.c

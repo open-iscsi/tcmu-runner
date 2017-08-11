@@ -30,28 +30,8 @@
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
+#include "target.h"
 #include "alua.h"
-
-static int tcmu_get_tpgt_int(struct tgt_port *port, const char *name)
-{
-	char path[PATH_MAX];
-
-	snprintf(path, sizeof(path),
-		 CFGFS_ROOT"/%s/%s/tpgt_%hu/%s",
-		 port->fabric, port->wwn, port->tpgt, name);
-	return tcmu_get_cfgfs_int(path);
-}
-
-static int tcmu_get_lun_int_stat(struct tgt_port *port, uint64_t lun,
-				 const char *stat_name)
-{
-	char path[PATH_MAX];
-
-	snprintf(path, sizeof(path),
-		 CFGFS_ROOT"/%s/%s/tpgt_%hu/lun/lun_%"PRIu64"/statistics/%s",
-		 port->fabric, port->wwn, port->tpgt, lun, stat_name);
-	return tcmu_get_cfgfs_int(path);
-}
 
 static char *tcmu_get_alua_str_setting(struct tgt_port_grp *group,
 				       const char *setting)
@@ -75,15 +55,6 @@ static int tcmu_get_alua_int_setting(struct tgt_port_grp *group,
 	return tcmu_get_cfgfs_int(path);
 }
 
-static void tcmu_free_tgt_port(struct tgt_port *port)
-{
-	if (port->wwn)
-		free(port->wwn);
-	if (port->fabric)
-		free(port->fabric);
-	free(port);
-}
-
 static void tcmu_release_tgt_ports(struct tgt_port_grp *group)
 {
 	struct tgt_port *port, *port_next;
@@ -92,72 +63,6 @@ static void tcmu_release_tgt_ports(struct tgt_port_grp *group)
 		list_del(&port->entry);
 		tcmu_free_tgt_port(port);
 	}
-}
-
-static struct tgt_port *
-tcmu_get_tgt_port(struct tgt_port_grp *group, char *member_str)
-{
-	struct tgt_port *port;
-	char fabric[17], wwn[224];
-	uint64_t lun;
-	uint16_t tpgt;
-	int ret;
-
-	if (!strlen(member_str))
-		return NULL;
-
-	ret = sscanf(member_str, "%16[^/]/%223[^/]/tpgt_%hu/lun_%"PRIu64,
-		     fabric, wwn, &tpgt, &lun);
-	if (ret != 4) {
-		tcmu_err("Invalid ALUA member %s for group %s\n", member_str,
-			 group->name);
-		return NULL;
-	}
-
-	port = calloc(1, sizeof(*port));
-	if (!port)
-		return NULL;
-	list_node_init(&port->entry);
-	port->grp = group;
-
-	if (!strcmp(fabric, "iSCSI"))
-		/*
-		 * iSCSI's fabric name and target_core_fabric_ops name do
-		 * not match.
-		 */
-		port->fabric = strdup("iscsi");
-	else
-		port->fabric = strdup(fabric);
-	if (!port->fabric)
-		goto free_port;
-
-	port->wwn = strdup(wwn);
-	if (!port->wwn)
-		goto free_port;
-
-	port->tpgt = tpgt;
-
-	ret = tcmu_get_lun_int_stat(port, lun, "scsi_port/indx");
-	if (ret < 0)
-		goto free_port;
-
-	port->rel_port_id = ret;
-
-	ret = tcmu_get_lun_int_stat(port, lun, "scsi_transport/proto_id");
-	if (ret < 0)
-		goto free_port;
-	port->proto_id = ret;
-
-	ret = tcmu_get_tpgt_int(port, "enable");
-	if (ret < 0)
-		goto free_port;
-	port->enabled = ret;
-
-	return port;
-
-free_port:
-	tcmu_free_tgt_port(port);
-	return NULL;
 }
 
 static void tcmu_free_tgt_port_grp(struct tgt_port_grp *group)
@@ -299,11 +204,12 @@ tcmu_get_tgt_port_grp(struct tcmu_device *dev, const char *name)
 			if (!strlen(member))
 				continue;
 
-			port = tcmu_get_tgt_port(group, member);
+			port = tcmu_get_tgt_port(member);
 			if (!port) {
 				free(orig_str_val);
 				goto free_ports;
 			}
+			port->grp = group;
 			group->num_tgt_ports++;
 			list_add_tail(&group->tgt_ports, &port->entry);
 		}
