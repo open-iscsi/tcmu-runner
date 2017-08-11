@@ -22,7 +22,7 @@
 struct tcmu_device;
 struct tcmulibc_cmd;
 
-struct tgt_port_grp {
+struct alua_grp {
 	/* ALUA spec values */
 	uint8_t state;
 	uint8_t supported_states;
@@ -48,8 +48,8 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 				      struct list_head *group_list,
 				      struct tcmulib_cmd *cmd);
 struct tgt_port *tcmu_get_enabled_port(struct list_head *);
-int tcmu_get_tgt_port_grps(struct tcmu_device *, struct list_head *);
-void tcmu_release_tgt_port_grps(struct list_head *);
+int tcmu_get_alua_grps(struct tcmu_device *, struct list_head *);
+void tcmu_release_alua_grps(struct list_head *);
 int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
 #endif

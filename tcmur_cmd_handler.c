@@ -1762,13 +1762,13 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	list_head_init(&group_list);
 
-	ret = tcmu_get_tgt_port_grps(dev, &group_list);
+	ret = tcmu_get_alua_grps(dev, &group_list);
 	if (ret)
 		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 
 	ret = tcmu_emulate_report_tgt_port_grps(dev, &group_list, cmd);
-	tcmu_release_tgt_port_grps(&group_list);
+	tcmu_release_alua_grps(&group_list);
 	return ret;
 }
 
@@ -2209,7 +2209,7 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	list_head_init(&group_list);
 
-	ret = tcmu_get_tgt_port_grps(dev, &group_list);
+	ret = tcmu_get_alua_grps(dev, &group_list);
 	if (ret)
 		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
@@ -2220,7 +2220,7 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	ret = tcmu_emulate_inquiry(dev, port, cmd->cdb, cmd->iovec,
 				   cmd->iov_cnt, cmd->sense_buf);
-	tcmu_release_tgt_port_grps(&group_list);
+	tcmu_release_alua_grps(&group_list);
 	return ret;
 }
 

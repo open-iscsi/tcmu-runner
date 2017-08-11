@@ -34,7 +34,7 @@
 #include "target.h"
 #include "alua.h"
 
-static char *tcmu_get_alua_str_setting(struct tgt_port_grp *group,
+static char *tcmu_get_alua_str_setting(struct alua_grp *group,
 				       const char *setting)
 {
 	char path[PATH_MAX];
@@ -45,7 +45,7 @@ static char *tcmu_get_alua_str_setting(struct tgt_port_grp *group,
 	return tcmu_get_cfgfs_str(path);
 }
 
-static int tcmu_get_alua_int_setting(struct tgt_port_grp *group,
+static int tcmu_get_alua_int_setting(struct alua_grp *group,
 				     const char *setting)
 {
 	char path[PATH_MAX];
@@ -56,7 +56,7 @@ static int tcmu_get_alua_int_setting(struct tgt_port_grp *group,
 	return tcmu_get_cfgfs_int(path);
 }
 
-static void tcmu_release_tgt_ports(struct tgt_port_grp *group)
+static void tcmu_release_tgt_ports(struct alua_grp *group)
 {
 	struct tgt_port *port, *port_next;
 
@@ -66,7 +66,7 @@ static void tcmu_release_tgt_ports(struct tgt_port_grp *group)
 	}
 }
 
-static void tcmu_free_tgt_port_grp(struct tgt_port_grp *group)
+static void tcmu_free_alua_grp(struct alua_grp *group)
 {
 	tcmu_release_tgt_ports(group);
 
@@ -75,11 +75,11 @@ static void tcmu_free_tgt_port_grp(struct tgt_port_grp *group)
 	free(group);
 }
 
-static struct tgt_port_grp *
-tcmu_get_tgt_port_grp(struct tcmu_device *dev, const char *name)
+static struct alua_grp *
+tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	struct tgt_port_grp *group;
+	struct alua_grp *group;
 	struct tgt_port *port;
 	char *str_val, *orig_str_val, *member;
 	int val;
@@ -235,17 +235,17 @@ free_str_val:
 free_ports:
 	tcmu_release_tgt_ports(group);
 free_group:
-	tcmu_free_tgt_port_grp(group);
+	tcmu_free_alua_grp(group);
 	return NULL;
 }
 
-void tcmu_release_tgt_port_grps(struct list_head *group_list)
+void tcmu_release_alua_grps(struct list_head *group_list)
 {
-	struct tgt_port_grp *group, *group_next;
+	struct alua_grp *group, *group_next;
 
 	list_for_each_safe(group_list, group, group_next, entry) {
 		list_del(&group->entry);
-		tcmu_free_tgt_port_grp(group);
+		tcmu_free_alua_grp(group);
 	}
 }
 
@@ -255,11 +255,11 @@ static int alua_filter(const struct dirent *dir)
 }
 
 /**
- * tcmu_get_tgt_port_grps: Fill group_list with the kernel's port groups.
+ * tcmu_get_alua_grps: Fill group_list with the kernel's port groups.
  * @dev: device to get groups for.
  * @group_list: list allocated by the caller to add groups to.
  *
- * User must call tcmu_release_tgt_port_grps when finished with the list of
+ * User must call tcmu_release_alua_grps when finished with the list of
  * groups.
  *
  * For now, we will only support ALUA if the user has defined groups.
@@ -273,10 +273,10 @@ static int alua_filter(const struct dirent *dir)
  *    modules did not report the target port group/tag properly so
  *    we cannot match groups to ports.
  */
-int tcmu_get_tgt_port_grps(struct tcmu_device *dev,
+int tcmu_get_alua_grps(struct tcmu_device *dev,
 			   struct list_head *group_list)
 {
-	struct tgt_port_grp *group;
+	struct alua_grp *group;
 	struct dirent **namelist;
 	char path[PATH_MAX];
 	int i, n, ret = 0;
@@ -293,7 +293,7 @@ int tcmu_get_tgt_port_grps(struct tcmu_device *dev,
 		if (!strcmp(namelist[i]->d_name, "default_tg_pt_gp"))
 			continue;
 
-		group = tcmu_get_tgt_port_grp(dev, namelist[i]->d_name);
+		group = tcmu_get_alua_grp(dev, namelist[i]->d_name);
 		if (!group)
 			goto free_groups;
 		list_add_tail(group_list, &group->entry);
@@ -301,7 +301,7 @@ int tcmu_get_tgt_port_grps(struct tcmu_device *dev,
 	goto free_names;
 
 free_groups:
-	tcmu_release_tgt_port_grps(group_list);
+	tcmu_release_alua_grps(group_list);
 free_names:
 	for (i = 0; i < n; i++)
 		free(namelist[i]);
@@ -322,7 +322,7 @@ free_names:
  */
 struct tgt_port *tcmu_get_enabled_port(struct list_head *group_list)
 {
-	struct tgt_port_grp *group;
+	struct alua_grp *group;
 	struct tgt_port *port;
 
 	list_for_each(group_list, group, entry) {
@@ -339,7 +339,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 				      struct list_head *group_list,
 				      struct tcmulib_cmd *cmd)
 {
-	struct tgt_port_grp *group;
+	struct alua_grp *group;
 	struct tgt_port *port;
 	int ext_hdr = cmd->cdb[1] & 0x20;
 	uint32_t off = 4, ret_data_len = 0, ret32;
@@ -363,7 +363,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 		/*
 		 * assume all groups will have the same value for now.
 		 */
-		group = list_first_entry(group_list, struct tgt_port_grp,
+		group = list_first_entry(group_list, struct alua_grp,
 					 entry);
 		if (group)
 			buf[5] = group->implicit_trans_secs;

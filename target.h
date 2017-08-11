@@ -32,7 +32,7 @@ struct tgt_port {
 	/* configfs tpgt */
 	uint16_t tpgt;
 
-	struct tgt_port_grp *grp;
+	struct alua_grp *grp;
 	/* entry on group's tgt_ports list */
 	struct list_node entry;
 };
