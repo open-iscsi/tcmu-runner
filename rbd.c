@@ -35,6 +35,7 @@
 #include "tcmu-runner.h"
 #include "tcmur_cmd_handler.h"
 #include "libtcmu.h"
+#include "tcmur_device.h"
 
 #include <rbd/librbd.h>
 
@@ -57,13 +58,6 @@
 #define RBD_WRITE_SAME_SUPPORT
 #endif
 
-enum {
-	TCMU_RBD_OPENING,
-	TCMU_RBD_OPENED,
-	TCMU_RBD_CLOSING,
-	TCMU_RBD_CLOSED,
-};
-
 struct tcmu_rbd_state {
 	rados_t cluster;
 	rados_ioctx_t io_ctx;
@@ -71,9 +65,7 @@ struct tcmu_rbd_state {
 
 	char *image_name;
 	char *pool_name;
-
-	pthread_spinlock_t lock;	/* protect state */
-	int state;
+	char *osd_op_timeout;
 };
 
 struct rbd_aio_cb {
@@ -88,15 +80,6 @@ static void tcmu_rbd_image_close(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 
-	pthread_spin_lock(&state->lock);
-	if (state->state != TCMU_RBD_OPENED) {
-		tcmu_dev_dbg(dev, "skipping close. state %d\n", state->state);
-		pthread_spin_unlock(&state->lock);
-		return;
-	}
-	state->state = TCMU_RBD_CLOSING;
-	pthread_spin_unlock(&state->lock);
-
 	rbd_close(state->image);
 	rados_ioctx_destroy(state->io_ctx);
 	rados_shutdown(state->cluster);
@@ -104,10 +87,6 @@ static void tcmu_rbd_image_close(struct tcmu_device *dev)
 	state->cluster = NULL;
 	state->io_ctx = NULL;
 	state->image = NULL;
-
-	pthread_spin_lock(&state->lock);
-	state->state = TCMU_RBD_CLOSED;
-	pthread_spin_unlock(&state->lock);
 }
 
 static int tcmu_rbd_image_open(struct tcmu_device *dev)
@@ -115,30 +94,23 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	int ret;
 
-	pthread_spin_lock(&state->lock);
-	if (state->state == TCMU_RBD_OPENED) {
-		tcmu_dev_dbg(dev, "skipping open. Already opened\n");
-		pthread_spin_unlock(&state->lock);
-		return 0;
-	}
-
-	if (state->state != TCMU_RBD_CLOSED) {
-		tcmu_dev_dbg(dev, "skipping open. state %d\n", state->state);
-		pthread_spin_unlock(&state->lock);
-		return -EBUSY;
-	}
-	state->state = TCMU_RBD_OPENING;
-	pthread_spin_unlock(&state->lock);
-
 	ret = rados_create(&state->cluster, NULL);
 	if (ret < 0) {
 		tcmu_dev_dbg(dev, "Could not create cluster. (Err %d)\n", ret);
-		goto set_closed;
+		return ret;
 	}
 
 	/* Fow now, we will only read /etc/ceph/ceph.conf */
 	rados_conf_read_file(state->cluster, NULL);
 	rados_conf_set(state->cluster, "rbd_cache", "false");
+	if (state->osd_op_timeout) {
+		ret = rados_conf_set(state->cluster, "rados_osd_op_timeout",
+				     state->osd_op_timeout);
+		if (ret < 0) {
+			tcmu_dev_err(dev, "Could not set rados osd op timeout to %s (Err %d. Failover may be delayed.)\n",
+				     state->osd_op_timeout, ret);
+		}
+	}
 
 	ret = rados_connect(state->cluster);
 	if (ret < 0) {
@@ -161,10 +133,6 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 			     state->image_name, ret);
 		goto rados_destroy;
 	}
-
-	pthread_spin_lock(&state->lock);
-	state->state = TCMU_RBD_OPENED;
-	pthread_spin_unlock(&state->lock);
 	return 0;
 
 rados_destroy:
@@ -174,10 +142,6 @@ rados_shutdown:
 	rados_shutdown(state->cluster);
 set_cluster_null:
 	state->cluster = NULL;
-set_closed:
-	pthread_spin_lock(&state->lock);
-	state->state = TCMU_RBD_CLOSED;
-	pthread_spin_unlock(&state->lock);
 	return ret;
 }
 
@@ -188,6 +152,7 @@ set_closed:
  * 0 = client is not owner.
  * 1 = client is owner.
  * -ESHUTDOWN/-EBLACKLISTED(-108) = client is blacklisted.
+ * -ETIMEDOUT = rados osd op timeout has expired.
  * -EIO = misc error.
  */
 static int tcmu_rbd_has_lock(struct tcmu_device *dev)
@@ -196,7 +161,7 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	int ret, is_owner;
 
 	ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
-	if (ret == -ESHUTDOWN) {
+	if (ret == -ESHUTDOWN || ret == -ETIMEDOUT) {
 		return ret;
 	} else if (ret < 0) {
 		/* let initiator figure things out */
@@ -211,25 +176,6 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	return 0;
 }
 
-static int tcmu_rbd_image_reopen(struct tcmu_device *dev)
-{
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	int ret;
-
-	tcmu_rbd_image_close(dev);
-	ret = tcmu_rbd_image_open(dev);
-
-	if (!ret) {
-		tcmu_dev_warn(dev, "image %s/%s was blacklisted. Successfully reopened.\n",
-			      state->pool_name, state->image_name);
-	} else {
-		tcmu_dev_warn(dev, "image %s/%s was blacklisted. Reopen failed with error %d.\n",
-			      state->pool_name, state->image_name, ret);
-	}
-
-	return ret;
-}
-
 /**
  * tcmu_rbd_lock_break - break rbd exclusive lock if needed
  * @dev: device to break the lock for.
@@ -242,6 +188,7 @@ static int tcmu_rbd_image_reopen(struct tcmu_device *dev)
  * Returns:
  * 0 = lock has been broken.
  * -EAGAIN = retryable error
+ * -ETIMEDOUT = could not complete operation in rados osd op timeout seconds.
  * -EIO = hard failure.
  */
 static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
@@ -259,7 +206,10 @@ static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
 
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get lock owners %d\n", ret);
-		return -EAGAIN;
+		if (ret == -ETIMEDOUT)
+			return ret;
+		else
+			return -EAGAIN;
 	}
 
 	if (lock_mode != RBD_LOCK_MODE_EXCLUSIVE) {
@@ -280,6 +230,9 @@ static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not break lock from %s. (Err %d)\n",
 			     owners[0], ret);
+		if (ret == -ETIMEDOUT)
+			return ret;
+
 		ret = -EAGAIN;
 		if (!*orig_owner) {
 			*orig_owner = strdup(owners[0]);
@@ -308,18 +261,17 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 		if (ret == 1) {
 			ret = 0;
 			break;
-		} else if (ret == -ESHUTDOWN) {
-			ret = tcmu_rbd_image_reopen(dev);
-			continue;
+		} else if (ret == -ETIMEDOUT ||  ret == -ESHUTDOWN) {
+			break;
 		} else if (ret < 0) {
 			sleep(1);
 			continue;
 		}
 
 		ret = tcmu_rbd_lock_break(dev, &orig_owner);
-		if (ret == -EIO)
+		if (ret == -EIO || ret == -ETIMEDOUT) {
 			break;
-		else if (ret == -EAGAIN) {
+		} else if (ret == -EAGAIN) {
 			sleep(1);
 			continue;
 		}
@@ -327,6 +279,8 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 		ret = rbd_lock_acquire(state->image, RBD_LOCK_MODE_EXCLUSIVE);
 		if (!ret) {
 			tcmu_dev_warn(dev, "Acquired exclusive lock.\n");
+			break;
+		} else if (ret == -ETIMEDOUT) {
 			break;
 		}
 
@@ -337,21 +291,20 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	if (orig_owner)
 		free(orig_owner);
 
-	return ret;
-}
-
-static int tcmu_rbd_unlock(struct tcmu_device *dev)
-{
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	return rbd_lock_release(state->image);
+	if (ret == -ETIMEDOUT || ret == -ESHUTDOWN)
+		return TCMUR_LOCK_NOTCONN;
+	else if (ret)
+		return TCMUR_LOCK_FAILED;
+	else
+		return TCMUR_LOCK_SUCCESS;
 }
 
 #endif
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 {
-	pthread_spin_destroy(&state->lock);
-
+	if (state->osd_op_timeout)
+		free(state->osd_op_timeout);
 	if (state->image_name)
 		free(state->image_name);
 	if (state->pool_name)
@@ -362,7 +315,7 @@ static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 static int tcmu_rbd_open(struct tcmu_device *dev)
 {
 	rbd_image_info_t image_info;
-	char *pool, *name;
+	char *pool, *name, *next_opt;
 	char *config, *dev_cfg_dup;
 	struct tcmu_rbd_state *state;
 	uint64_t rbd_size;
@@ -371,14 +324,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	state = calloc(1, sizeof(*state));
 	if (!state)
 		return -ENOMEM;
-	state->state = TCMU_RBD_CLOSED;
 	tcmu_set_dev_private(dev, state);
-
-	ret = pthread_spin_init(&state->lock, 0);
-	if (ret != 0) {
-		free(state);
-		return ret;
-	}
 
 	dev_cfg_dup = strdup(tcmu_get_dev_cfgstring(dev));
 	config = dev_cfg_dup;
@@ -421,6 +367,20 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		ret = -ENOMEM;
 		tcmu_dev_err(dev, "Could not copy image name\n");
 		goto free_config;
+	}
+
+	/* The next options are optional */
+	next_opt = strtok(NULL, "/");
+	if (next_opt) {
+		if (!strncmp(next_opt, "osd_op_timeout=", 15)) {
+			state->osd_op_timeout = strdup(next_opt + 15);
+			if (!state->osd_op_timeout ||
+			    !strlen(state->osd_op_timeout)) {
+				ret = -ENOMEM;
+				tcmu_dev_err(dev, "Could not copy osd op timeout.\n");
+				goto free_config;
+			}
+		}
 	}
 
 	ret = tcmu_rbd_image_open(dev);
@@ -475,6 +435,45 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 	tcmu_rbd_state_free(state);
 }
 
+static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,
+					   struct tcmulib_cmd *cmd)
+{
+       tcmu_notify_lock_lost(dev);
+	/*
+	 * This will happen during failback normally, because
+	 * running IO is failed due to librbd's immediate blacklisting
+	 * during lock acquisition on a higher priority path.
+	 */
+	return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
+				   ASC_STATE_TRANSITION, NULL);
+}
+
+/*
+ * TODO: Check timers.
+ * The rados osd op timeout must be longer than the timeouts to detect
+ * unreachable OSDs (osd heartbeat grace + osd heartbeat interval) or
+ * we will end up failing the transport connection when we just needed
+ * to try a different OSD.
+ */
+static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev,
+					struct tcmulib_cmd *cmd)
+{
+	tcmu_dev_err(dev, "Timing out cmd.\n");
+	tcmu_notify_conn_lost(dev);
+
+	/*
+	 * TODO: For AA, we will want to kill the ceph tcp connections
+	 * with LINGER on and set to 0, so there are no TCP retries,
+	 * and we need something on the OSD side to drop requests
+	 * that end up reaching it after the initiator's failover/recovery
+	 * timeout. For implicit and explicit FO, we will just disable
+	 * the iscsi port, and let the initiator switch paths which will
+	 * result in us getting blacklisted, so fail with a retryable
+	 * error.
+	 */
+	return SAM_STAT_BUSY;
+}
+
 /*
  * NOTE: RBD async APIs almost always return 0 (success), except
  * when allocation (via new) fails - which is not caught. So,
@@ -495,11 +494,12 @@ static void rbd_finish_aio_read(rbd_completion_t completion,
 	ret = rbd_aio_get_return_value(completion);
 	rbd_aio_release(completion);
 
-	if (ret == -ESHUTDOWN) {
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     NOT_READY, ASC_PORT_IN_STANDBY,
-					     NULL);
+	if (ret == -ETIMEDOUT) {
+		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev, tcmulib_cmd);
+	} else 	if (ret == -ESHUTDOWN) {
+		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
 	} else if (ret < 0) {
+		tcmu_dev_err(dev, "Got fatal read error %d.\n", ret);
 		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
 					     MEDIUM_ERROR, ASC_READ_ERROR, NULL);
 	} else {
@@ -574,11 +574,12 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	ret = rbd_aio_get_return_value(completion);
 	rbd_aio_release(completion);
 
-	if (ret == -ESHUTDOWN) {
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     NOT_READY, ASC_PORT_IN_STANDBY,
-					     NULL);
+	if (ret == -ETIMEDOUT) {
+		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev, tcmulib_cmd);
+	} else if (ret == -ESHUTDOWN) {
+		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
 	} else if (ret < 0) {
+		tcmu_dev_err(dev, "Got fatal write error %d.\n", ret);
 		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
 					     MEDIUM_ERROR, ASC_WRITE_ERROR,
 					     NULL);
@@ -807,7 +808,7 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  *
  * Specify poolname/devicename, e.g,
  *
- * $ targetcli create /backstores/user:rbd/test 2G rbd/test
+ * $ targetcli create /backstores/user:rbd/test 2G rbd/test/osd_op_timeout=30
  *
  * poolname must be the name of an existing rados pool.
  *
@@ -815,7 +816,7 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  */
 static const char tcmu_rbd_cfg_desc[] =
 	"RBD config string is of the form:\n"
-	"poolname/devicename\n"
+	"poolname/devicename/optional osd_op_timeout=N secs\n"
 	"where:\n"
 	"poolname:	Existing RADOS pool\n"
 	"devicename:	Name of the RBD image\n";
@@ -837,8 +838,6 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.handle_cmd    = tcmu_rbd_handle_cmd,
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
 	.lock          = tcmu_rbd_lock,
-	.unlock        = tcmu_rbd_unlock,
-	.has_lock      = tcmu_rbd_has_lock,
 #endif
 };
 

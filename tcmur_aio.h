@@ -27,7 +27,8 @@ struct tcmulib_cmd;
 
 struct tcmu_track_aio {
 	unsigned int tracked_aio_ops;
-	pthread_spinlock_t track_lock;
+	pthread_mutex_t track_lock;
+	pthread_cond_t *is_empty_cond;
 };
 
 struct tcmu_io_queue {
@@ -54,5 +55,6 @@ int async_handle_cmd(struct tcmu_device *, struct tcmulib_cmd *,
 /* aio request tracking */
 void track_aio_request_start(struct tcmur_device *);
 void track_aio_request_finish(struct tcmur_device *, int *);
+int aio_wait_for_empty_queue(struct tcmur_device *rdev);
 
 #endif /* __TCMUR_AIO_H */
