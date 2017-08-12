@@ -1844,6 +1844,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 	/* UNMAP GRANULARITY ALIGNMENT */
 	unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
 	mask = unmap_gran_align - 1;
+
 	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %lu, UNMAP GRANULARITY ALIGNMENT: %lu\n",
 		     opt_unmap_gran, unmap_gran_align);
 
@@ -1864,8 +1865,8 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			     i++, lba, lba + nlbas - 1, nlbas);
 
 		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
-			tcmu_err("Illegal parameter list LBA count %lu exceeds:%u\n",
-				 nlbas, VPD_MAX_UNMAP_LBA_COUNT);
+			tcmu_dev_err(dev, "Illegal parameter list LBA count %lu exceeds:%u\n",
+				     nlbas, VPD_MAX_UNMAP_LBA_COUNT);
 			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 						  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 						  NULL);
@@ -1873,9 +1874,11 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		}
 
 		ret = check_lbas(dev, lba, nlbas);
-		if (ret)
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_LBA_OUT_OF_RANGE, NULL);
+		if (ret) {
+			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+						  ASC_LBA_OUT_OF_RANGE, NULL);
+			goto state_unlock;
+		}
 
 		/*
 		 * Align the start lba of a unmap request and split the
@@ -1897,8 +1900,8 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			if (!desc) {
 				tcmu_dev_err(dev, "Failed to calloc desc!\n");
 				ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						ASC_INTERNAL_TARGET_FAILURE,
-						NULL);
+							  ASC_INTERNAL_TARGET_FAILURE,
+							  NULL);
 				goto state_unlock;
 			}
 
@@ -1906,8 +1909,8 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			if (!ucmd) {
 				tcmu_dev_err(dev, "Failed to calloc unmapcmd!\n");
 				ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						ASC_INTERNAL_TARGET_FAILURE,
-						NULL);
+							  ASC_INTERNAL_TARGET_FAILURE,
+							  NULL);
 				free(desc);
 				goto state_unlock;
 			}
@@ -1944,11 +1947,10 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 state_unlock:
 	pthread_mutex_unlock(&state->lock);
 
-	/* Will let the cbk to do the release */
-	if (refcount != 0)
-		return ret;
+	/* Or will let the cbk to do the release */
+	if (!refcount)
+		free(state);
 
-	free(state);
 	return ret;
 }
 
