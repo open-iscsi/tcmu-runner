@@ -39,21 +39,22 @@ void track_aio_request_start(struct tcmur_device *rdev)
 {
 	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 
-	pthread_cleanup_push(_cleanup_spin_lock, (void *)&aio_track->track_lock);
-	pthread_spin_lock(&aio_track->track_lock);
+	pthread_cleanup_push(_cleanup_mutex_lock, (void *)&aio_track->track_lock);
+	pthread_mutex_lock(&aio_track->track_lock);
 
 	++aio_track->tracked_aio_ops;
 
-	pthread_spin_unlock(&aio_track->track_lock);
+	pthread_mutex_unlock(&aio_track->track_lock);
 	pthread_cleanup_pop(0);
 }
 
 void track_aio_request_finish(struct tcmur_device *rdev, int *is_idle)
 {
 	struct tcmu_track_aio *aio_track = &rdev->track_queue;
+	pthread_cond_t *cond;
 
-	pthread_cleanup_push(_cleanup_spin_lock, (void *)&aio_track->track_lock);
-	pthread_spin_lock(&aio_track->track_lock);
+	pthread_cleanup_push(_cleanup_mutex_lock, (void *)&aio_track->track_lock);
+	pthread_mutex_lock(&aio_track->track_lock);
 
 	assert(aio_track->tracked_aio_ops > 0);
 
@@ -62,8 +63,51 @@ void track_aio_request_finish(struct tcmur_device *rdev, int *is_idle)
 		*is_idle = (aio_track->tracked_aio_ops == 0) ? 1 : 0;
 	}
 
-	pthread_spin_unlock(&aio_track->track_lock);
+	if (!aio_track->tracked_aio_ops && aio_track->is_empty_cond) {
+		cond = aio_track->is_empty_cond;
+		aio_track->is_empty_cond = NULL;
+		pthread_cond_signal(cond);
+	}
+
+	pthread_mutex_unlock(&aio_track->track_lock);
 	pthread_cleanup_pop(0);
+}
+
+static void cleanup_empty_queue_wait(void *arg)
+{
+	struct tcmu_track_aio *aio_track = arg;
+
+	pthread_cond_destroy(aio_track->is_empty_cond);
+	aio_track->is_empty_cond = NULL;
+	pthread_mutex_unlock(&aio_track->track_lock);
+}
+
+int aio_wait_for_empty_queue(struct tcmur_device *rdev)
+{
+	struct tcmu_track_aio *aio_track = &rdev->track_queue;
+	pthread_cond_t cond;
+	int ret;
+
+	ret = pthread_cond_init(&cond, NULL);
+	if (ret)
+		return ret;
+
+	pthread_cleanup_push(cleanup_empty_queue_wait, aio_track);
+	pthread_mutex_lock(&aio_track->track_lock);
+
+	if (!aio_track->tracked_aio_ops)
+		goto unlock;
+
+	aio_track->is_empty_cond = &cond;
+	ret = pthread_cond_wait(&cond, &aio_track->track_lock);
+	aio_track->is_empty_cond = NULL;
+
+unlock:
+	pthread_mutex_unlock(&aio_track->track_lock);
+	pthread_cleanup_pop(0);
+
+	pthread_cond_destroy(&cond);
+	return ret;
 }
 
 static void _cleanup_io_work(void *arg)
@@ -163,7 +207,7 @@ int setup_aio_tracking(struct tcmur_device *rdev)
 	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 
 	aio_track->tracked_aio_ops = 0;
-	ret = pthread_spin_init(&aio_track->track_lock, 0);
+	ret = pthread_mutex_init(&aio_track->track_lock, NULL);
 	if (ret != 0) {
 		return ret;
 	}
@@ -178,7 +222,7 @@ void cleanup_aio_tracking(struct tcmur_device *rdev)
 
 	assert(aio_track->tracked_aio_ops == 0);
 
-	ret = pthread_spin_destroy(&aio_track->track_lock);
+	ret = pthread_mutex_destroy(&aio_track->track_lock);
 	if (ret != 0) {
 		tcmu_err("failed to destroy track lock\n");
 	}
