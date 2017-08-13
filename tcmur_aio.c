@@ -98,6 +98,9 @@ int aio_wait_for_empty_queue(struct tcmur_device *rdev)
 	if (!aio_track->tracked_aio_ops)
 		goto unlock;
 
+	tcmu_dev_dbg(rdev->dev, "waiting for %d commands\n",
+		     rdev->track_queue.tracked_aio_ops);
+
 	aio_track->is_empty_cond = &cond;
 	ret = pthread_cond_wait(&cond, &aio_track->track_lock);
 	aio_track->is_empty_cond = NULL;

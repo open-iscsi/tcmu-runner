@@ -2146,13 +2146,18 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	uint8_t *cdb = cmd->cdb;
 
+	track_aio_request_start(rdev);
+
+	if (tcmu_dev_in_recovery(dev)) {
+		ret = SAM_STAT_BUSY;
+		goto untrack;
+	}
+
 	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
 		ret = alua_implicit_transition(dev, cmd);
 		if (ret)
-			return ret;
+			goto untrack;
 	}
-
-	track_aio_request_start(rdev);
 
 	switch(cdb[0]) {
 	case READ_6:
@@ -2196,6 +2201,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = TCMU_NOT_HANDLED;
 	}
 
+untrack:
 	if (ret != TCMU_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 	return ret;
@@ -2289,7 +2295,13 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 		return TCMU_NOT_HANDLED;
 
 	track_aio_request_start(rdev);
-	ret = rhandler->handle_cmd(dev, cmd);
+
+	if (tcmu_dev_in_recovery(dev)) {
+		ret = SAM_STAT_BUSY;
+	} else {
+		ret = rhandler->handle_cmd(dev, cmd);
+	}
+
 	if (ret != TCMU_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 

@@ -2,4 +2,5 @@
 	tcmur_register_handler;
 	tcmur_handle_writesame;
 	tcmu_notify_lock_lost;
+	tcmu_notify_conn_lost;
 };
