@@ -1785,6 +1785,7 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 struct unmap_state {
 	pthread_mutex_t lock;
 	unsigned int refcount;
+	int status;
 };
 
 struct unmap_descriptor {
@@ -1804,13 +1805,19 @@ static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd, 
 	free(ucmd);
 
 	pthread_mutex_lock(&state->lock);
+	if (ret != SAM_STAT_GOOD &&
+	    state->status != SAM_STAT_GOOD)
+		state->status = ret;
+
 	if (--state->refcount > 0) {
 		pthread_mutex_unlock(&state->lock);
 		return;
 	}
+	ret = state->status;
 	pthread_mutex_unlock(&state->lock);
 
 	pthread_mutex_destroy(&state->lock);
+
 	free(state);
 
 	aio_command_finish(dev, origcmd, ret);
@@ -1945,11 +1952,15 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		bddl -= 16;
 	}
 state_unlock:
+	if (ret != TCMU_ASYNC_HANDLED)
+		/* save in case we were able to get some unmaps off */ 
+		state->status = ret;
+
 	pthread_mutex_unlock(&state->lock);
 
-	/* Or will let the cbk to do the release */
-	if (!refcount)
-		free(state);
+	/* cbk will handle releasing of resources */
+	if (refcount)
+		ret = TCMU_ASYNC_HANDLED;
 
 	return ret;
 }
@@ -2070,6 +2081,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 					  NULL);
 		goto out_free_par;
 	}
+	state->status = SAM_STAT_GOOD;
 
 	ret = pthread_mutex_init(&state->lock, NULL);
 	if (ret == -1) {
@@ -2084,10 +2096,14 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	origcmd->cmdstate = state;
 
 	ret = handle_unmap_internal(dev, origcmd, bddl, par);
+	if (ret != TCMU_ASYNC_HANDLED)
+		goto out_destroy_mutex;
 
 	free(par);
 	return ret;
 
+out_destroy_mutex:
+	pthread_mutex_destroy(&state->lock);
 out_free_state:
 	free(state);
 out_free_par:
