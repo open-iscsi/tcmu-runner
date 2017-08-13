@@ -17,6 +17,8 @@
 #ifndef __TCMUR_DEVICE_H
 #define __TCMUR_DEVICE_H
 
+#include "pthread.h"
+
 #include "tcmur_aio.h"
 
 #define TCMUR_DEV_FLAG_FORMATTING	0x01
@@ -26,10 +28,22 @@ enum {
 	TMCUR_DEV_FAILOVER_IMPLICIT,
 };
 
+enum {
+	TCMUR_DEV_LOCK_UNLOCKED,
+	TCMUR_DEV_LOCK_LOCKED,
+	TCMUR_DEV_LOCK_LOCKING,
+};
+
 struct tcmur_device {
 	/* TCMUR_DEV flags */
 	uint32_t flags;
 	uint8_t failover_type;
+
+	uint8_t lock_state;
+	pthread_t lock_thread;
+
+	/* General lock for lock state, thread, dev state, etc */
+	pthread_mutex_t state_lock;
 
 	/*
 	 * lock order:
@@ -45,5 +59,7 @@ struct tcmur_device {
 	uint32_t format_progress;
 	pthread_mutex_t format_lock; /* for atomic format operations */
 };
+
+int tcmu_cancel_lock_thread(struct tcmu_device *dev);
 
 #endif
