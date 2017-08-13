@@ -1775,6 +1775,8 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 struct unmap_state {
 	pthread_mutex_t lock;
 	unsigned int refcount;
+	bool error;
+	int status;
 };
 
 struct unmap_descriptor {
@@ -1789,21 +1791,36 @@ static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd, 
 	struct unmap_descriptor *desc = ucmd->cmdstate;
 	struct tcmulib_cmd *origcmd = desc->origcmd;
 	struct unmap_state *state = origcmd->cmdstate;
+	bool error;
+	int status;
 
 	free(desc);
-	free(ucmd);
 
 	pthread_mutex_lock(&state->lock);
+	error = state->error;
+	/*
+	 * Make sure only copy the first error sense data.
+	 */
+	if (!error && ret) {
+		tcmu_copy_cmd_sense_data(origcmd, ucmd);
+		state->error = true;
+		state->status = ret;
+	}
+
+	free(ucmd);
+
 	if (--state->refcount > 0) {
 		pthread_mutex_unlock(&state->lock);
 		return;
 	}
+	status = state->status;
+	error = state->error;
 	pthread_mutex_unlock(&state->lock);
 
 	pthread_mutex_destroy(&state->lock);
 	free(state);
 
-	aio_command_finish(dev, origcmd, ret);
+	aio_command_finish(dev, origcmd, error ? status : ret);
 }
 
 static int unmap_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *ucmd)
@@ -1881,8 +1898,10 @@ static int handle_split_align_unmap(struct tcmu_device *dev, struct tcmulib_cmd 
 			     j++, lba, lba + lbas - 1, lbas);
 
 		ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
-		if (ret != TCMU_ASYNC_HANDLED)
+		if (ret != TCMU_ASYNC_HANDLED) {
+			tcmu_copy_cmd_sense_data(origcmd, ucmd);
 			goto free_ucmd;
+		}
 
 		nlbas -= lbas;
 		lba += lbas;
@@ -1948,12 +1967,33 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		bddl -= 16;
 	}
 state_unlock:
+	/*
+	 * If all are successful above, the status should
+	 * be set to TCMU_ASYNC_HANDLED, or will be the error
+	 * code.
+	 */
+	state->status = ret;
+
+	if (ret != TCMU_ASYNC_HANDLED)
+		state->error = true;
+
 	refcount = state->refcount;
 	pthread_mutex_unlock(&state->lock);
 
-	/* Or will let the cbk to do the release */
-	if (!refcount)
-		free(state);
+	/*
+	 * If there is any split align unmap has been dispatched,
+	 * then the cbk will handle releasing of resources
+	 */
+	if (refcount)
+		return TCMU_ASYNC_HANDLED;
+
+	/*
+	 * None split align unmap has ever been dispatched,
+	 * there must encountered some errors and will handle
+	 * releasing of resources here
+	 */
+	pthread_mutex_destroy(&state->lock);
+	free(state);
 
 	return ret;
 }
@@ -2085,6 +2125,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	}
 
 	state->refcount = 0;
+	state->error = false;
 	origcmd->cmdstate = state;
 
 	ret = handle_unmap_internal(dev, origcmd, bddl, par);
