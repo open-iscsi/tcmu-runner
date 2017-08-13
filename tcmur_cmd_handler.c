@@ -611,13 +611,11 @@ finish_err:
 
 static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint8_t *cdb = cmd->cdb;
 	uint8_t *sense = cmd->sense_buf;
 	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t start_lba = tcmu_get_lba(cdb);
-	uint32_t max_ws_len;
 	int ret;
 
 	if (cmd->iov_cnt != 1 || cmd->iovec->iov_len != block_size) {
@@ -645,14 +643,9 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	 * The MAXIMUM WRITE SAME LENGTH field in Block Limits VPD page (B0h)
 	 * limit the maximum block number for the WRITE SAME.
 	 */
-	if (rhandler->unmap)
-		max_ws_len = tcmu_get_dev_max_xfer_len(dev);
-	else
-		max_ws_len = VPD_MAX_WRITE_SAME_LENGTH;
-
-	if (lba_cnt > max_ws_len) {
+	if (lba_cnt > VPD_MAX_WRITE_SAME_LENGTH) {
 		tcmu_dev_err(dev, "blocks: %u exceeds MAXIMUM WRITE SAME LENGTH: %u\n",
-			     lba_cnt, max_ws_len);
+			     lba_cnt, VPD_MAX_WRITE_SAME_LENGTH);
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB,
 					   NULL);
