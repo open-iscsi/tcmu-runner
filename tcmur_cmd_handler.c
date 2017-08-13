@@ -704,6 +704,57 @@ static int ws_unmap_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return rhandler->unmap(dev, cmd, offset, length);
 }
 
+static int handle_unmap_in_writesame(struct tcmu_device *dev,
+				     struct tcmulib_cmd *cmd)
+{
+	uint8_t *sense = cmd->sense_buf;
+	uint8_t *cdb = cmd->cdb;
+	uint64_t lba = tcmu_get_lba(cdb);
+	uint64_t nlbas = tcmu_get_xfer_length(cdb);
+	struct unmap_state *state;
+	unsigned int refcount;
+	int ret;
+
+	tcmu_dev_dbg(dev, "Do UNMAP in WRITE_SAME cmd!\n");
+
+	state = calloc(1, sizeof(*state));
+	if (!state) {
+		tcmu_dev_err(dev, "Failed to calloc memory for unmap_state!\n");
+		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					  ASC_INTERNAL_TARGET_FAILURE,
+					  NULL);
+		return ret;
+	}
+
+	ret = pthread_mutex_init(&state->lock, NULL);
+	if (ret == -1) {
+		tcmu_dev_err(dev, "Failed to init spin lock in state!\n");
+		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					  ASC_INTERNAL_TARGET_FAILURE,
+					  NULL);
+		free(state);
+		return ret;
+	}
+
+	state->refcount = 0;
+	state->error = false;
+	cmd->cmdstate = state;
+
+	pthread_mutex_lock(&state->lock);
+	ret = handle_split_align_unmap(dev, cmd, lba, nlbas);
+	if (ret != TCMU_ASYNC_HANDLED)
+		state->error = true;
+
+	refcount = state->refcount;
+	pthread_mutex_unlock(&state->lock);
+
+	/* Or will let the cbk to do the release */
+	if (!refcount)
+		free(state);
+
+	return ret;
+}
+
 static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -780,9 +831,8 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 }
 
 static int tcmur_writesame_work_fn(struct tcmu_device *dev,
-				 struct tcmulib_cmd *cmd)
+				   struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	tcmur_writesame_fn_t write_same_fn = cmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint8_t *cdb = cmd->cdb;
@@ -790,11 +840,6 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 	uint32_t len = block_size * tcmu_get_xfer_length(cdb);
 
 	cmd->done = handle_generic_cbk;
-
-	if (rhandler->unmap && (cmd->cdb[1] & 0x08)) {
-		tcmu_dev_dbg(dev, "Do UNMAP in WRITE_SAME cmd!\n");
-		return rhandler->unmap(dev, cmd, off, len);
-	}
 
 	/*
 	 * Write contents of the logical block data(from the Data-Out Buffer)
@@ -807,6 +852,7 @@ int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			   tcmur_writesame_fn_t write_same_fn)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
 	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
@@ -818,6 +864,9 @@ int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	ret = handle_writesame_check(dev, cmd);
 	if (ret)
 		return ret;
+
+	if (rhandler->unmap && (cmd->cdb[1] & 0x08))
+		return handle_unmap_in_writesame(dev, cmd);
 
 	cmd->cmdstate = write_same_fn;
 
