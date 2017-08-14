@@ -881,10 +881,6 @@ int main(int argc, char **argv)
 	guint reg_id;
 	int ret;
 
-	tcmu_cfg = tcmu_setup_config(NULL);
-	if (!tcmu_cfg)
-		exit(1);
-
 	while (1) {
 		int option_index = 0;
 		int c;
@@ -921,6 +917,10 @@ int main(int argc, char **argv)
 			goto destroy_config;
 		}
 	}
+
+	tcmu_cfg = tcmu_setup_config(NULL);
+	if (!tcmu_cfg)
+		exit(1);
 
 	if (tcmu_setup_log())
 		goto destroy_config;
