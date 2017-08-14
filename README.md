@@ -45,6 +45,19 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 1. If using systemd, copy `org.kernel.TCMUService1.service` to `/usr/share/dbus-1/system-services/` and `tcmu-runner.service` to `/lib/systemd/system`.
 1. Or, run it from the command line as root. It should print the number of handlers and devices found.
 
+
+##### Creating a LIO user-backed storage object with backstore specific tools
+
+- Ceph:
+
+If setting up tcmu-runner in a HA configuration, the ceph-iscsi-cli
+(https://github.com/ceph/ceph-iscsi-cli) tool is the preferred management
+tool.
+
+Bug reports should be made to the tcmu-runner github:
+https://github.com/open-iscsi/tcmu-runner/issues, but can be made to
+ceph-users@ceph.com mailing list.
+
 ##### Creating a LIO user-backed storage object with targetcli-fb or configfs
 
 Support for the user/tcmu backstore is supported in targetcli-fb/rtslib-fb:
