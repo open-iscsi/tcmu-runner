@@ -299,6 +299,30 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 		return TCMUR_LOCK_SUCCESS;
 }
 
+static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	uint64_t features = 0;
+	int ret;
+
+	ret = rbd_get_features(state->image, &features);
+	if (ret) {
+		tcmu_dev_warn(dev, "Could not get rbd features. HA may not be supported. Err %d.\n", ret);
+		return;
+	}
+
+	if (!(features & RBD_FEATURE_EXCLUSIVE_LOCK)) {
+		tcmu_dev_warn(dev, "exclusive-lock not enabled for image. HA not supported.\n");
+	}
+}
+
+#else
+
+static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
+{
+	tcmu_dev_warn(dev, "HA not supported.\n");
+}
+
 #endif
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
@@ -387,6 +411,8 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	if (ret < 0) {
 		goto free_config;
 	}
+
+	tcmu_rbd_check_excl_lock_enabled(dev);
 
 	ret = rbd_get_size(state->image, &rbd_size);
 	if (ret < 0) {
