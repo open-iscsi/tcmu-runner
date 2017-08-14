@@ -619,6 +619,10 @@ static void *tcmur_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_cdb_debug_info(cmd);
 
+			ret = tcmulib_check_state(dev, cmd);
+			if (ret)
+				goto unit_attention;
+
 			if (tcmur_handler_is_passthrough_only(rhandler))
 				ret = tcmur_cmd_passthrough_handler(dev, cmd);
 			else
@@ -627,6 +631,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			if (ret == TCMU_NOT_HANDLED)
 				tcmu_warn("Command 0x%x not supported\n", cmd->cdb[0]);
 
+unit_attention:
 			/*
 			 * command (processing) completion is called in the following
 			 * scenarios:
@@ -719,9 +724,13 @@ static int dev_added(struct tcmu_device *dev)
 	if (ret != 0)
 		goto cleanup_caw_lock;
 
-	ret = setup_io_work_queue(dev);
+	ret = pthread_mutex_init(&rdev->devstate_lock, NULL);
 	if (ret < 0)
 		goto cleanup_format_lock;
+
+	ret = setup_io_work_queue(dev);
+	if (ret < 0)
+		goto cleanup_devstate_lock;
 
 	ret = setup_aio_tracking(rdev);
 	if (ret < 0)
@@ -751,6 +760,8 @@ cleanup_aio_tracking:
 	cleanup_aio_tracking(rdev);
 cleanup_io_work_queue:
 	cleanup_io_work_queue(dev, true);
+cleanup_devstate_lock:
+	pthread_mutex_destroy(&rdev->devstate_lock);
 cleanup_format_lock:
 	pthread_mutex_destroy(&rdev->format_lock);
 cleanup_caw_lock:
@@ -779,6 +790,10 @@ static void dev_removed(struct tcmu_device *dev)
 
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(rdev);
+
+	ret = pthread_mutex_destroy(&rdev->devstate_lock);
+	if (ret != 0)
+		tcmu_err("could not cleanup devstate lock %d\n", ret);
 
 	ret = pthread_mutex_destroy(&rdev->format_lock);
 	if (ret != 0)

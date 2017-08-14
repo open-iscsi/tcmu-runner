@@ -31,6 +31,11 @@ extern "C" {
 
 #include "libtcmu_common.h"
 
+#define TCMU_DEV_STATE_CAPACITY_CHANGED				0x01
+#define TCMU_DEV_STATE_CONFIG_CHANGING				0x02
+#define TCMU_DEV_STATE_CONFIG_CHANGED				0x04
+#define TCMU_DEV_STATE_CAPACITY_CHANGE_FOR_CONFIG_CHANGE	0x08
+
 enum tcmulib_cfg_type {
 	TCMULIB_CFG_DEV_CFGSTR,
 	TCMULIB_CFG_DEV_SIZE,
@@ -140,6 +145,9 @@ void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev);
 
 /* cleanup all (devices) command processing threads */
 void tcmulib_cleanup_all_cmdproc_threads();
+
+/* Checks state of the device to see if any reconfiguration happening */
+int tcmulib_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
 #ifdef __cplusplus
 }

@@ -1615,11 +1615,67 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return 0;
 }
 
+static int fbo_update_cfgstring(struct tcmu_device *dev,
+				struct tcmulib_cfg_info *cfg)
+{
+	char *oldptr;
+	int ret;
+
+	if (!tcmu_check_state(dev, TCMU_DEV_STATE_CAPACITY_CHANGE_FOR_CONFIG_CHANGE)) {
+		tcmu_dev_err(dev, "You need to include size change to be able to change dev_config\n");
+		return -EINVAL;
+	}
+	tcmu_remove_state(dev, TCMU_DEV_STATE_CAPACITY_CHANGE_FOR_CONFIG_CHANGE);
+
+	tcmu_update_state(dev, TCMU_DEV_STATE_CONFIG_CHANGING);
+
+	fbo_close(dev);
+
+	oldptr = cfg->data.dev_cfgstring;
+	tcmu_set_dev_cfgstring(dev, oldptr);
+
+	ret = fbo_open(dev);
+	if (ret != 0) {
+		tcmu_dev_err(dev, "Failed opening of new media\n");
+		goto fail_open;
+	}
+
+	tcmu_update_state(dev, TCMU_DEV_STATE_CONFIG_CHANGED);
+	tcmu_remove_state(dev, TCMU_DEV_STATE_CONFIG_CHANGING);
+
+	return 0;
+
+fail_open:
+	tcmu_remove_state(dev, TCMU_DEV_STATE_CONFIG_CHANGING);
+
+	return ret;
+}
+
+static int fbo_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
+{
+	int ret = -EOPNOTSUPP;
+
+	switch (cfg->type) {
+	case TCMULIB_CFG_DEV_CFGSTR:
+		return fbo_update_cfgstring(dev, cfg);
+	case TCMULIB_CFG_DEV_SIZE:
+		tcmu_update_state(dev, TCMU_DEV_STATE_CAPACITY_CHANGE_FOR_CONFIG_CHANGE);
+		return 0;
+	case TCMULIB_CFG_WRITE_CACHE:
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return ret;
+}
+
 static const char fbo_cfg_desc[] =
 	"The path to the file to use as a backstore.";
 
 static struct tcmur_handler fbo_handler = {
 	.cfg_desc = fbo_cfg_desc,
+
+	.reconfig = fbo_reconfig,
 
 	.open = fbo_open,
 	.close = fbo_close,

@@ -38,6 +38,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
 #include "tcmur_aio.h"
+#include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
 
@@ -686,6 +687,40 @@ void tcmulib_close(struct tcmulib_context *ctx)
 	free(ctx);
 }
 
+void tcmu_update_state(struct tcmu_device *dev, uint32_t flag)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+	pthread_mutex_lock(&rdev->devstate_lock);
+	dev->flags |= flag;
+	pthread_mutex_unlock(&rdev->devstate_lock);
+}
+
+bool tcmu_check_state(struct tcmu_device *dev, uint32_t flag)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	uint32_t state;
+
+	pthread_mutex_lock(&rdev->devstate_lock);
+	state = dev->flags & flag;
+	pthread_mutex_unlock(&rdev->devstate_lock);
+
+	if (state)
+		return true;
+	else
+		return false;
+}
+
+void tcmu_remove_state(struct tcmu_device *dev, uint32_t flag)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+	pthread_mutex_lock(&rdev->devstate_lock);
+	if (dev->flags & flag)
+		dev->flags &= ~flag;
+	pthread_mutex_unlock(&rdev->devstate_lock);
+}
+
 int tcmulib_get_master_fd(struct tcmulib_context *ctx)
 {
 	return nl_socket_get_fd(ctx->nl_sock);
@@ -735,6 +770,8 @@ int tcmu_update_num_lbas(struct tcmu_device *dev, uint64_t new_size)
 {
 	if (!new_size)
 		return -EINVAL;
+
+	tcmu_update_state(dev, TCMU_DEV_STATE_CAPACITY_CHANGED);
 
 	tcmu_set_dev_num_lbas(dev, new_size / tcmu_get_dev_block_size(dev));
 	return 0;
@@ -813,6 +850,11 @@ int tcmu_get_dev_fd(struct tcmu_device *dev)
 char *tcmu_get_dev_cfgstring(struct tcmu_device *dev)
 {
 	return dev->cfgstring;
+}
+
+void tcmu_set_dev_cfgstring(struct tcmu_device *dev, const char *cfgstring)
+{
+	snprintf(dev->cfgstring, sizeof(dev->cfgstring), "%s", cfgstring);
 }
 
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)
@@ -1055,4 +1097,35 @@ void tcmulib_cleanup_all_cmdproc_threads()
 	darray_foreach(thread, g_threads) {
 		cancel_thread(thread->thread_id);
 	}
+}
+
+int tcmulib_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	uint8_t *cdb = cmd->cdb;
+	int ret;
+
+	if (tcmu_check_state(dev, TCMU_DEV_STATE_CAPACITY_CHANGED) &&
+	    cdb[0] != INQUIRY &&
+	    cdb[0] != REQUEST_SENSE) {
+		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
+					  ASC_CAPACITY_DATA_HAS_CHANGED,
+					  NULL);
+		tcmu_remove_state(dev, TCMU_DEV_STATE_CAPACITY_CHANGED);
+		return ret;
+	}
+	if (tcmu_check_state(dev, TCMU_DEV_STATE_CONFIG_CHANGED) &&
+	    cdb[0] != INQUIRY &&
+	    cdb[0] != REQUEST_SENSE) {
+		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
+					  ASC_MEDIUM_CHANGED, NULL);
+		tcmu_remove_state(dev, TCMU_DEV_STATE_CONFIG_CHANGED);
+		return ret;
+	}
+	if (tcmu_check_state(dev, TCMU_DEV_STATE_CONFIG_CHANGING) &&
+	    cdb[0] != INQUIRY &&
+	    cdb[0] != REQUEST_SENSE)
+		return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
+					   ASC_MEDIUM_NOT_PRESENT, NULL);
+
+	return 0;
 }
