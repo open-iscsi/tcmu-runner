@@ -169,6 +169,14 @@ size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)
 	return length;
 }
 
+void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fromcmd)
+{
+	if (!tocmd || !fromcmd)
+		return;
+
+	memcpy(tocmd->sense_buf, fromcmd->sense_buf, 18);
+}
+
 int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq,
 			uint32_t *info)
 {
