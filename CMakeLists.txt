@@ -47,7 +47,7 @@ add_library(tcmu
   )
 set_target_properties(tcmu
   PROPERTIES
-  SOVERSION "1"
+  SOVERSION "2"
   )
 target_include_directories(tcmu
   PUBLIC ${LIBNL_INCLUDE_DIR}
