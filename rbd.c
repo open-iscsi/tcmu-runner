@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 #include <fcntl.h>
 #include <endian.h>
 #include <errno.h>
@@ -74,6 +75,10 @@ struct tcmu_rbd_state {
 
 	pthread_spinlock_t lock;	/* protect state */
 	int state;
+
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+	bool lock_owner;
+#endif /* LIBRADOS_SUPPORTS_SERVICES */
 };
 
 struct rbd_aio_cb {
@@ -83,6 +88,22 @@ struct rbd_aio_cb {
 	int64_t length;
 	char *bounce_buffer;
 };
+
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+static void tcmu_rbd_service_status_update(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	int ret;
+	char status_buf[1024];
+	snprintf(status_buf, sizeof(status_buf), "%s%c%s%c",
+		 "lock_owner", '\0', state->lock_owner ? "true" : "false", '\0');
+	ret = rados_service_update_status(state->cluster, status_buf);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not update service status. (Err %d\n",
+			     ret);
+	}
+}
+#endif /* LIBRADOS_SUPPORTS_SERVICES */
 
 static void tcmu_rbd_image_close(struct tcmu_device *dev)
 {
@@ -115,6 +136,12 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	int ret;
 
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+	struct utsname u;
+	char daemon_buf[1024];
+	char metadata_buf[1024];
+#endif /* LIBRADOS_SUPPORTS_SERVICES */
+
 	pthread_spin_lock(&state->lock);
 	if (state->state == TCMU_RBD_OPENED) {
 		tcmu_dev_dbg(dev, "skipping open. Already opened\n");
@@ -146,6 +173,29 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 			     ret);
 		goto set_cluster_null;
 	}
+
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+	ret = uname(&u);
+	if (ret < 0) {
+		ret = errno;
+		tcmu_dev_err(dev, "Could not query uname. (Err %d)\n", ret);
+		goto rados_shutdown;
+	}
+
+	snprintf(daemon_buf, sizeof(daemon_buf), "%s:%s/%s",
+		 u.nodename, state->pool_name, state->image_name);
+	snprintf(metadata_buf, sizeof(metadata_buf),
+		 "pool_name%c%s%cimage_name%c%s%c",
+		 '\0', state->pool_name, '\0',
+		 '\0', state->image_name, '\0');
+	ret = rados_service_register(state->cluster, "tcmu-runner",
+				     daemon_buf, metadata_buf);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not register service to cluster. (Err %d)\n",
+			     ret);
+		goto rados_shutdown;
+	}
+#endif /* LIBRADOS_SUPPORTS_SERVICES */
 
 	ret = rados_ioctx_create(state->cluster, state->pool_name,
 				 &state->io_ctx);
@@ -303,9 +353,15 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	 * TODO: Add retry/timeout settings to handle windows/ESX.
 	 * Or, set to transitioning and grab the lock in the background.
 	 */
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+	state->lock_owner = false;
+#endif /* LIBRADOS_SUPPORTS_SERVICES */
 	while (attempts++ < 5) {
 		ret = tcmu_rbd_has_lock(dev);
 		if (ret == 1) {
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+			state->lock_owner = true;
+#endif /* LIBRADOS_SUPPORTS_SERVICES */
 			ret = 0;
 			break;
 		} else if (ret == -ESHUTDOWN) {
@@ -334,6 +390,9 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 			     ret);
 	}
 
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+	tcmu_rbd_service_status_update(dev);
+#endif /* LIBRADOS_SUPPORTS_SERVICES */
 	if (orig_owner)
 		free(orig_owner);
 
@@ -343,6 +402,12 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 static int tcmu_rbd_unlock(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+	state->lock_owner = false;
+	tcmu_rbd_service_status_update(dev);
+#endif /* LIBRADOS_SUPPORTS_SERVICES */
+
 	return rbd_lock_release(state->image);
 }
 
