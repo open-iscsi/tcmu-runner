@@ -596,8 +596,30 @@ static void cmdproc_thread_cleanup(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	bool is_open = false;
 
-	rhandler->close(dev);
+	pthread_mutex_lock(&rdev->state_lock);
+	rdev->flags |= TCMUR_DEV_FLAG_SHUTTING_DOWN;
+	pthread_mutex_unlock(&rdev->state_lock);
+
+	/*
+	 * The lock thread can fire off the recovery thread, so make sure
+	 * it is done first.
+	 */
+	tcmu_cancel_lock_thread(dev);
+	tcmu_cancel_recovery(dev);
+
+	pthread_mutex_lock(&rdev->state_lock);
+	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {
+		rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
+		is_open = true;
+	}
+	pthread_mutex_unlock(&rdev->state_lock);
+
+	if (is_open)
+		rhandler->close(dev);
+	tcmu_dev_dbg(dev, "cmdproc cleanup done\n");
 }
 
 static void *tcmur_cmdproc_thread(void *arg)
@@ -683,6 +705,8 @@ static int dev_added(struct tcmu_device *dev)
 	if (!rdev)
 		return -ENOMEM;
 	tcmu_set_daemon_dev_private(dev, rdev);
+	list_node_init(&rdev->recovery_entry);
+	rdev->dev = dev;
 
 	ret = -EINVAL;
 	block_size = tcmu_get_attribute(dev, "hw_block_size");
@@ -719,9 +743,13 @@ static int dev_added(struct tcmu_device *dev)
 	if (ret != 0)
 		goto cleanup_caw_lock;
 
+	ret = pthread_mutex_init(&rdev->state_lock, NULL);
+	if (ret != 0)
+		goto cleanup_format_lock;
+
 	ret = setup_io_work_queue(dev);
 	if (ret < 0)
-		goto cleanup_format_lock;
+		goto cleanup_state_lock;
 
 	ret = setup_aio_tracking(rdev);
 	if (ret < 0)
@@ -751,6 +779,8 @@ cleanup_aio_tracking:
 	cleanup_aio_tracking(rdev);
 cleanup_io_work_queue:
 	cleanup_io_work_queue(dev, true);
+cleanup_state_lock:
+	pthread_mutex_destroy(&rdev->state_lock);
 cleanup_format_lock:
 	pthread_mutex_destroy(&rdev->format_lock);
 cleanup_caw_lock:
@@ -779,6 +809,10 @@ static void dev_removed(struct tcmu_device *dev)
 
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(rdev);
+
+	ret = pthread_mutex_destroy(&rdev->state_lock);
+	if (ret != 0)
+		tcmu_err("could not cleanup state lock %d\n", ret);
 
 	ret = pthread_mutex_destroy(&rdev->format_lock);
 	if (ret != 0)

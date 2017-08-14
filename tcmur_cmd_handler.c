@@ -438,7 +438,14 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			   tcmur_writesame_fn_t write_same_fn)
 {
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
+
+	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
+		ret = alua_implicit_transition(dev, cmd);
+		if (ret)
+			return ret;
+	}
 
 	ret = handle_writesame_check(dev, cmd);
 	if (ret)
@@ -1671,7 +1678,7 @@ free_cmd:
 	free(writecmd);
 	free(state);
 	pthread_mutex_lock(&rdev->format_lock);
-	rdev->flags &= ~TCMUR_DEV_FORMATTING;
+	rdev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
 	pthread_mutex_unlock(&rdev->format_lock);
 	aio_command_finish(dev, origcmd, ret);
 }
@@ -1687,14 +1694,14 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	int ret;
 
 	pthread_mutex_lock(&rdev->format_lock);
-	if (rdev->flags & TCMUR_DEV_FORMATTING) {
+	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING) {
 		pthread_mutex_unlock(&rdev->format_lock);
 		return tcmu_set_sense_data(sense, NOT_READY,
 					  ASC_NOT_READY_FORMAT_IN_PROGRESS,
 					  &rdev->format_progress);
 	}
 	rdev->format_progress = 0;
-	rdev->flags |= TCMUR_DEV_FORMATTING;
+	rdev->flags |= TCMUR_DEV_FLAG_FORMATTING;
 	pthread_mutex_unlock(&rdev->format_lock);
 
 	writecmd = calloc(1, sizeof(*writecmd));
@@ -1742,29 +1749,12 @@ free_cmd:
 	free(writecmd);
 clear_format:
 	pthread_mutex_lock(&rdev->format_lock);
-	rdev->flags &= ~TCMUR_DEV_FORMATTING;
+	rdev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
 	pthread_mutex_unlock(&rdev->format_lock);
 	return SAM_STAT_TASK_SET_FULL;
 }
 
 /* ALUA */
-static int handle_stpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
-{
-	struct list_head group_list;
-	int ret;
-
-	list_head_init(&group_list);
-
-	ret = tcmu_get_tgt_port_grps(dev, &group_list);
-	if (ret)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
-
-	ret = tcmu_emulate_set_tgt_port_grps(dev, &group_list, cmd);
-	tcmu_release_tgt_port_grps(&group_list);
-	return ret;
-}
-
 static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct list_head group_list;
@@ -1772,13 +1762,13 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	list_head_init(&group_list);
 
-	ret = tcmu_get_tgt_port_grps(dev, &group_list);
+	ret = tcmu_get_alua_grps(dev, &group_list);
 	if (ret)
 		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 
 	ret = tcmu_emulate_report_tgt_port_grps(dev, &group_list, cmd);
-	tcmu_release_tgt_port_grps(&group_list);
+	tcmu_release_alua_grps(&group_list);
 	return ret;
 }
 
@@ -2158,6 +2148,17 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	track_aio_request_start(rdev);
 
+	if (tcmu_dev_in_recovery(dev)) {
+		ret = SAM_STAT_BUSY;
+		goto untrack;
+	}
+
+	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
+		ret = alua_implicit_transition(dev, cmd);
+		if (ret)
+			goto untrack;
+	}
+
 	switch(cdb[0]) {
 	case READ_6:
 	case READ_10:
@@ -2182,10 +2183,6 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case EXTENDED_COPY:
 		ret = handle_xcopy(dev, cmd);
 		break;
-	case RECEIVE_COPY_RESULTS:
-		if ((cdb[1] & 0x1f) == RCR_SA_OPERATING_PARAMETERS)
-			ret = handle_recv_copy_result(dev, cmd);
-		break;
 	case COMPARE_AND_WRITE:
 		ret = handle_caw(dev, cmd);
 		break;
@@ -2200,18 +2197,11 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case FORMAT_UNIT:
 		ret = handle_format_unit(dev, cmd);
 		break;
-	case MAINTENANCE_IN:
-		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
-			ret = handle_rtpg(dev, cmd);
-		break;
-	case MAINTENANCE_OUT:
-		if (cdb[1] == MO_SET_TARGET_PGS)
-			ret = handle_stpg(dev, cmd);
-		break;
 	default:
 		ret = TCMU_NOT_HANDLED;
 	}
 
+untrack:
 	if (ret != TCMU_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 	return ret;
@@ -2225,7 +2215,7 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	list_head_init(&group_list);
 
-	ret = tcmu_get_tgt_port_grps(dev, &group_list);
+	ret = tcmu_get_alua_grps(dev, &group_list);
 	if (ret)
 		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
@@ -2236,11 +2226,11 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	ret = tcmu_emulate_inquiry(dev, port, cmd->cdb, cmd->iovec,
 				   cmd->iov_cnt, cmd->sense_buf);
-	tcmu_release_tgt_port_grps(&group_list);
+	tcmu_release_alua_grps(&group_list);
 	return ret;
 }
 
-static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
 	struct iovec *iovec = cmd->iovec;
@@ -2281,31 +2271,16 @@ static int handle_generic_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case MODE_SELECT:
 	case MODE_SELECT_10:
 		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt, sense);
+	case RECEIVE_COPY_RESULTS:
+		if ((cdb[1] & 0x1f) == RCR_SA_OPERATING_PARAMETERS)
+			return handle_recv_copy_result(dev, cmd);
+		return TCMU_NOT_HANDLED;
+	case MAINTENANCE_IN:
+		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
+			return handle_rtpg(dev, cmd);
+		return TCMU_NOT_HANDLED;
 	default:
 		return TCMU_NOT_HANDLED;
-	}
-}
-
-static bool command_is_generic(struct tcmulib_cmd *cmd)
-{
-	uint8_t *cdb = cmd->cdb;
-
-	switch(cdb[0]) {
-	case INQUIRY:
-	case TEST_UNIT_READY:
-	case MODE_SENSE:
-	case MODE_SENSE_10:
-	case START_STOP:
-	case MODE_SELECT:
-	case MODE_SELECT_10:
-	case READ_CAPACITY:
-		return true;
-	case SERVICE_ACTION_IN_16:
-		if (cdb[1] == READ_CAPACITY_16)
-			return true;
-		/* fall through */
-	default:
-		return false;
 	}
 }
 
@@ -2320,7 +2295,13 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 		return TCMU_NOT_HANDLED;
 
 	track_aio_request_start(rdev);
-	ret = rhandler->handle_cmd(dev, cmd);
+
+	if (tcmu_dev_in_recovery(dev)) {
+		ret = SAM_STAT_BUSY;
+	} else {
+		ret = rhandler->handle_cmd(dev, cmd);
+	}
+
 	if (ret != TCMU_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 
@@ -2332,7 +2313,7 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
 
-	if (rdev->flags & TCMUR_DEV_FORMATTING && cmd->cdb[0] != INQUIRY)
+	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING && cmd->cdb[0] != INQUIRY)
 		return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
 					   ASC_NOT_READY_FORMAT_IN_PROGRESS,
 					   &rdev->format_progress);
@@ -2346,8 +2327,8 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return ret;
 
 	/* Falls back to the runner's generic handle callout */
-	if (command_is_generic(cmd))
-		return handle_generic_cmd(dev, cmd);
-	else
-		return tcmur_cmd_handler(dev, cmd);
+	ret = handle_sync_cmd(dev, cmd);
+	if (ret == TCMU_NOT_HANDLED)
+		ret = tcmur_cmd_handler(dev, cmd);
+	return ret;
 }
