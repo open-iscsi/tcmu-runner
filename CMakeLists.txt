@@ -47,7 +47,7 @@ add_library(tcmu
   )
 set_target_properties(tcmu
   PROPERTIES
-  SOVERSION "1"
+  SOVERSION "2"
   )
 target_include_directories(tcmu
   PUBLIC ${LIBNL_INCLUDE_DIR}
@@ -256,8 +256,6 @@ configure_file (
   )
 install(SCRIPT tcmu.conf_install.cmake)
 
-install(FILES libtcmu.h libtcmu_common.h tcmu-runner.h
-  DESTINATION include)
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
