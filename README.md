@@ -58,6 +58,14 @@ Bug reports should be made to the tcmu-runner github:
 https://github.com/open-iscsi/tcmu-runner/issues, but can be made to
 ceph-users@ceph.com mailing list.
 
+- Gluster:
+
+Gluster management must be done with the gluster-block tools
+(https://github.com/gluster/gluster-block).
+
+Bug reports must be made to the gluster-block github:
+https://github.com/gluster/gluster-block/issues
+
 ##### Creating a LIO user-backed storage object with targetcli-fb or configfs
 
 Support for the user/tcmu backstore is supported in targetcli-fb/rtslib-fb:
