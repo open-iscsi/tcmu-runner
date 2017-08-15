@@ -176,7 +176,8 @@ struct unmap_descriptor {
 	struct tcmulib_cmd *origcmd;
 };
 
-static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd, int ret)
+static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd,
+			     int ret)
 {
 	struct unmap_descriptor *desc = ucmd->cmdstate;
 	struct tcmulib_cmd *origcmd = desc->origcmd;
@@ -189,7 +190,7 @@ static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd, 
 	pthread_mutex_lock(&state->lock);
 	error = state->error;
 	/*
-	 * Make sure only copy the first error sense data.
+	 * Make sure to only copy the first scsi status and/or sense.
 	 */
 	if (!error && ret) {
 		tcmu_copy_cmd_sense_data(origcmd, ucmd);
@@ -224,8 +225,9 @@ static int unmap_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *ucmd)
 	return rhandler->unmap(dev, ucmd, offset, length);
 }
 
-static int handle_split_align_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd,
-				    uint64_t lba, uint64_t nlbas)
+static int align_and_split_unmap(struct tcmu_device *dev,
+				 struct tcmulib_cmd *origcmd,
+				 uint64_t lba, uint64_t nlbas)
 {
 	struct unmap_state *state = origcmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
@@ -253,10 +255,8 @@ static int handle_split_align_unmap(struct tcmu_device *dev, struct tcmulib_cmd 
 	 *
 	 * NOTE: here we always asumme the OPTIMAL UNMAP GRANULARITY
 	 * equals to UNMAP GRANULARITY ALIGNMENT to simplify the
-	 * calculate algorithm, but in future for some new devices
-	 * who could support and they must have different values
-	 * to make the unmap to be more efficient, the following
-	 * align and split calculate algorithm should be changed.
+	 * algorithm. In the future, for new devices that have different
+	 * values the following align and split algorithm should be changed.
 	 */
 	lbas = opt_unmap_gran - (lba & mask);
 	lbas = min(lbas, nlbas);
@@ -348,7 +348,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			goto state_unlock;
 		}
 
-		ret = handle_split_align_unmap(dev, origcmd, lba, nlbas);
+		ret = align_and_split_unmap(dev, origcmd, lba, nlbas);
 		if (ret != TCMU_ASYNC_HANDLED)
 			goto state_unlock;
 
@@ -370,17 +370,16 @@ state_unlock:
 	refcount = state->refcount;
 	pthread_mutex_unlock(&state->lock);
 
-	/*
-	 * If there is any split align unmap has been dispatched,
-	 * then the cbk will handle releasing of resources
-	 */
 	if (refcount)
+		/*
+		 * Some unmaps have been dispatched, so the cbk will handle
+		 * releasing of resources and returning the error.
+		 */
 		return TCMU_ASYNC_HANDLED;
 
 	/*
-	 * None split align unmap has ever been dispatched,
-	 * there must encountered some errors and will handle
-	 * releasing of resources here
+	 * No unmaps have been dispatched, so return the error and free
+	 * resources now.
 	 */
 	pthread_mutex_destroy(&state->lock);
 	free(state);
@@ -703,7 +702,7 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 	cmd->cmdstate = state;
 
 	pthread_mutex_lock(&state->lock);
-	ret = handle_split_align_unmap(dev, cmd, lba, nlbas);
+	ret = align_and_split_unmap(dev, cmd, lba, nlbas);
 	if (ret != TCMU_ASYNC_HANDLED)
 		state->error = true;
 
