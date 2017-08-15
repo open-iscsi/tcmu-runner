@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 #include <fcntl.h>
 #include <endian.h>
 #include <errno.h>
@@ -76,6 +77,89 @@ struct rbd_aio_cb {
 	char *bounce_buffer;
 };
 
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+
+static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
+					   bool has_lock)
+{
+	int ret;
+	char *status_buf = NULL;
+	ret = asprintf(&status_buf, "%s%c%s%c", "lock_owner", '\0',
+		       has_lock ? "true" : "false", '\0');
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not allocate status buf. Service will not be updated.\n");
+		return;
+	}
+
+	ret = rados_service_update_status(state->cluster, status_buf);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not update service status. (Err %d\n",
+			     ret);
+	}
+
+	free(status_buf);
+}
+
+static int tcmu_rbd_service_register(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct utsname u;
+	char *daemon_buf = NULL;
+	char *metadata_buf = NULL;
+	int ret;
+
+	ret = uname(&u);
+	if (ret < 0) {
+		ret = -errno;
+		tcmu_dev_err(dev, "Could not query uname. (Err %d)\n", ret);
+		return ret;
+	}
+
+	ret = asprintf(&daemon_buf, "%s:%s/%s",
+		       u.nodename, state->pool_name, state->image_name);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not allocate daemon buf.\n");
+		return -ENOMEM;
+	}
+
+	ret = asprintf(&metadata_buf, "pool_name%c%s%cimage_name%c%s%c",
+		       '\0', state->pool_name, '\0',
+		       '\0', state->image_name, '\0');
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not allocate metadata buf.\n");
+		ret = ENOMEM;
+		goto free_daemon_buf;
+	}
+
+	ret = rados_service_register(state->cluster, "tcmu-runner",
+				     daemon_buf, metadata_buf);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not register service to cluster. (Err %d)\n",
+			     ret);
+	}
+
+	free(metadata_buf);
+free_daemon_buf:
+	free(daemon_buf);
+	return ret;
+}
+
+#else
+
+static int tcmu_rbd_service_register(struct tcmu_device *dev)
+{
+	/* Ignorable. Just log in dbg mode just in case. */
+	tcmu_dev_dbg(dev, "Ceph service registration not supported.\n");
+	return 0;
+}
+
+static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
+					   bool has_lock)
+{
+}
+
+#endif /* LIBRADOS_SUPPORTS_SERVICES */
+
 static void tcmu_rbd_image_close(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
@@ -118,6 +202,10 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 			     ret);
 		goto set_cluster_null;
 	}
+
+	ret = tcmu_rbd_service_register(dev);
+	if (ret < 0)
+		goto rados_shutdown;
 
 	ret = rados_ioctx_create(state->cluster, state->pool_name,
 				 &state->io_ctx);
@@ -292,11 +380,39 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 		free(orig_owner);
 
 	if (ret == -ETIMEDOUT || ret == -ESHUTDOWN)
-		return TCMUR_LOCK_NOTCONN;
+		ret = TCMUR_LOCK_NOTCONN;
 	else if (ret)
-		return TCMUR_LOCK_FAILED;
+		ret = TCMUR_LOCK_FAILED;
 	else
-		return TCMUR_LOCK_SUCCESS;
+		ret = TCMUR_LOCK_SUCCESS;
+
+	tcmu_rbd_service_status_update(dev, ret == TCMUR_LOCK_SUCCESS ?
+				       true : false);
+	return ret;
+}
+
+static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	uint64_t features = 0;
+	int ret;
+
+	ret = rbd_get_features(state->image, &features);
+	if (ret) {
+		tcmu_dev_warn(dev, "Could not get rbd features. HA may not be supported. Err %d.\n", ret);
+		return;
+	}
+
+	if (!(features & RBD_FEATURE_EXCLUSIVE_LOCK)) {
+		tcmu_dev_warn(dev, "exclusive-lock not enabled for image. HA not supported.\n");
+	}
+}
+
+#else
+
+static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
+{
+	tcmu_dev_warn(dev, "HA not supported.\n");
 }
 
 #endif
@@ -387,6 +503,8 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	if (ret < 0) {
 		goto free_config;
 	}
+
+	tcmu_rbd_check_excl_lock_enabled(dev);
 
 	ret = rbd_get_size(state->image, &rbd_size);
 	if (ret < 0) {

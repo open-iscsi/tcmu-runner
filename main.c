@@ -897,7 +897,7 @@ int main(int argc, char **argv)
 			break;
 		case 'l':
 			if (strlen(optarg) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
-				tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
+				fprintf(stderr, "--tcmu-log-dir='%s' cannot exceed %d characters\n",
 				         optarg, PATH_MAX - TCMU_LOG_FILENAME_MAX);
 			}
 			if (!tcmu_logdir_create(optarg)) {
