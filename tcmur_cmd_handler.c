@@ -176,7 +176,52 @@ struct unmap_descriptor {
 	struct tcmulib_cmd *origcmd;
 };
 
-static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd, int ret)
+static struct unmap_state *unmap_state_alloc(struct tcmu_device *dev,
+					     struct tcmulib_cmd *cmd,
+					     int *return_err)
+{
+	uint8_t *sense = cmd->sense_buf;
+	struct unmap_state *state;
+	int ret;
+
+	*return_err = 0;
+
+	state = calloc(1, sizeof(*state));
+	if (!state) {
+		tcmu_dev_err(dev, "Failed to calloc memory for unmap_state!\n");
+		*return_err = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						  ASC_INTERNAL_TARGET_FAILURE,
+						  NULL);
+		return NULL;
+	}
+
+	ret = pthread_mutex_init(&state->lock, NULL);
+	if (ret == -1) {
+		tcmu_dev_err(dev, "Failed to init spin lock in state!\n");
+		*return_err = tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						  ASC_INTERNAL_TARGET_FAILURE,
+						  NULL);
+		goto out_free_state;
+	}
+
+	state->refcount = 0;
+	state->error = false;
+	cmd->cmdstate = state;
+	return state;
+
+out_free_state:
+	free(state);
+	return NULL;
+}
+
+static void unmap_state_free(struct unmap_state *state)
+{
+	pthread_mutex_destroy(&state->lock);
+	free(state);
+}
+
+static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd,
+			     int ret)
 {
 	struct unmap_descriptor *desc = ucmd->cmdstate;
 	struct tcmulib_cmd *origcmd = desc->origcmd;
@@ -189,7 +234,7 @@ static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd, 
 	pthread_mutex_lock(&state->lock);
 	error = state->error;
 	/*
-	 * Make sure only copy the first error sense data.
+	 * Make sure to only copy the first scsi status and/or sense.
 	 */
 	if (!error && ret) {
 		tcmu_copy_cmd_sense_data(origcmd, ucmd);
@@ -207,8 +252,7 @@ static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd, 
 	error = state->error;
 	pthread_mutex_unlock(&state->lock);
 
-	pthread_mutex_destroy(&state->lock);
-	free(state);
+	unmap_state_free(state);
 
 	aio_command_finish(dev, origcmd, error ? status : ret);
 }
@@ -224,8 +268,9 @@ static int unmap_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *ucmd)
 	return rhandler->unmap(dev, ucmd, offset, length);
 }
 
-static int handle_split_align_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd,
-				    uint64_t lba, uint64_t nlbas)
+static int align_and_split_unmap(struct tcmu_device *dev,
+				 struct tcmulib_cmd *origcmd,
+				 uint64_t lba, uint64_t nlbas)
 {
 	struct unmap_state *state = origcmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
@@ -253,10 +298,8 @@ static int handle_split_align_unmap(struct tcmu_device *dev, struct tcmulib_cmd 
 	 *
 	 * NOTE: here we always asumme the OPTIMAL UNMAP GRANULARITY
 	 * equals to UNMAP GRANULARITY ALIGNMENT to simplify the
-	 * calculate algorithm, but in future for some new devices
-	 * who could support and they must have different values
-	 * to make the unmap to be more efficient, the following
-	 * align and split calculate algorithm should be changed.
+	 * algorithm. In the future, for new devices that have different
+	 * values the following align and split algorithm should be changed.
 	 */
 	lbas = opt_unmap_gran - (lba & mask);
 	lbas = min(lbas, nlbas);
@@ -348,7 +391,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			goto state_unlock;
 		}
 
-		ret = handle_split_align_unmap(dev, origcmd, lba, nlbas);
+		ret = align_and_split_unmap(dev, origcmd, lba, nlbas);
 		if (ret != TCMU_ASYNC_HANDLED)
 			goto state_unlock;
 
@@ -370,20 +413,18 @@ state_unlock:
 	refcount = state->refcount;
 	pthread_mutex_unlock(&state->lock);
 
-	/*
-	 * If there is any split align unmap has been dispatched,
-	 * then the cbk will handle releasing of resources
-	 */
 	if (refcount)
+		/*
+		 * Some unmaps have been dispatched, so the cbk will handle
+		 * releasing of resources and returning the error.
+		 */
 		return TCMU_ASYNC_HANDLED;
 
 	/*
-	 * None split align unmap has ever been dispatched,
-	 * there must encountered some errors and will handle
-	 * releasing of resources here
+	 * No unmaps have been dispatched, so return the error and free
+	 * resources now.
 	 */
-	pthread_mutex_destroy(&state->lock);
-	free(state);
+	unmap_state_free(state);
 
 	return ret;
 }
@@ -496,35 +537,15 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 		goto out_free_par;
 	}
 
-	state = calloc(1, sizeof(*state));
-	if (!state) {
-		tcmu_dev_err(dev, "Failed to calloc memory for unmap_state!\n");
-		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					  ASC_INTERNAL_TARGET_FAILURE,
-					  NULL);
+	state = unmap_state_alloc(dev, origcmd, &ret);
+	if (!state)
 		goto out_free_par;
-	}
-
-	ret = pthread_mutex_init(&state->lock, NULL);
-	if (ret == -1) {
-		tcmu_dev_err(dev, "Failed to init spin lock in state!\n");
-		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					  ASC_INTERNAL_TARGET_FAILURE,
-					  NULL);
-		goto out_free_state;
-	}
-
-	state->refcount = 0;
-	state->error = false;
-	origcmd->cmdstate = state;
 
 	ret = handle_unmap_internal(dev, origcmd, bddl, par);
 
 	free(par);
 	return ret;
 
-out_free_state:
-	free(state);
 out_free_par:
 	free(par);
 	return ret;
@@ -669,7 +690,6 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 static int handle_unmap_in_writesame(struct tcmu_device *dev,
 				     struct tcmulib_cmd *cmd)
 {
-	uint8_t *sense = cmd->sense_buf;
 	uint8_t *cdb = cmd->cdb;
 	uint64_t lba = tcmu_get_lba(cdb);
 	uint64_t nlbas = tcmu_get_xfer_length(cdb);
@@ -679,31 +699,12 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 
 	tcmu_dev_dbg(dev, "Do UNMAP in WRITE_SAME cmd!\n");
 
-	state = calloc(1, sizeof(*state));
-	if (!state) {
-		tcmu_dev_err(dev, "Failed to calloc memory for unmap_state!\n");
-		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					  ASC_INTERNAL_TARGET_FAILURE,
-					  NULL);
+	state = unmap_state_alloc(dev, cmd, &ret);
+	if (!state)
 		return ret;
-	}
-
-	ret = pthread_mutex_init(&state->lock, NULL);
-	if (ret == -1) {
-		tcmu_dev_err(dev, "Failed to init spin lock in state!\n");
-		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					  ASC_INTERNAL_TARGET_FAILURE,
-					  NULL);
-		free(state);
-		return ret;
-	}
-
-	state->refcount = 0;
-	state->error = false;
-	cmd->cmdstate = state;
 
 	pthread_mutex_lock(&state->lock);
-	ret = handle_split_align_unmap(dev, cmd, lba, nlbas);
+	ret = align_and_split_unmap(dev, cmd, lba, nlbas);
 	if (ret != TCMU_ASYNC_HANDLED)
 		state->error = true;
 
@@ -712,7 +713,7 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 
 	/* Or will let the cbk to do the release */
 	if (!refcount)
-		free(state);
+		unmap_state_free(state);
 
 	return ret;
 }
