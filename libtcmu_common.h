@@ -129,6 +129,7 @@ size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src, si
 size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec, size_t iov_cnt);
 size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
 bool char_to_hex(unsigned char *val, char c);
+void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fromcmd);
 
 /* Basic implementations of mandatory SCSI commands */
 int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info);

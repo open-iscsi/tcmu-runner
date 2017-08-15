@@ -169,6 +169,14 @@ size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)
 	return length;
 }
 
+void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fromcmd)
+{
+	if (!tocmd || !fromcmd)
+		return;
+
+	memcpy(tocmd->sense_buf, fromcmd->sense_buf, 18);
+}
+
 int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq,
 			uint32_t *info)
 {
@@ -639,10 +647,7 @@ finish_page83:
 		}
 
 		/* MAXIMUM WRITE SAME LENGTH */
-		if (rhandler->unmap)
-			val64 = htobe64(max_xfer_length);
-		else
-			val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
+		val64 = htobe64(VPD_MAX_WRITE_SAME_LENGTH);
 		memcpy(&data[36], &val64, 8);
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
