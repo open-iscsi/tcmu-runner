@@ -37,7 +37,10 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 1. Install development packages for dependencies, usually ending with "-devel" or "-dev": libnl3, libglib2 (or glib2-devel on Fedora), libpthread, libdl, libkmod, libgfapi (Gluster), librbd1 (Ceph), zlib.
 1. Type `cmake .`.
    * *Note:* tcmu-runner can be compiled without the Gluster or qcow handlers using the `-Dwith-glfs=false` and `-Dwith-qcow=false` cmake parameters respectively.
+   * *Note:*  If using systemd, `-DSUPPORT_SYSTEMD=ON -DCMAKE_INSTALL_PREFIX=/usr` should be passed to cmake, so files are installed to the correct location.
 1. Type `make`.
+1. Type `make install`.
+
 
 ##### Running tcmu-runner
 
