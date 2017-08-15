@@ -82,8 +82,10 @@ struct rbd_aio_cb {
 static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
 					   bool has_lock)
 {
-	int ret;
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	char *status_buf = NULL;
+	int ret;
+
 	ret = asprintf(&status_buf, "%s%c%s%c", "lock_owner", '\0',
 		       has_lock ? "true" : "false", '\0');
 	if (ret < 0) {
