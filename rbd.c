@@ -39,6 +39,7 @@
 #include "tcmur_device.h"
 
 #include <rbd/librbd.h>
+#include <rados/librados.h>
 
 /*
  * rbd_lock_acquire exclusive lock support was added in librbd 0.1.11
