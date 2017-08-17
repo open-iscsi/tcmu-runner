@@ -879,6 +879,7 @@ int main(int argc, char **argv)
 	GMainLoop *loop;
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
+	bool new_path = false;
 	int ret;
 
 	while (1) {
@@ -892,17 +893,20 @@ int main(int argc, char **argv)
 
 		switch (c) {
 		case 0:
-			if (option_index == 1)
+			if (option_index == 1) {
 				handler_path = strdup(optarg);
+				new_path = true;
+			}
 			break;
 		case 'l':
 			if (strlen(optarg) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
 				fprintf(stderr, "--tcmu-log-dir='%s' cannot exceed %d characters\n",
 				         optarg, PATH_MAX - TCMU_LOG_FILENAME_MAX);
 			}
-			if (!tcmu_logdir_create(optarg)) {
-				goto destroy_config;
-			}
+
+			if (!tcmu_logdir_create(optarg))
+				goto free_opt;
+
 			tcmu_log_dir = strdup(optarg);
 			break;
 		case 'd':
@@ -910,17 +914,17 @@ int main(int argc, char **argv)
 			break;
 		case 'V':
 			printf("tcmu-runner %s\n", TCMUR_VERSION);
-			goto destroy_config;
+			goto free_opt;
 		default:
 		case 'h':
 			usage();
-			goto destroy_config;
+			goto free_opt;
 		}
 	}
 
 	tcmu_cfg = tcmu_setup_config(NULL);
 	if (!tcmu_cfg)
-		exit(1);
+		goto free_opt;
 
 	if (tcmu_setup_log())
 		goto destroy_config;
@@ -1016,5 +1020,11 @@ destroy_log:
 	tcmu_destroy_log();
 destroy_config:
 	tcmu_destroy_config(tcmu_cfg);
+free_opt:
+	if (new_path)
+		free(handler_path);
+	if (tcmu_log_dir)
+		free(tcmu_log_dir);
+
 	exit(1);
 }
