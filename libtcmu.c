@@ -632,6 +632,21 @@ static int open_devices(struct tcmulib_context *ctx)
 	return num_good_devs;
 }
 
+static void release_resources(struct tcmulib_context *ctx)
+{
+	int ret;
+
+	teardown_netlink(ctx->nl_sock);
+	darray_free(ctx->handlers);
+	darray_free(ctx->devices);
+	free(ctx);
+
+	ret = genl_unregister_family(&tcmu_ops);
+	if (ret != 0) {
+		tcmu_err("genl_unregister_family failed, %d\n", ret);
+	}
+}
+
 struct tcmulib_context *tcmulib_initialize(
 	struct tcmulib_handler *handlers,
 	size_t handler_count)
@@ -661,11 +676,7 @@ struct tcmulib_context *tcmulib_initialize(
 
 	ret = open_devices(ctx);
 	if (ret < 0) {
-		teardown_netlink(ctx->nl_sock);
-		darray_free(ctx->handlers);
-		darray_free(ctx->devices);
-		genl_unregister_family(&tcmu_ops);
-		free(ctx);
+		release_resources(ctx);
 		return NULL;
 	}
 
@@ -674,16 +685,8 @@ struct tcmulib_context *tcmulib_initialize(
 
 void tcmulib_close(struct tcmulib_context *ctx)
 {
-	int ret;
 	close_devices(ctx);
-	teardown_netlink(ctx->nl_sock);
-	darray_free(ctx->handlers);
-	darray_free(ctx->devices);
-	ret = genl_unregister_family(&tcmu_ops);
-	if (ret != 0) {
-		tcmu_err("genl_unregister_family failed, %d\n", ret);
-	}
-	free(ctx);
+	release_resources(ctx);
 }
 
 int tcmulib_get_master_fd(struct tcmulib_context *ctx)
