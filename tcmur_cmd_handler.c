@@ -327,8 +327,17 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 		desc->length = lbas * block_size;
 		ucmd->cmdstate = desc;
 
-		tcmu_dev_dbg(dev, "Split %d: start lba: %llu, end lba: %llu, lbas: %u\n",
-			     j++, lba, lba + lbas - 1, lbas);
+		/* The first one */
+		if (j++ == 0)
+			tcmu_dev_dbg(dev, "The first split: start lba: %llu, end lba: %llu, lbas: %u\n",
+				     lba, lba + lbas - 1, lbas);
+
+		/* The last one */
+		if (nlbas == lbas) {
+			tcmu_dev_dbg(dev, "The last split: start lba: %llu, end lba: %llu, lbas: %u\n",
+				     lba, lba + lbas - 1, lbas);
+			tcmu_dev_dbg(dev, "There are totally %d splits\n", j);
+		}
 
 		ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
 		if (ret != TCMU_ASYNC_HANDLED) {
