@@ -279,7 +279,7 @@ int tcmu_get_alua_grps(struct tcmu_device *dev,
 	struct alua_grp *group;
 	struct dirent **namelist;
 	char path[PATH_MAX];
-	int i, n, ret = 0;
+	int i, n;
 
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/alua",
 		 dev->tcm_hba_name, dev->tcm_dev_name);
@@ -306,7 +306,7 @@ free_names:
 	for (i = 0; i < n; i++)
 		free(namelist[i]);
 	free(namelist);
-	return ret;
+	return 0;
 }
 
 /*

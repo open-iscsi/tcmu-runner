@@ -288,7 +288,7 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 	struct list_head alua_list;
 	struct alua_grp *group;
 	struct tgt_port_grp *tpg;
-	struct tgt_port *port, *enabled_port;
+	struct tgt_port *port, *enabled_port = NULL;
 	int ret;
 
 	pthread_mutex_lock(&tpg_recovery_lock);
