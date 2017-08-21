@@ -77,6 +77,7 @@ struct tcmulib_handler {
 	void (*removed)(struct tcmu_device *dev);
 
 	void *hm_private; /* private ptr for handler module */
+	void *connection; /* private, dbus connection for this subtype */
 };
 
 /*

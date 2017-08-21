@@ -62,17 +62,6 @@ static struct tcmu_config *tcmu_cfg;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
-static struct tcmur_handler *find_handler_by_subtype(gchar *subtype)
-{
-	struct tcmur_handler **handler;
-
-	darray_foreach(handler, g_runner_handlers) {
-		if (strcmp((*handler)->subtype, subtype) == 0)
-			return *handler;
-	}
-	return NULL;
-}
-
 int tcmur_register_handler(struct tcmur_handler *handler)
 {
 	struct tcmur_handler *h;
@@ -366,6 +355,7 @@ on_handler_vanished(GDBusConnection *connection,
 		g_free(reason);
 	}
 	dbus_unexport_handler(handler);
+	g_bus_unwatch_name(info->watcher_id);
 	tcmur_unregister_dbus_handler(handler);
 }
 
@@ -413,37 +403,6 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 	return TRUE;
 }
 
-static gboolean
-on_unregister_handler(TCMUService1HandlerManager1 *interface,
-		      GDBusMethodInvocation *invocation,
-		      gchar *subtype,
-		      gpointer user_data)
-{
-	struct tcmur_handler *handler = find_handler_by_subtype(subtype);
-	struct dbus_info *info = handler ? handler->opaque : NULL;
-
-	if (!handler) {
-		g_dbus_method_invocation_return_value(invocation,
-			g_variant_new("(bs)", FALSE,
-				      "unknown subtype"));
-		return TRUE;
-	}
-	else if (handler->_is_dbus_handler != 1) {
-		g_dbus_method_invocation_return_value(invocation,
-			g_variant_new("(bs)", FALSE,
-				      "cannot unregister internal handler"));
-		return TRUE;
-	}
-
-	dbus_unexport_handler(handler);
-	g_bus_unwatch_name(info->watcher_id);
-	tcmur_unregister_dbus_handler(handler);
-
-	g_dbus_method_invocation_return_value(invocation,
-		g_variant_new("(bs)", TRUE, "succeeded"));
-	return TRUE;
-}
-
 void dbus_handler_manager1_init(GDBusConnection *connection)
 {
 	GError *error = NULL;
@@ -459,10 +418,6 @@ void dbus_handler_manager1_init(GDBusConnection *connection)
 	g_signal_connect(interface,
 			 "handle-register-handler",
 			 G_CALLBACK (on_register_handler),
-			 NULL);
-	g_signal_connect(interface,
-			 "handle-unregister-handler",
-			 G_CALLBACK (on_unregister_handler),
 			 NULL);
 	if (!ret)
 		tcmu_err("Handler manager export failed: %s\n",

@@ -45,8 +45,6 @@ struct tcmulib_context {
 
 	struct nl_sock *nl_sock;
 
-	unsigned reg_count_down;
-
 	GDBusConnection *connection;
 };
 
