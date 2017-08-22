@@ -929,7 +929,7 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  *
  * Specify poolname/devicename, e.g,
  *
- * $ targetcli create /backstores/user:rbd/test 2G rbd/test/osd_op_timeout=30
+ * $ targetcli /backstores/user:rbd create test 2G rbd/test/osd_op_timeout=30
  *
  * poolname must be the name of an existing rados pool.
  *
