@@ -176,6 +176,70 @@ static void tcmu_rbd_image_close(struct tcmu_device *dev)
 	state->image = NULL;
 }
 
+static int timer_check_and_set_def(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	char buf[128];
+	int grace, interval, ret, len;
+	float timeout;
+
+	ret = rados_conf_get(state->cluster, "osd_heartbeat_grace",
+			     buf, 128);
+	if (ret) {
+		tcmu_dev_err(dev, "Failed to get cluster's default osd_heartbeat_grace\n");
+		return ret;
+	}
+	grace = atoi(buf);
+
+	ret = rados_conf_get(state->cluster, "osd_heartbeat_interval",
+			     buf, 128);
+	if (ret) {
+		tcmu_dev_err(dev, "Failed to get cluster's default osd_heartbeat_interval\n");
+		return ret;
+	}
+	interval = atoi(buf);
+
+	ret = rados_conf_get(state->cluster, "rados_osd_op_timeout",
+			     buf, 128);
+	if (ret) {
+		tcmu_dev_err(dev, "Failed to get cluster's default rados_osd_op_timeout\n");
+		return ret;
+	}
+	timeout = atof(buf);
+
+	tcmu_dev_dbg(dev, "The cluster's default osd op timeout(%f), osd heartbeat grace(%d) interval(%d)\n",
+		     timeout, grace, interval);
+
+	if (state->osd_op_timeout && atof(state->osd_op_timeout) > grace + interval)
+		goto set;
+
+	tcmu_dev_warn(dev, "osd op timeout (%s) must be larger than osd heartbeat grace (%d) + interval (%d)!\n",
+		      state->osd_op_timeout, grace, interval);
+
+	/*
+	 * Set the default rados_osd_op_timeout to grace + interval + 5
+	 * and make sure rados_osd_op_timeout > grace + interval.
+	 */
+	len = sprintf(buf, "%d", grace + interval + 5);
+	buf[len] = '\0';
+
+	if (state->osd_op_timeout)
+		free(state->osd_op_timeout);
+
+	state->osd_op_timeout = strdup(buf);
+	if (!state->osd_op_timeout) {
+		tcmu_dev_err(dev, "Failed to alloc memory for ->osd_op_timeout\n");
+		return -ENOMEM;
+	}
+
+	tcmu_dev_warn(dev, "Will set the osd op timeout to %s instead!\n",
+		      state->osd_op_timeout);
+
+set:
+	return rados_conf_set(state->cluster, "rados_osd_op_timeout",
+			      state->osd_op_timeout);
+}
+
 static int tcmu_rbd_image_open(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
@@ -190,14 +254,12 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	/* Fow now, we will only read /etc/ceph/ceph.conf */
 	rados_conf_read_file(state->cluster, NULL);
 	rados_conf_set(state->cluster, "rbd_cache", "false");
-	if (state->osd_op_timeout) {
-		ret = rados_conf_set(state->cluster, "rados_osd_op_timeout",
-				     state->osd_op_timeout);
-		if (ret < 0) {
-			tcmu_dev_err(dev, "Could not set rados osd op timeout to %s (Err %d. Failover may be delayed.)\n",
-				     state->osd_op_timeout, ret);
-		}
-	}
+
+	ret = timer_check_and_set_def(dev);
+	if (ret)
+		tcmu_dev_warn(dev,
+			      "Could not set rados osd op timeout to %s (Err %d. Failover may be delayed.)\n",
+			      state->osd_op_timeout, ret);
 
 	ret = rados_connect(state->cluster);
 	if (ret < 0) {
