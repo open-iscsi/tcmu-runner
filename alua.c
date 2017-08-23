@@ -416,6 +416,13 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	return SAM_STAT_GOOD;
 }
 
+bool failover_is_supported(struct tcmu_device *dev)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+
+	return !!rhandler->lock;
+}
+
 static void *alua_lock_thread_fn(void *arg)
 {
 	/* TODO: set UA based on bgly's patches */
