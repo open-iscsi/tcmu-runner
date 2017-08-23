@@ -80,6 +80,7 @@ struct rbd_aio_cb {
 
 #ifdef LIBRADOS_SUPPORTS_SERVICES
 
+#ifdef RBD_LOCK_ACQUIRE_SUPPORT
 static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
 					   bool has_lock)
 {
@@ -102,6 +103,7 @@ static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
 
 	free(status_buf);
 }
+#endif /* RBD_LOCK_ACQUIRE_SUPPORT */
 
 static int tcmu_rbd_service_register(struct tcmu_device *dev)
 {
@@ -147,7 +149,7 @@ free_daemon_buf:
 	return ret;
 }
 
-#else
+#else /* LIBRADOS_SUPPORTS_SERVICES */
 
 static int tcmu_rbd_service_register(struct tcmu_device *dev)
 {
@@ -156,10 +158,12 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 	return 0;
 }
 
+#ifdef RBD_LOCK_ACQUIRE_SUPPORT
 static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
 					   bool has_lock)
 {
 }
+#endif /* RBD_LOCK_ACQUIRE_SUPPORT */
 
 #endif /* LIBRADOS_SUPPORTS_SERVICES */
 
@@ -411,14 +415,14 @@ static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
 	}
 }
 
-#else
+#else /* RBD_LOCK_ACQUIRE_SUPPORT */
 
 static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
 {
 	tcmu_dev_warn(dev, "HA not supported.\n");
 }
 
-#endif
+#endif /* RBD_LOCK_ACQUIRE_SUPPORT */
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 {
