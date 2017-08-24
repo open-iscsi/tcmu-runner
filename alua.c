@@ -285,7 +285,8 @@ int tcmu_get_alua_grps(struct tcmu_device *dev,
 		 dev->tcm_hba_name, dev->tcm_dev_name);
 	n = scandir(path, &namelist, alua_filter, alphasort);
 	if (n < 0) {
-		tcmu_dev_err(dev, "Could not get ALUA dirs for %s\n", path);
+		tcmu_dev_err(dev, "Could not get ALUA dirs for %s:%s\n",
+			     path, strerror(errno));
 		return -errno;
 	}
 
@@ -441,7 +442,8 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	 */
 	if (pthread_create(&rdev->lock_thread, NULL, alua_lock_thread_fn,
 			   dev)) {
-		tcmu_dev_err(dev, "Could not start implicit transition thread.\n");
+		tcmu_dev_err(dev, "Could not start implicit transition thread:%s\n",
+			     strerror(errno));
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
 					  ASC_STATE_TRANSITION_FAILED, NULL);

@@ -107,7 +107,8 @@ struct tgt_port *tcmu_get_tgt_port(char *member_str)
 	ret = sscanf(member_str, "%16[^/]/%223[^/]/tpgt_%hu/lun_%"PRIu64,
 		     fabric, wwn, &tpgt, &lun);
 	if (ret != 4) {
-		tcmu_err("Invalid ALUA member %s\n", member_str);
+		tcmu_err("Invalid ALUA member %s:%s\n", member_str,
+			 strerror(errno));
 		return NULL;
 	}
 
