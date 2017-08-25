@@ -219,7 +219,7 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 			port = tcmu_get_tgt_port(member);
 			if (!port) {
 				free(orig_str_val);
-				goto free_ports;
+				goto free_group;
 			}
 			port->grp = group;
 			group->num_tgt_ports++;
@@ -232,8 +232,6 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 
 free_str_val:
 	free(str_val);
-free_ports:
-	tcmu_release_tgt_ports(group);
 free_group:
 	tcmu_free_alua_grp(group);
 	return NULL;
