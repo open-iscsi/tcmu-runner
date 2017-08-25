@@ -375,7 +375,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 		int next_off = off + 8 + (group->num_tgt_ports * 4);
 
 		if (next_off > alloc_len) {
-			ret_data_len += next_off;
+			ret_data_len += 8 + (group->num_tgt_ports * 4);
 			continue;
 		}
 
