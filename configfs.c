@@ -88,14 +88,16 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read unit serial\n");
+		tcmu_err("Could not open configfs to read unit serial: %s\n",
+			 strerror(errno));
 		return NULL;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	close(fd);
 	if (ret == -1) {
-		tcmu_err("Could not read configfs to read unit serial\n");
+		tcmu_err("Could not read configfs to read unit serial: %s\n",
+			 strerror(errno));
 		return NULL;
 	}
 
@@ -105,7 +107,8 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 	/* Skip to the good stuff */
 	ret = asprintf(&ret_buf, "%s", &buf[28]);
 	if (ret == -1) {
-		tcmu_err("could not convert string to value\n");
+		tcmu_err("could not convert string to value: %s\n",
+			 strerror(errno));
 		return NULL;
 	}
 
@@ -126,28 +129,31 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read dev info\n");
+		tcmu_err("Could not open configfs to read dev info: %s\n",
+			 strerror(errno));
 		return -EINVAL;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
 	close(fd);
 	if (ret == -1) {
-		tcmu_err("Could not read configfs to read dev info\n");
+		tcmu_err("Could not read configfs to read dev info: %s\n",
+			 strerror(errno));
 		return -EINVAL;
 	}
 	buf[sizeof(buf)-1] = '\0'; /* paranoid? Ensure null terminated */
 
 	rover = strstr(buf, " Size: ");
 	if (!rover) {
-		tcmu_err("Could not find \" Size: \" in %s\n", path);
+		tcmu_err("Could not find \" Size: \" in %s: %s\n", path,
+			 strerror(errno));
 		return -EINVAL;
 	}
 	rover += 7; /* get to the value */
 
 	size = strtoull(rover, NULL, 0);
 	if (size == ULLONG_MAX) {
-		tcmu_err("Could not get size\n");
+		tcmu_err("Could not get size: %s\n", strerror(errno));
 		return -EINVAL;
 	}
 
@@ -184,7 +190,8 @@ char *tcmu_get_cfgfs_str(const char *path)
 
 	val = strdup(buf);
 	if (!val) {
-		tcmu_err("could not copy buffer %s\n", buf);
+		tcmu_err("could not copy buffer %s : %s\n",
+			 buf, strerror(errno));
 		return NULL;
 	}
 
