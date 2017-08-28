@@ -197,6 +197,11 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 
 		group->tpgs = TPGS_ALUA_IMPLICIT;
 	} else if (!strcmp(str_val, "Implicit")) {
+		if (!failover_is_supported(dev)) {
+			tcmu_dev_err(dev, "device failover is not supported with the alua access type: Implicit\n");
+			goto free_str_val;
+		}
+
 		rdev->failover_type = TMCUR_DEV_FAILOVER_IMPLICIT;
 
 		group->tpgs = TPGS_ALUA_IMPLICIT;
