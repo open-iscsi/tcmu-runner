@@ -58,6 +58,7 @@
 #include <pthread.h>
 #include <signal.h>
 
+#include "be_byteshift.h"
 #include "tcmu-runner.h"
 #include "libtcmu.h"
 
@@ -250,7 +251,7 @@ static int fbo_emulate_request_sense(struct tcmu_device *dev, uint8_t *cdb,
 		buf[12] = 0x04;		// Not Ready
 		buf[13] = 0x04;		// Format in progress
 		buf[15] = 0x80;
-		*(uint16_t *)&buf[16] = htobe16(state->format_progress);
+		put_unaligned_be16(state->format_progress, &buf[16]);
 	}
 	else {
 		buf[2] = NO_SENSE;
@@ -533,7 +534,7 @@ static int fbo_emulate_read_toc(struct tcmu_device *dev, uint8_t *cdb,
 			}
 		}
 		else {
-			*(uint32_t *)&buf[16] = htobe32(state->num_lbas);
+			put_unaligned_be32(state->num_lbas, &buf[16]);
 		}
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, 0x14);
@@ -579,9 +580,9 @@ static int fbo_emulate_get_configuration(struct tcmu_device *dev, uint8_t *cdb,
 
 	/* Set current profile in the feature header */
 	if (state->flags & FBO_READ_ONLY)
-		*(uint16_t *)&buf[6] = htobe16(0x10);	// DVD-ROM
+		put_unaligned_be16(0x10, &buf[6]); //DVD-ROM
 	else
-		*(uint16_t *)&buf[6] = htobe16(0x12);	// DVD-RAM
+		put_unaligned_be16(0x12, &buf[6]); //DVD-ROM
 
 	/* Feature header */
 	used_len = 8;
@@ -792,7 +793,7 @@ static int fbo_emulate_get_configuration(struct tcmu_device *dev, uint8_t *cdb,
 		used_len += 8;
 	}
 
-	*(uint32_t *)&buf[0] = htobe32(used_len - 4);
+	put_unaligned_be32(used_len - 4, &buf[0]);
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
@@ -838,7 +839,7 @@ static int fbo_emulate_get_event_status_notification(struct tcmu_device *dev,
 		{
 			buf[4] = state->event_op_ch_code;
 			if (state->event_op_ch_code)
-				*(uint16_t *)&buf[6] = htobe16(0x0001);
+				put_unaligned_be16(0x0001, &buf[6]);
 			state->event_op_ch_code = 0;
 			used_len = 8;
 		}
@@ -871,7 +872,7 @@ static int fbo_emulate_get_event_status_notification(struct tcmu_device *dev,
 	pthread_mutex_unlock(&state->state_mtx);
 
 done:
-	*(uint16_t *)&buf[0] = htobe16(used_len - 4);
+	put_unaligned_be16(used_len - 4, &buf[0]);
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
@@ -937,10 +938,10 @@ static int fbo_emulate_read_dvd_structure(struct tcmu_device *dev, uint8_t *cdb,
 		if (!(state->flags & FBO_READ_ONLY))
 			buf[6] = 0x02;		// Layer Type=2
 		buf[9] = start_phys >> 16;	// Starting physical sector
-		*(uint16_t *)&buf[10] = htobe16(start_phys & 0xffff);
+		put_unaligned_be16(start_phys & 0xffff, &buf[10]);
 		end_phys = start_phys + state->num_lbas - 1;
 		buf[13] = end_phys >> 16;
-		*(uint16_t *)&buf[14] = htobe16(end_phys & 0xffff);
+		put_unaligned_be16(end_phys & 0xffff, &buf[14]);
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, 21);
 		break;
@@ -1012,7 +1013,7 @@ static int fbo_emulate_mechanism_status(struct tcmu_device *dev, uint8_t *cdb,
 	if (state->flags & FBO_DEV_IO) {
 		buf[1] = 0x20;	// mechanism state=1 (playing)
 		buf[2] = (state->cur_lba >> 16) & 0xff;
-		*(uint16_t *)&buf[3] = htobe16(state->cur_lba & 0xffff);
+		put_unaligned_be16(state->cur_lba & 0xffff, &buf[3]);
 	}
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, 8);
@@ -1388,6 +1389,9 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 	struct fbo_state *state = tcmu_get_dev_private(dev);
 	pthread_t thr;
 	uint8_t param_list[12];
+	uint16_t temp;
+	uint32_t num_lbas;
+	uint16_t block_size;
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	if (state->flags & FBO_READ_ONLY)
@@ -1416,7 +1420,8 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 					   NULL);
 
-	if (be16toh(*(uint16_t *)&param_list[2]) != 8)
+	memcpy(&temp, &param_list[2], 2);
+	if (be16toh(temp) != 8)
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 					   NULL);
@@ -1427,15 +1432,17 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 					   NULL);
 
+	memcpy(&num_lbas, &param_list[4], 4);
 	if ((cdb[1] & 0x08 || !(param_list[1] & 0x20)) &&
-	    be32toh(*(uint32_t *)&param_list[4]) != state->num_lbas)
+	    be32toh(num_lbas) != state->num_lbas)
 		/* Number of Blocks doesn't match */
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 					   NULL);
 
+	memcpy(&block_size, &param_list[10], 2);
 	if ((((uint32_t)param_list[9] << 16) +
-	     be16toh(*(uint16_t *)&param_list[10])) != state->block_size)
+	     be16toh(block_size)) != state->block_size)
 		/* Block Size is wrong */
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
@@ -1476,10 +1483,10 @@ static int fbo_emulate_read_format_capacities(struct tcmu_device *dev,
 
 	memset(buf, 0, sizeof(buf));
 
-	*(uint32_t *)&buf[4] = htobe32(state->num_lbas);
+	put_unaligned_be32(state->num_lbas, &buf[4]);
 	buf[8] = 0x02;
 	buf[9] = (state->block_size >> 16) & 0xff;
-	*(uint16_t *)&buf[10] = htobe16(state->block_size & 0xffff);
+	put_unaligned_be16(state->block_size & 0xffff, &buf[10]);
 	if (state->flags & FBO_READ_ONLY) {
 		used_len = 12;
 	}
