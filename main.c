@@ -39,6 +39,8 @@
 #include <getopt.h>
 #include <poll.h>
 #include <scsi/scsi.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #include <libkmod.h>
 #include <sys/utsname.h>
@@ -848,6 +850,49 @@ static bool tcmu_logdir_create(const char *path)
 	return TRUE;
 }
 
+#define TCMUR_MIN_OPEN_FD 65536
+#define TCMUR_MAX_OPEN_FD 1048576
+static int tcmu_set_max_fd_limit(const int nr_files)
+{
+	struct rlimit old_rlim, new_rlim;
+	int ret;
+
+	ret = getrlimit(RLIMIT_NOFILE, &old_rlim);
+	if (ret == -1) {
+		tcmu_err("failed to get max open fd limit: %m\n");
+		return ret;
+	}
+
+	if (old_rlim.rlim_cur < nr_files) {
+		new_rlim.rlim_cur = nr_files;
+		if (old_rlim.rlim_max < nr_files) {
+			new_rlim.rlim_max = nr_files;
+		} else {
+			new_rlim.rlim_max = old_rlim.rlim_max;
+		}
+
+		ret = setrlimit(RLIMIT_NOFILE, &new_rlim);
+		if (ret == -1) {
+			tcmu_err("failed to set max open fd to [soft: %lld hard: %lld] %m\n",
+				  (long long int)new_rlim.rlim_cur,
+				  (long long int)new_rlim.rlim_max);
+			return ret;
+		}
+
+		tcmu_info("max open fd set to [soft: %lld hard: %lld]\n",
+	                  (long long int)new_rlim.rlim_cur,
+			  (long long int)new_rlim.rlim_max);
+
+		return 0;
+	}
+
+	tcmu_info("max open fd remain [soft: %lld hard: %lld]\n",
+	          (long long int)old_rlim.rlim_cur,
+		  (long long int)old_rlim.rlim_max);
+
+	return 0;
+}
+
 static void usage(void) {
 	printf("\nusage:\n");
 	printf("\ttcmu-runner [options]\n");
@@ -855,6 +900,8 @@ static void usage(void) {
 	printf("\t-h, --help: print this message and exit\n");
 	printf("\t-V, --version: print version and exit\n");
 	printf("\t-d, --debug: enable debug messages\n");
+	printf("\t-f, --nofile: set maximum file number could be opened\n");
+	printf("\t\tdefault will be as the systemd or the shell's limitation\n");
 	printf("\t--handler-path: set path to search for handler modules\n");
 	printf("\t\tdefault is %s\n", DEFAULT_HANDLER_PATH);
 	printf("\t-l, --tcmu-log-dir: tcmu log dir\n");
@@ -866,6 +913,7 @@ static struct option long_options[] = {
 	{"debug", no_argument, 0, 'd'},
 	{"handler-path", required_argument, 0, 0},
 	{"tcmu-log-dir", required_argument, 0, 'l'},
+	{"nofile", required_argument, 0, 'f'},
 	{"help", no_argument, 0, 'h'},
 	{"version", no_argument, 0, 'V'},
 	{0, 0, 0, 0},
@@ -884,9 +932,9 @@ int main(int argc, char **argv)
 
 	while (1) {
 		int option_index = 0;
-		int c;
+		int c, nr_files;
 
-		c = getopt_long(argc, argv, "dhlV",
+		c = getopt_long(argc, argv, "df:hl:V",
 				long_options, &option_index);
 		if (c == -1)
 			break;
@@ -900,8 +948,9 @@ int main(int argc, char **argv)
 			break;
 		case 'l':
 			if (strlen(optarg) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
-				fprintf(stderr, "--tcmu-log-dir='%s' cannot exceed %d characters\n",
+				tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
 				         optarg, PATH_MAX - TCMU_LOG_FILENAME_MAX);
+				goto free_opt;
 			}
 
 			if (!tcmu_logdir_create(optarg))
@@ -909,11 +958,24 @@ int main(int argc, char **argv)
 
 			tcmu_log_dir = strdup(optarg);
 			break;
+		case 'f':
+			nr_files = atol(optarg);
+			if (nr_files < TCMUR_MIN_OPEN_FD || nr_files > TCMUR_MAX_OPEN_FD) {
+				tcmu_err("--nofile=%d should be in [%lu, %lu]\n", nr_files,
+					(unsigned long)TCMUR_MIN_OPEN_FD,
+					(unsigned long)TCMUR_MAX_OPEN_FD);
+				goto free_opt;
+			}
+
+			ret = tcmu_set_max_fd_limit(nr_files);
+			if (ret)
+				goto free_opt;
+			break;
 		case 'd':
 			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG_SCSI_CMD);
 			break;
 		case 'V':
-			printf("tcmu-runner %s\n", TCMUR_VERSION);
+			tcmu_info("tcmu-runner %s\n", TCMUR_VERSION);
 			goto free_opt;
 		default:
 		case 'h':
@@ -922,12 +984,12 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if (tcmu_setup_log())
+		goto destroy_config;
+
 	tcmu_cfg = tcmu_setup_config(NULL);
 	if (!tcmu_cfg)
 		goto free_opt;
-
-	if (tcmu_setup_log())
-		goto destroy_config;
 
 	tcmu_dbg("handler path: %s\n", handler_path);
 

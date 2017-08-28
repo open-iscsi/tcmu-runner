@@ -152,7 +152,7 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	if (!fmt)
 		return;
 
-	if (!logbuf) {
+	if (!logbuf || !logbuf->finish_initialize) {
 		/* handle early log calls by config and deamon setup */
 		vfprintf(stderr, fmt, args);
 		return;
@@ -500,21 +500,21 @@ int tcmu_setup_log(void)
 
 	ret = create_syslog_output(TCMU_LOG_INFO, NULL);
 	if (ret < 0)
-		fprintf(stderr, "create syslog output error \n");
+		tcmu_err("create syslog output error \n");
 
 	ret = create_stdout_output(TCMU_LOG_DEBUG_SCSI_CMD);
 	if (ret < 0)
-		fprintf(stderr, "create stdout output error \n");
-
-	ret = tcmu_make_absolute_logfile(logfilepath, TCMU_LOG_FILENAME);
-	if (ret < 0) {
-		fprintf(stderr, "tcmu_make_absolute_logfile failed\n");
-		goto cleanup_log;
-	}
+		tcmu_err("create stdout output error \n");
 
 	ret = create_file_output(TCMU_LOG_DEBUG, logfilepath);
 	if (ret < 0)
-		fprintf(stderr, "create file output error \n");
+		tcmu_err("create file output error \n");
+
+	ret = tcmu_make_absolute_logfile(logfilepath, TCMU_LOG_FILENAME);
+	if (ret < 0) {
+		tcmu_err("tcmu_make_absolute_logfile failed\n");
+		goto cleanup_log;
+	}
 
 	ret = pthread_create(&logbuf->thread_id, NULL, log_thread_start, logbuf);
 	if (ret)
