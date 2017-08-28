@@ -948,8 +948,9 @@ int main(int argc, char **argv)
 			break;
 		case 'l':
 			if (strlen(optarg) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
-				fprintf(stderr, "--tcmu-log-dir='%s' cannot exceed %d characters\n",
+				tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
 				         optarg, PATH_MAX - TCMU_LOG_FILENAME_MAX);
+				goto free_opt;
 			}
 
 			if (!tcmu_logdir_create(optarg))
@@ -974,7 +975,7 @@ int main(int argc, char **argv)
 			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG_SCSI_CMD);
 			break;
 		case 'V':
-			printf("tcmu-runner %s\n", TCMUR_VERSION);
+			tcmu_info("tcmu-runner %s\n", TCMUR_VERSION);
 			goto free_opt;
 		default:
 		case 'h':
@@ -983,12 +984,12 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if (tcmu_setup_log())
+		goto destroy_config;
+
 	tcmu_cfg = tcmu_setup_config(NULL);
 	if (!tcmu_cfg)
 		goto free_opt;
-
-	if (tcmu_setup_log())
-		goto destroy_config;
 
 	tcmu_dbg("handler path: %s\n", handler_path);
 
