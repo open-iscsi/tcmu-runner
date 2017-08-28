@@ -934,7 +934,7 @@ int main(int argc, char **argv)
 		int option_index = 0;
 		int c, nr_files;
 
-		c = getopt_long(argc, argv, "df:hlV",
+		c = getopt_long(argc, argv, "df:hl:V",
 				long_options, &option_index);
 		if (c == -1)
 			break;
