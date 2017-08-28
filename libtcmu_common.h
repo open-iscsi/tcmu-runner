@@ -148,6 +148,31 @@ int tcmu_emulate_mode_select(struct tcmu_device *dev, uint8_t *cdb,
 /* SCSI helpers */
 void tcmu_cdb_debug_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd);
 
+/* Big Endian by shifting helpers */
+static inline void __put_unaligned_be16(uint16_t val, uint8_t *p)
+{
+	*p++ = val >> 8;
+	*p++ = val;
+}
+
+static inline void __put_unaligned_be32(uint32_t val, uint8_t *p)
+{
+	*p++ = val >> 24;
+	*p++ = val >> 16;
+	*p++ = val >> 8;
+	*p++ = val;
+}
+
+static inline void put_unaligned_be16(uint16_t val, void *p)
+{
+	__put_unaligned_be16(val, p);
+}
+
+static inline void put_unaligned_be32(uint32_t val, void *p)
+{
+	__put_unaligned_be32(val, p);
+}
+
 #ifdef __cplusplus
 }
 #endif
