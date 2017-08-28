@@ -96,7 +96,7 @@ static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
 
 	ret = rados_service_update_status(state->cluster, status_buf);
 	if (ret < 0) {
-		tcmu_dev_err(dev, "Could not update service status. (Err %d\n",
+		tcmu_dev_err(dev, "Could not update service status. (Err %d)\n",
 			     ret);
 	}
 
@@ -247,7 +247,7 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 
 	ret = rados_create(&state->cluster, NULL);
 	if (ret < 0) {
-		tcmu_dev_dbg(dev, "Could not create cluster. (Err %d)\n", ret);
+		tcmu_dev_err(dev, "Could not create cluster. (Err %d)\n", ret);
 		return ret;
 	}
 
@@ -679,7 +679,7 @@ static void rbd_finish_aio_read(rbd_completion_t completion,
 
 	if (ret == -ETIMEDOUT) {
 		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev, tcmulib_cmd);
-	} else 	if (ret == -ESHUTDOWN) {
+	} else if (ret == -ESHUTDOWN) {
 		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal read error %d.\n", ret);
