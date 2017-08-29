@@ -2231,7 +2231,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	ret = tcmur_alua_implicit_transition(dev, cmd);
 	if (ret)
-		return ret;
+		goto untrack;
 
 	switch(cdb[0]) {
 	case READ_6:
