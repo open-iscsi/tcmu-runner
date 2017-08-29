@@ -360,15 +360,28 @@ static int create_stdout_output(int pri)
 
 static int create_file_output(int pri, const char *filename)
 {
-	int fd;
+	char log_file_path[PATH_MAX];
+	int fd, ret;
 
-	fd = open(filename, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
-	if (fd < 0)
-		return  -1;
+	ret = tcmu_make_absolute_logfile(log_file_path, filename);
+	if (ret < 0) {
+		tcmu_err("tcmu_make_absolute_logfile failed\n");
+		return ret;
+	}
 
-	if (append_output(output_to_fd, close_fd, (void *)(intptr_t) fd,
-			  pri, TCMU_LOG_TO_FILE, filename) < 0)
-		return -1;
+	fd = open(log_file_path, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
+	if (fd < 0) {
+		tcmu_err("Failed to open %s:%m\n", log_file_path);
+		return fd;
+	}
+
+	ret = append_output(output_to_fd, close_fd, (void *)(intptr_t) fd,
+			    pri, TCMU_LOG_TO_FILE, filename);
+	if (ret < 0) {
+		close(fd);
+		tcmu_err("Failed to append output file: %s\n", log_file_path);
+		return ret;
+	}
 
         return 0;
 }
@@ -497,7 +510,6 @@ int tcmu_make_absolute_logfile(char *path, const char *filename)
 
 int tcmu_setup_log(void)
 {
-	char logfilepath[PATH_MAX];
 	int ret;
 
 	logbuf = malloc(sizeof(struct log_buf));
@@ -521,15 +533,9 @@ int tcmu_setup_log(void)
 	if (ret < 0)
 		tcmu_err("create stdout output error \n");
 
-	ret = create_file_output(TCMU_LOG_DEBUG, logfilepath);
+	ret = create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME);
 	if (ret < 0)
 		tcmu_err("create file output error \n");
-
-	ret = tcmu_make_absolute_logfile(logfilepath, TCMU_LOG_FILENAME);
-	if (ret < 0) {
-		tcmu_err("tcmu_make_absolute_logfile failed\n");
-		goto cleanup_log;
-	}
 
 	ret = pthread_create(&logbuf->thread_id, NULL, log_thread_start, logbuf);
 	if (ret)
