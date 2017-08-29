@@ -50,6 +50,10 @@ typedef void (*log_close_fn_t) (void *data);
 
 struct tcmu_device;
 
+char *tcmu_get_log_dir(void);
+char *tcmu_alloc_and_set_log_dir(const char *log_dir);
+void tcmu_logdir_destroy(void);
+
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
 int tcmu_setup_log(void);

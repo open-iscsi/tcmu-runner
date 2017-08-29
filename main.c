@@ -57,8 +57,6 @@
 #include "libtcmu_log.h"
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
-/* tcmu log dir path */
-extern char *tcmu_log_dir;
 
 static struct tcmu_config *tcmu_cfg;
 
@@ -833,8 +831,12 @@ static void dev_removed(struct tcmu_device *dev)
 
 static bool tcmu_logdir_create(const char *path)
 {
-	DIR* dir = opendir(path);
+	DIR* dir;
 
+	if (!tcmu_logdir_check(path))
+		return FALSE;
+
+	dir = opendir(path);
 	if (dir) {
 		closedir(dir);
 	} else if (errno == ENOENT) {
@@ -847,7 +849,7 @@ static bool tcmu_logdir_create(const char *path)
 		return FALSE;
 	}
 
-	return TRUE;
+	return !!tcmu_alloc_and_set_log_dir(path);
 }
 
 #define TCMUR_MIN_OPEN_FD 65536
@@ -947,13 +949,8 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			if (!tcmu_logdir_check(optarg))
-				goto free_opt;
-
 			if (!tcmu_logdir_create(optarg))
 				goto free_opt;
-
-			tcmu_log_dir = strdup(optarg);
 			break;
 		case 'f':
 			nr_files = atol(optarg);
@@ -1082,8 +1079,7 @@ destroy_config:
 free_opt:
 	if (new_path)
 		free(handler_path);
-	if (tcmu_log_dir)
-		free(tcmu_log_dir);
+	tcmu_logdir_destroy();
 
 	exit(1);
 }

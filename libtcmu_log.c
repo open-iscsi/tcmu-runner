@@ -36,9 +36,6 @@
 #define LOG_MSG_LEN (LOG_ENTRY_LEN - 1) /* the length of the log message */
 #define LOG_ENTRYS (1024 * 32)
 
-/* tcmu log dir path */
-char *tcmu_log_dir = NULL;
-
 struct log_buf {
 	pthread_cond_t cond;
 	pthread_mutex_t lock;
@@ -62,6 +59,36 @@ struct log_output {
 	void *data;
 	tcmu_log_destination dest;
 };
+
+/* tcmu log dir path */
+static char *tcmu_log_dir = NULL;
+
+/* get the log dir of tcmu-runner */
+char *tcmu_get_log_dir(void)
+{
+	return tcmu_log_dir;
+}
+
+char *tcmu_alloc_and_set_log_dir(const char *log_dir)
+{
+	/*
+	 * Do nothing here and will use the /var/log/
+	 * as the default log dir
+	 */
+	if (!log_dir)
+		return NULL;
+
+	tcmu_log_dir = strdup(log_dir);
+	if (!tcmu_log_dir)
+		tcmu_err("Failed to copy log dir: %s\n", log_dir);
+
+	return tcmu_log_dir;
+}
+
+void tcmu_logdir_destroy(void)
+{
+	free(tcmu_log_dir);
+}
 
 static int tcmu_log_level = TCMU_LOG_INFO;
 static struct log_buf *logbuf = NULL;

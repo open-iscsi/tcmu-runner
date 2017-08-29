@@ -37,9 +37,6 @@
 #define TCMU_GLFS_LOG_FILENAME "tcmu-runner-glfs.log"  /* MAX 32 CHAR */
 #define TCMU_GLFS_DEBUG_LEVEL  4
 
-/* tcmu log dir path */
-extern char *tcmu_log_dir;
-
 /* cache protection */
 pthread_mutex_t glfs_lock;
 
