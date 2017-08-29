@@ -955,12 +955,17 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (tcmu_setup_log())
-		goto destroy_config;
-
+	/*
+	 * The order of setting up config and logger is important, because
+	 * the log directory may be configured via the system config file
+	 * which will be used in logger setting up.
+	 */
 	tcmu_cfg = tcmu_setup_config(NULL);
 	if (!tcmu_cfg)
 		goto free_opt;
+
+	if (tcmu_setup_log())
+		goto destroy_config;
 
 	tcmu_dbg("handler path: %s\n", handler_path);
 
