@@ -130,25 +130,13 @@ do { \
 	free(cfg->key); \
 } while (0);
 
-#define TCMU_CONF_CHECK_LOG_LEVEL(key) \
-do { \
-	struct tcmu_conf_option *option; \
-	option = tcmu_get_option(#key); \
-	if (!option) \
-		return; \
-	if (option->opt_int > TCMU_CONF_LOG_LEVEL_MAX) { \
-		option->opt_int = TCMU_CONF_LOG_LEVEL_MAX; \
-	} else if (option->opt_int < TCMU_CONF_LOG_LEVEL_MIN) { \
-		option->opt_int = TCMU_CONF_LOG_LEVEL_MIN; \
-	} \
-} while (0);
-
 static void tcmu_conf_set_options(struct tcmu_config *cfg, bool reloading)
 {
 	/* set log_level option */
 	TCMU_PARSE_CFG_INT(cfg, log_level);
-	TCMU_CONF_CHECK_LOG_LEVEL(log_level);
-	tcmu_set_log_level(cfg->log_level);
+	if (cfg->log_level) {
+		tcmu_set_log_level(cfg->log_level);
+	}
 
 	if (!reloading) {
 		/* set log_dir path option */

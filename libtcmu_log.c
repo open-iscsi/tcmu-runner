@@ -107,9 +107,10 @@ bool tcmu_logdir_getenv(void)
 
 void tcmu_set_log_level(int level)
 {
-	/* set the default log level to info */
-	if (!level)
-		level = TCMU_CONF_LOG_INFO;
+	if (level > TCMU_CONF_LOG_LEVEL_MAX)
+		level = TCMU_CONF_LOG_LEVEL_MAX;
+	else if (level < TCMU_CONF_LOG_LEVEL_MIN)
+		level = TCMU_CONF_LOG_LEVEL_MIN;
 
 	tcmu_log_level = to_syslog_level(level);
 }
