@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <limits.h>
 
 #include "darray.h"
 #include "libtcmu_log.h"
@@ -469,6 +470,20 @@ static void *log_thread_start(void *arg)
 
 	pthread_cleanup_pop(1);
 	return NULL;
+}
+
+bool tcmu_logdir_check(const char *path)
+{
+	if (!path)
+		return false;
+
+	if (strlen(path) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
+		tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
+			 path, PATH_MAX - TCMU_LOG_FILENAME_MAX);
+		return false;
+	}
+
+	return true;
 }
 
 int tcmu_make_absolute_logfile(char *path, const char *filename)
