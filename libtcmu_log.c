@@ -60,36 +60,6 @@ struct log_output {
 	tcmu_log_destination dest;
 };
 
-/* tcmu log dir path */
-static char *tcmu_log_dir = NULL;
-
-/* get the log dir of tcmu-runner */
-char *tcmu_get_log_dir(void)
-{
-	return tcmu_log_dir;
-}
-
-char *tcmu_alloc_and_set_log_dir(const char *log_dir)
-{
-	/*
-	 * Do nothing here and will use the /var/log/
-	 * as the default log dir
-	 */
-	if (!log_dir)
-		return NULL;
-
-	tcmu_log_dir = strdup(log_dir);
-	if (!tcmu_log_dir)
-		tcmu_err("Failed to copy log dir: %s\n", log_dir);
-
-	return tcmu_log_dir;
-}
-
-void tcmu_logdir_destroy(void)
-{
-	free(tcmu_log_dir);
-}
-
 static int tcmu_log_level = TCMU_LOG_INFO;
 static struct log_buf *logbuf = NULL;
 
@@ -512,7 +482,10 @@ static void *log_thread_start(void *arg)
 	return NULL;
 }
 
-bool tcmu_logdir_check(const char *path)
+/* tcmu log dir path */
+static char *tcmu_log_dir = NULL;
+
+static bool tcmu_logdir_check(const char *path)
 {
 	if (!path)
 		return false;
@@ -524,6 +497,56 @@ bool tcmu_logdir_check(const char *path)
 	}
 
 	return true;
+}
+
+/* get the log dir of tcmu-runner */
+char *tcmu_get_logdir(void)
+{
+	return tcmu_log_dir;
+}
+
+static char *tcmu_alloc_and_set_log_dir(const char *log_dir)
+{
+	/*
+	 * Do nothing here and will use the /var/log/
+	 * as the default log dir
+	 */
+	if (!log_dir)
+		return NULL;
+
+	tcmu_log_dir = strdup(log_dir);
+	if (!tcmu_log_dir)
+		tcmu_err("Failed to copy log dir: %s\n", log_dir);
+
+	return tcmu_log_dir;
+}
+
+void tcmu_logdir_destroy(void)
+{
+	free(tcmu_log_dir);
+}
+
+bool tcmu_logdir_create(const char *path)
+{
+	DIR* dir;
+
+	if (!tcmu_logdir_check(path))
+		return FALSE;
+
+	dir = opendir(path);
+	if (dir) {
+		closedir(dir);
+	} else if (errno == ENOENT) {
+		if (mkdir(path, 0755) == -1) {
+			tcmu_err("mkdir(%s) failed: %m\n", path);
+			return FALSE;
+		}
+	} else {
+		tcmu_err("opendir(%s) failed: %m\n", path);
+		return FALSE;
+	}
+
+	return !!tcmu_alloc_and_set_log_dir(path);
 }
 
 int tcmu_make_absolute_logfile(char *path, const char *filename)

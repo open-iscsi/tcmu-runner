@@ -829,29 +829,6 @@ static void dev_removed(struct tcmu_device *dev)
 	free(rdev);
 }
 
-static bool tcmu_logdir_create(const char *path)
-{
-	DIR* dir;
-
-	if (!tcmu_logdir_check(path))
-		return FALSE;
-
-	dir = opendir(path);
-	if (dir) {
-		closedir(dir);
-	} else if (errno == ENOENT) {
-		if (mkdir(path, 0755) == -1) {
-			tcmu_err("mkdir(%s) failed: %m\n", path);
-			return FALSE;
-		}
-	} else {
-		tcmu_err("opendir(%s) failed: %m\n", path);
-		return FALSE;
-	}
-
-	return !!tcmu_alloc_and_set_log_dir(path);
-}
-
 #define TCMUR_MIN_OPEN_FD 65536
 #define TCMUR_MAX_OPEN_FD 1048576
 static int tcmu_set_max_fd_limit(const int nr_files)
