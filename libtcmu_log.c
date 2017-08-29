@@ -526,12 +526,9 @@ void tcmu_logdir_destroy(void)
 	free(tcmu_log_dir);
 }
 
-bool tcmu_logdir_create(const char *path)
+static int tcmu_mkdir(const char *path)
 {
 	DIR* dir;
-
-	if (!tcmu_logdir_check(path))
-		return FALSE;
 
 	dir = opendir(path);
 	if (dir) {
@@ -539,12 +536,50 @@ bool tcmu_logdir_create(const char *path)
 	} else if (errno == ENOENT) {
 		if (mkdir(path, 0755) == -1) {
 			tcmu_err("mkdir(%s) failed: %m\n", path);
-			return FALSE;
+			return false;
 		}
 	} else {
 		tcmu_err("opendir(%s) failed: %m\n", path);
-		return FALSE;
+		return false;
 	}
+
+	return true;
+}
+
+static int tcmu_mkdirs(const char *pathname)
+{
+	char path[PATH_MAX], *ch;
+	int ind = 0;
+
+	strncpy(path, pathname, PATH_MAX);
+
+	if (path[0] == '/')
+		ind++;
+
+	do {
+		ch = strchr(path + ind, '/');
+		if (!ch)
+			break;
+
+		*ch = '\0';
+
+		if (!tcmu_mkdir(path))
+			return false;
+
+		*ch = '/';
+		ind = ch - path + 1;
+	} while (1);
+
+	return tcmu_mkdir(path);
+}
+
+bool tcmu_logdir_create(const char *path)
+{
+	if (!tcmu_logdir_check(path))
+		return false;
+
+	if (!tcmu_mkdirs(path))
+		return false;
 
 	return !!tcmu_alloc_and_set_log_dir(path);
 }
