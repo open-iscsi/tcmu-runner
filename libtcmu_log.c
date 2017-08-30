@@ -88,6 +88,23 @@ unsigned int tcmu_get_log_level(void)
 	return tcmu_log_level;
 }
 
+bool tcmu_logdir_getenv(void)
+{
+	char *log_path;
+
+	if (tcmu_get_logdir())
+		return true;
+
+	log_path = getenv("TCMU_LOGDIR");
+	if (!log_path)
+		return true;
+
+	if (!tcmu_logdir_create(log_path))
+		return false;
+
+	return true;
+}
+
 void tcmu_set_log_level(int level)
 {
 	/* set the default log level to info */

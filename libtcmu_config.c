@@ -156,8 +156,9 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg, bool reloading)
 		/*
 		 * The priority of the logdir setting is:
 		 * 1, --tcmu_log_dir/-l LOG_DIR_PATH
-		 * 2, tcmu.conf
-		 * 3, default /var/log/
+		 * 2, export TCMU_LOGDIR="/var/log/mychoice/"
+		 * 3, tcmu.conf
+		 * 4, default /var/log/
 		 */
 		if (!tcmu_get_logdir())
 			tcmu_logdir_create(cfg->log_dir_path);

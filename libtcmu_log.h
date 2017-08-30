@@ -63,6 +63,7 @@ void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, in
 
 char *tcmu_get_logdir(void);
 void tcmu_logdir_destroy(void);
+bool tcmu_logdir_getenv(void);
 bool tcmu_logdir_create(const char *path);
 int tcmu_make_absolute_logfile(char *path, const char *filename);
 

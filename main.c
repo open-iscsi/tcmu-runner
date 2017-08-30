@@ -955,6 +955,9 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if (!tcmu_logdir_getenv())
+		goto free_opt;
+
 	/*
 	 * The order of setting up config and logger is important, because
 	 * the log directory may be configured via the system config file
