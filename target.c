@@ -262,7 +262,7 @@ done:
 		if (ret) {
 			tcmu_dev_err(rdev->dev, "Could not reinitialize device. (err %d).\n",
 				     ret);
-			if (!(rdev->flags & TCMUR_DEV_FLAG_SHUTTING_DOWN))
+			if (!(rdev->flags & TCMUR_DEV_FLAG_STOPPING))
 				/* assume fatal error so do not enable tpg */
 				enable_tpg = false;
 		}

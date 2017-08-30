@@ -56,7 +56,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev)
 	if (ret)
 		goto done;
 
-	if (rdev->flags & TCMUR_DEV_FLAG_SHUTTING_DOWN) {
+	if (rdev->flags & TCMUR_DEV_FLAG_STOPPING) {
 		ret = 0;
 		goto done;
 	}
@@ -85,7 +85,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev)
 	pthread_mutex_lock(&rdev->state_lock);
 	rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
 	ret = -EIO;
-	while (ret != 0 && !(rdev->flags & TCMUR_DEV_FLAG_SHUTTING_DOWN)) {
+	while (ret != 0 && !(rdev->flags & TCMUR_DEV_FLAG_STOPPING)) {
 		pthread_mutex_unlock(&rdev->state_lock);
 
 		tcmu_dev_dbg(dev, "Opening device.\n");

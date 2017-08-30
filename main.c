@@ -607,7 +607,7 @@ static void cmdproc_thread_cleanup(void *arg)
 	bool is_open = false;
 
 	pthread_mutex_lock(&rdev->state_lock);
-	rdev->flags |= TCMUR_DEV_FLAG_SHUTTING_DOWN;
+	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	/*
