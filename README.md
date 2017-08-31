@@ -110,6 +110,41 @@ glfs: /volume@hostname/filename
 5. The created backstore device can then be mapped to a LUN like traditional
 backstores.
 
+##### Logger setting and system configuration
+
+- Logger setting:
+
+There are 5 logging levels supported:
+
+1. ERROR
+2. WARNING
+3. INFO
+4. DEBUG
+5. DEBUG SCSI CMD
+
+And the default logging level is 3, if you want to change the default level,
+uncomment the following line in /etc/tcmu/tcmu.conf and set your level number:
+
+\# log_level = 3
+
+The priority of the logdir setting can be managed via following options:
+
+1. Cli argument
+</br>eg: --tcmu_log_dir/-l `LOG_DIR_PATH` [Highest prio]
+2. Environment variable
+</br>eg: export TCMU_LOGDIR="/var/log/mylogdir/"
+3. Configuration file
+</br>eg: uncommenting and adjusting value of 'log_dir_path' at /etc/tcmu/tcmu.conf
+4. Default logdir as hard coded i.e. '/var/log/' [Least prio]
+
+- System configuration:
+
+The default configuration file is installed into /etc/tcmu/tcmu.conf.
+
+Tcmu-runner's configuration systems supports dynamic reloading without restarting
+the daemon. To change values open /etc/tcmu/tcmu.conf, update the value, and then
+close the file.
+
 ------------------------------
 
 If your version of targetcli/rtslib does not support tcmu, setup can be done
