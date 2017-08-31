@@ -78,7 +78,7 @@ https://github.com/open-iscsi/rtslib-fb
 
 1. Start targetcli
 
-# targetcli
+\# targetcli
 
 2. Go to the user/tcmu backstore dir.
 
