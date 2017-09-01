@@ -543,39 +543,61 @@ static void remove_device(struct tcmulib_context *ctx,
 	free(dev);
 }
 
-static int is_uio(const struct dirent *dirent)
+static int read_uio_name(const char *uio_dev, char **dev_name)
 {
 	int fd;
 	char *tmp_path;
-	char buf[256] = {'\0'};
-	ssize_t ret = 0;
+	int ret = -1;
+	char buf[PATH_MAX] = {'\0'};
 
-	if (strncmp(dirent->d_name, "uio", 3))
-		return 0;
-
-	if (asprintf(&tmp_path, "/sys/class/uio/%s/name", dirent->d_name) == -1)
-		return 0;
+	if (asprintf(&tmp_path, "/sys/class/uio/%s/name", uio_dev) == -1)
+		return -1;
 
 	fd = open(tmp_path, O_RDONLY);
-	if (fd == -1)
+	if (fd == -1) {
+		tcmu_err("could not open %s\n", tmp_path);
 		goto free_path;
+	}
 
 	ret = read(fd, buf, sizeof(buf));
-	if (ret <= 0 || ret >= sizeof(buf))
+	if (ret <= 0 || ret >= sizeof(buf)) {
+		tcmu_err("read of %s had issues\n", tmp_path);
 		goto close;
+	}
 
 	buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
 
-	/* we only want uio devices whose name is a format we expect */
-	if (strncmp(buf, "tcm-user", 8))
-		goto close;
+	*dev_name = strdup(buf);
 
-	ret = 1;
+	ret = 0;
 
 close:
 	close(fd);
 free_path:
 	free(tmp_path);
+	return ret;
+}
+
+static int is_uio(const struct dirent *dirent)
+{
+	char *dev_name = NULL;
+	ssize_t ret = 0;
+
+	if (strncmp(dirent->d_name, "uio", 3))
+		return 0;
+
+	if (read_uio_name(dirent->d_name, &dev_name))
+		goto out;
+
+	/* we only want uio devices whose name is a format we expect */
+	if (strncmp(dev_name, "tcm-user", 8))
+		goto out;
+
+	ret = 1;
+
+out:
+	if (dev_name)
+		free(dev_name);
 	return ret;
 }
 
@@ -587,40 +609,20 @@ static int open_devices(struct tcmulib_context *ctx)
 	int i;
 
 	num_devs = scandir("/dev", &dirent_list, is_uio, alphasort);
-
 	if (num_devs == -1)
 		return -1;
 
 	for (i = 0; i < num_devs; i++) {
-		char *tmp_path;
-		char buf[256] = {'\0'};
-		int fd;
-		int ret;
+		char *dev_name = NULL;
 
-		if (asprintf(&tmp_path, "/sys/class/uio/%s/name",
-		             dirent_list[i]->d_name) == -1)
-			return -1;
+		if (read_uio_name(dirent_list[i]->d_name, &dev_name))
+			continue;
 
-		fd = open(tmp_path, O_RDONLY);
-		if (fd == -1) {
-			tcmu_err("could not open %s!\n", tmp_path);
-			free(tmp_path);
+		if (add_device(ctx, dirent_list[i]->d_name, dev_name) < 0) {
+			free (dev_name);
 			continue;
 		}
-
-		ret = read(fd, buf, sizeof(buf));
-		close(fd);
-		if (ret <= 0 || ret >= sizeof(buf)) {
-			tcmu_err("read of %s had issues\n", tmp_path);
-			free(tmp_path);
-			continue;
-		}
-		free(tmp_path);
-		buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
-
-		ret = add_device(ctx, dirent_list[i]->d_name, buf);
-		if (ret < 0)
-			continue;
+		free(dev_name);
 
 		num_good_devs++;
 	}

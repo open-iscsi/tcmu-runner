@@ -68,7 +68,7 @@ struct tcmu_device {
 	char dev_name[16]; /* e.g. "uio14" */
 	char tcm_hba_name[16]; /* e.g. "user_8" */
 	char tcm_dev_name[128]; /* e.g. "backup2" */
-	char cfgstring[256];
+	char cfgstring[PATH_MAX];
 
 	struct tcmulib_handler *handler;
 	struct tcmulib_context *ctx;
