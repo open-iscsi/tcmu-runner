@@ -1389,9 +1389,6 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 	struct fbo_state *state = tcmu_get_dev_private(dev);
 	pthread_t thr;
 	uint8_t param_list[12];
-	uint16_t temp;
-	uint32_t num_lbas;
-	uint16_t block_size;
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	if (state->flags & FBO_READ_ONLY)
@@ -1420,8 +1417,7 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 					   NULL);
 
-	memcpy(&temp, &param_list[2], 2);
-	if (be16toh(temp) != 8)
+	if (get_unaligned_be16(&param_list[2]) != 8)
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 					   NULL);
@@ -1432,17 +1428,15 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 					   NULL);
 
-	memcpy(&num_lbas, &param_list[4], 4);
 	if ((cdb[1] & 0x08 || !(param_list[1] & 0x20)) &&
-	    be32toh(num_lbas) != state->num_lbas)
+	    get_unaligned_be16(&param_list[4])  != state->num_lbas)
 		/* Number of Blocks doesn't match */
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
 					   NULL);
 
-	memcpy(&block_size, &param_list[10], 2);
 	if ((((uint32_t)param_list[9] << 16) +
-	     be16toh(block_size)) != state->block_size)
+	     get_unaligned_be16(&param_list[10])) != state->block_size)
 		/* Block Size is wrong */
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
