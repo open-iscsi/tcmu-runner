@@ -760,6 +760,7 @@ static int dev_added(struct tcmu_device *dev)
 	ret = rhandler->open(dev);
 	if (ret)
 		goto cleanup_aio_tracking;
+	rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
 
 	/*
 	 * Set the optimal unmap granularity and the alignment to
