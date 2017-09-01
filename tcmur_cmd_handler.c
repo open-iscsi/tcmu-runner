@@ -277,7 +277,8 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 	uint8_t *sense = origcmd->sense_buf;
 	uint64_t opt_unmap_gran;
 	uint64_t unmap_gran_align, mask;
-	int ret, j = 0;
+	int ret = TCMU_NOT_HANDLED;
+	int j = 0;
 	struct unmap_descriptor *desc;
 	struct tcmulib_cmd *ucmd;
 	uint64_t lbas;
@@ -368,7 +369,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 	struct unmap_state *state = origcmd->cmdstate;
 	uint8_t *sense = origcmd->sense_buf;
 	uint16_t offset = 0;
-	int ret, i = 0, refcount;
+	int ret = SAM_STAT_GOOD, i = 0, refcount;
 
 	/* The first descriptor list offset is 8 in Data-Out buffer */
 	par += 8;
@@ -400,9 +401,11 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			goto state_unlock;
 		}
 
-		ret = align_and_split_unmap(dev, origcmd, lba, nlbas);
-		if (ret != TCMU_ASYNC_HANDLED)
-			goto state_unlock;
+		if (nlbas) {
+			ret = align_and_split_unmap(dev, origcmd, lba, nlbas);
+			if (ret != TCMU_ASYNC_HANDLED)
+				goto state_unlock;
+		}
 
 		/* The unmap block descriptor data length is 16 */
 		offset += 16;
@@ -410,9 +413,10 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 	}
 state_unlock:
 	/*
-	 * If all are successful above, the status should
-	 * be set to TCMU_ASYNC_HANDLED, or will be the error
-	 * code.
+	 * If all calls are successful and nlbas > 0 for all bddls, the
+	 * status should be set to TCMU_ASYNC_HANDLED, or will be the error
+	 * code. If all nlbas = 0 for all bddls, then we can just return
+	 * GOOD status.
 	 */
 	state->status = ret;
 
