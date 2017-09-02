@@ -214,15 +214,22 @@ static int timer_check_and_set_def(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "The cluster's default osd op timeout(%f), osd heartbeat grace(%d) interval(%d)\n",
 		     timeout, grace, interval);
 
+	/* Frist: Try to use new osd op timeout value */
 	if (state->osd_op_timeout && atof(state->osd_op_timeout) > grace + interval)
 		goto set;
+
+	/* Second: Try to use the default osd op timeout value as read from the cluster */
+	if (timeout > grace + interval) {
+		tcmu_dev_dbg(dev, "The osd op timeout will remain the default value: %f\n", timeout);
+		return 0;
+	}
 
 	tcmu_dev_warn(dev, "osd op timeout (%s) must be larger than osd heartbeat grace (%d) + interval (%d)!\n",
 		      state->osd_op_timeout, grace, interval);
 
 	/*
-	 * Set the default rados_osd_op_timeout to grace + interval + 5
-	 * and make sure rados_osd_op_timeout > grace + interval.
+	 * At last: Set the default rados_osd_op_timeout to grace + interval + 5
+	 * to make sure rados_osd_op_timeout > grace + interval.
 	 */
 	len = sprintf(buf, "%d", grace + interval + 5);
 	buf[len] = '\0';
