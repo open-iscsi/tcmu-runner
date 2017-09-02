@@ -28,6 +28,7 @@ struct tcmu_config {
 
 	bool is_dynamic;
 	int log_level;
+	char *log_dir_path;
 };
 
 /*

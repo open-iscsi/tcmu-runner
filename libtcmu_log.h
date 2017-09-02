@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <stdbool.h>
 
 #define TCMU_IDENT "tcmu"
 #define TCMU_RUNNER "tcmu-runner"
@@ -60,7 +61,12 @@ void tcmu_info_message(struct tcmu_device *dev, const char *funcname, int linenr
 void tcmu_dbg_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 
+char *tcmu_get_logdir(void);
+void tcmu_logdir_destroy(void);
+bool tcmu_logdir_getenv(void);
+bool tcmu_logdir_create(const char *path);
 int tcmu_make_absolute_logfile(char *path, const char *filename);
+
 
 #define tcmu_dev_err(dev, ...)  {tcmu_err_message(dev, __func__, __LINE__, __VA_ARGS__);}
 #define tcmu_dev_warn(dev, ...) {tcmu_warn_message(dev, __func__, __LINE__, __VA_ARGS__);}

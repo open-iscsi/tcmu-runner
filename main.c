@@ -57,8 +57,6 @@
 #include "libtcmu_log.h"
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
-/* tcmu log dir path */
-extern char *tcmu_log_dir;
 
 static struct tcmu_config *tcmu_cfg;
 
@@ -832,25 +830,6 @@ static void dev_removed(struct tcmu_device *dev)
 	free(rdev);
 }
 
-static bool tcmu_logdir_create(const char *path)
-{
-	DIR* dir = opendir(path);
-
-	if (dir) {
-		closedir(dir);
-	} else if (errno == ENOENT) {
-		if (mkdir(path, 0755) == -1) {
-			tcmu_err("mkdir(%s) failed: %m\n", path);
-			return FALSE;
-		}
-	} else {
-		tcmu_err("opendir(%s) failed: %m\n", path);
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
 #define TCMUR_MIN_OPEN_FD 65536
 #define TCMUR_MAX_OPEN_FD 1048576
 static int tcmu_set_max_fd_limit(const int nr_files)
@@ -948,16 +927,8 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			if (strlen(optarg) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
-				tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
-				         optarg, PATH_MAX - TCMU_LOG_FILENAME_MAX);
-				goto free_opt;
-			}
-
 			if (!tcmu_logdir_create(optarg))
 				goto free_opt;
-
-			tcmu_log_dir = strdup(optarg);
 			break;
 		case 'f':
 			nr_files = atol(optarg);
@@ -985,12 +956,20 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (tcmu_setup_log())
-		goto destroy_config;
+	if (!tcmu_logdir_getenv())
+		goto free_opt;
 
+	/*
+	 * The order of setting up config and logger is important, because
+	 * the log directory may be configured via the system config file
+	 * which will be used in logger setting up.
+	 */
 	tcmu_cfg = tcmu_setup_config(NULL);
 	if (!tcmu_cfg)
 		goto free_opt;
+
+	if (tcmu_setup_log())
+		goto destroy_config;
 
 	tcmu_dbg("handler path: %s\n", handler_path);
 
@@ -1086,8 +1065,7 @@ destroy_config:
 free_opt:
 	if (new_path)
 		free(handler_path);
-	if (tcmu_log_dir)
-		free(tcmu_log_dir);
+	tcmu_logdir_destroy();
 
 	exit(1);
 }

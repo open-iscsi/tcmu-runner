@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <limits.h>
 
 #include "darray.h"
 #include "libtcmu_log.h"
@@ -34,9 +35,6 @@
 #define LOG_ENTRY_LEN 256 /* rb[0] is reserved for pri */
 #define LOG_MSG_LEN (LOG_ENTRY_LEN - 1) /* the length of the log message */
 #define LOG_ENTRYS (1024 * 32)
-
-/* tcmu log dir path */
-char *tcmu_log_dir = NULL;
 
 struct log_buf {
 	pthread_cond_t cond;
@@ -90,11 +88,29 @@ unsigned int tcmu_get_log_level(void)
 	return tcmu_log_level;
 }
 
+bool tcmu_logdir_getenv(void)
+{
+	char *log_path;
+
+	if (tcmu_get_logdir())
+		return true;
+
+	log_path = getenv("TCMU_LOGDIR");
+	if (!log_path)
+		return true;
+
+	if (!tcmu_logdir_create(log_path))
+		return false;
+
+	return true;
+}
+
 void tcmu_set_log_level(int level)
 {
-	/* set the default log level to info */
-	if (!level)
-		level = TCMU_CONF_LOG_INFO;
+	if (level > TCMU_CONF_LOG_LEVEL_MAX)
+		level = TCMU_CONF_LOG_LEVEL_MAX;
+	else if (level < TCMU_CONF_LOG_LEVEL_MIN)
+		level = TCMU_CONF_LOG_LEVEL_MIN;
 
 	tcmu_log_level = to_syslog_level(level);
 }
@@ -359,15 +375,28 @@ static int create_stdout_output(int pri)
 
 static int create_file_output(int pri, const char *filename)
 {
-	int fd;
+	char log_file_path[PATH_MAX];
+	int fd, ret;
 
-	fd = open(filename, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
-	if (fd < 0)
-		return  -1;
+	ret = tcmu_make_absolute_logfile(log_file_path, filename);
+	if (ret < 0) {
+		tcmu_err("tcmu_make_absolute_logfile failed\n");
+		return ret;
+	}
 
-	if (append_output(output_to_fd, close_fd, (void *)(intptr_t) fd,
-			  pri, TCMU_LOG_TO_FILE, filename) < 0)
-		return -1;
+	fd = open(log_file_path, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
+	if (fd < 0) {
+		tcmu_err("Failed to open %s:%m\n", log_file_path);
+		return fd;
+	}
+
+	ret = append_output(output_to_fd, close_fd, (void *)(intptr_t) fd,
+			    pri, TCMU_LOG_TO_FILE, filename);
+	if (ret < 0) {
+		close(fd);
+		tcmu_err("Failed to append output file: %s\n", log_file_path);
+		return ret;
+	}
 
         return 0;
 }
@@ -471,6 +500,108 @@ static void *log_thread_start(void *arg)
 	return NULL;
 }
 
+/* tcmu log dir path */
+static char *tcmu_log_dir = NULL;
+
+static bool tcmu_logdir_check(const char *path)
+{
+	if (!path)
+		return false;
+
+	if (strlen(path) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
+		tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
+			 path, PATH_MAX - TCMU_LOG_FILENAME_MAX);
+		return false;
+	}
+
+	return true;
+}
+
+/* get the log dir of tcmu-runner */
+char *tcmu_get_logdir(void)
+{
+	return tcmu_log_dir;
+}
+
+static char *tcmu_alloc_and_set_log_dir(const char *log_dir)
+{
+	/*
+	 * Do nothing here and will use the /var/log/
+	 * as the default log dir
+	 */
+	if (!log_dir)
+		return NULL;
+
+	tcmu_log_dir = strdup(log_dir);
+	if (!tcmu_log_dir)
+		tcmu_err("Failed to copy log dir: %s\n", log_dir);
+
+	return tcmu_log_dir;
+}
+
+void tcmu_logdir_destroy(void)
+{
+	free(tcmu_log_dir);
+}
+
+static int tcmu_mkdir(const char *path)
+{
+	DIR* dir;
+
+	dir = opendir(path);
+	if (dir) {
+		closedir(dir);
+	} else if (errno == ENOENT) {
+		if (mkdir(path, 0755) == -1) {
+			tcmu_err("mkdir(%s) failed: %m\n", path);
+			return false;
+		}
+	} else {
+		tcmu_err("opendir(%s) failed: %m\n", path);
+		return false;
+	}
+
+	return true;
+}
+
+static int tcmu_mkdirs(const char *pathname)
+{
+	char path[PATH_MAX], *ch;
+	int ind = 0;
+
+	strncpy(path, pathname, PATH_MAX);
+
+	if (path[0] == '/')
+		ind++;
+
+	do {
+		ch = strchr(path + ind, '/');
+		if (!ch)
+			break;
+
+		*ch = '\0';
+
+		if (!tcmu_mkdir(path))
+			return false;
+
+		*ch = '/';
+		ind = ch - path + 1;
+	} while (1);
+
+	return tcmu_mkdir(path);
+}
+
+bool tcmu_logdir_create(const char *path)
+{
+	if (!tcmu_logdir_check(path))
+		return false;
+
+	if (!tcmu_mkdirs(path))
+		return false;
+
+	return !!tcmu_alloc_and_set_log_dir(path);
+}
+
 int tcmu_make_absolute_logfile(char *path, const char *filename)
 {
 	if (snprintf(path, PATH_MAX, "%s/%s",
@@ -482,7 +613,6 @@ int tcmu_make_absolute_logfile(char *path, const char *filename)
 
 int tcmu_setup_log(void)
 {
-	char logfilepath[PATH_MAX];
 	int ret;
 
 	logbuf = malloc(sizeof(struct log_buf));
@@ -506,15 +636,9 @@ int tcmu_setup_log(void)
 	if (ret < 0)
 		tcmu_err("create stdout output error \n");
 
-	ret = create_file_output(TCMU_LOG_DEBUG, logfilepath);
+	ret = create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME);
 	if (ret < 0)
 		tcmu_err("create file output error \n");
-
-	ret = tcmu_make_absolute_logfile(logfilepath, TCMU_LOG_FILENAME);
-	if (ret < 0) {
-		tcmu_err("tcmu_make_absolute_logfile failed\n");
-		goto cleanup_log;
-	}
 
 	ret = pthread_create(&logbuf->thread_id, NULL, log_thread_start, logbuf);
 	if (ret)
