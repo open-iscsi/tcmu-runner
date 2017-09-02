@@ -317,6 +317,10 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 	}
 
 	ret = genl_ctrl_resolve_grp(sock, "TCM-USER", "config");
+	if (ret < 0) {
+		tcmu_err("couldn't resolve netlink family group, is target_core_user.ko loaded?\n");
+		goto err_unregister;
+	}
 
 	ret = nl_socket_add_membership(sock, ret);
 	if (ret < 0) {
