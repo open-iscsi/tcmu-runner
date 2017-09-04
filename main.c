@@ -144,6 +144,7 @@ static int open_handlers(void)
 	struct dirent **dirent_list;
 	int num_handlers;
 	int num_good = 0;
+	char *error;
 	int i;
 
 	num_handlers = scandir(handler_path, &dirent_list, is_handler, alphasort);
@@ -170,14 +171,20 @@ static int open_handlers(void)
 			continue;
 		}
 
+		dlerror();
 		handler_init = dlsym(handle, "handler_init");
-		if (!handler_init) {
-			tcmu_err("dlsym failure on %s\n", path);
+		if ((error = dlerror())) {
+			tcmu_err("dlsym failure on %s: (%s)\n", path, error);
 			free(path);
 			continue;
 		}
 
 		ret = handler_init();
+		if (ret) {
+			tcmu_err("handler init failed on path %s\n", path);
+			free(path);
+			continue;
+		}
 
 		free(path);
 
