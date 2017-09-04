@@ -348,6 +348,13 @@ err_free:
 
 static void teardown_netlink(struct nl_sock *sock)
 {
+	int ret;
+
+	ret = genl_unregister_family(&tcmu_ops);
+	if (ret != 0) {
+		tcmu_err("genl_unregister_family failed, %d\n", ret);
+	}
+
 	nl_close(sock);
 	nl_socket_free(sock);
 }
@@ -640,17 +647,10 @@ static int open_devices(struct tcmulib_context *ctx)
 
 static void release_resources(struct tcmulib_context *ctx)
 {
-	int ret;
-
 	teardown_netlink(ctx->nl_sock);
 	darray_free(ctx->handlers);
 	darray_free(ctx->devices);
 	free(ctx);
-
-	ret = genl_unregister_family(&tcmu_ops);
-	if (ret != 0) {
-		tcmu_err("genl_unregister_family failed, %d\n", ret);
-	}
 }
 
 struct tcmulib_context *tcmulib_initialize(
