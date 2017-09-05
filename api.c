@@ -346,7 +346,7 @@ int tcmu_emulate_evpd_inquiry(
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 
-	switch (cdb[2]) {
+	switch (cdb[2]) {       /* PAGE CODE */
 	case 0x0: /* Supported VPD pages */
 	{
 		char data[16];
@@ -354,17 +354,18 @@ int tcmu_emulate_evpd_inquiry(
 		memset(data, 0, sizeof(data));
 
 		/* data[1] (page code) already 0 */
+
 		/*
-		  *  spc4r22 7.7.13 The supported VPD page list shall contain
-		  *  a list of all VPD page codes (see 7.7) implemented by the
-		  *  logical unit in ascending order beginning with page code 00h
-		  */
-		data[4] = 0x00;
-		data[5] = 0x80;
-		data[6] = 0x83;
-		data[7] = 0xb0;
-		data[8] = 0xb1;
-		data[9] = 0xb2;
+		 *  spc4r22 7.7.13 The supported VPD page list shall contain
+		 *  a list of all VPD page codes (see 7.7) implemented by the
+		 *  logical unit in ascending order beginning with page code 00h
+		 */
+		data[4] = 0x00;  /* Supported VPD pages */
+		data[5] = 0x80;  /* Unit Serial Number */
+		data[6] = 0x83;  /* Device Identification */
+		data[7] = 0xb0;  /* Block Limits */
+		data[8] = 0xb1;  /* Block Device Characteristics VPD page */
+		data[9] = 0xb2;  /* Logical Block Provisioning VPD page */
 
 		data[3] = 6;
 
@@ -589,7 +590,7 @@ finish_page83:
 
 		data[1] = 0xb0;
 
-		val16 = htobe16(0x3c);
+		val16 = htobe16(0x003c);
 		memcpy(&data[2], &val16, 2);
 
 		/* WSNZ = 1: the device server won't support a value of zero
@@ -664,7 +665,7 @@ finish_page83:
 
 		/*
 		 * From spc-5 Revision 14, section 6.7.2 Standard INQUIRY data
-		 * set the devive type to Direct access block device.
+		 * set the device type to Direct access block device.
 		 */
 		data[0] = 0x00;
 
@@ -689,8 +690,9 @@ finish_page83:
 		/*
 		 * From spc-5 Revision 14, section 6.7.2 Standard INQUIRY data
 		 * set the device type to Direct access block device.
+		 *
+		 * data[0] = 0x00; already set
 		 */
-		data[0] = 0x00;
 
 		/* PAGE CODE (B2h) */
 		data[1] = 0xb2;
@@ -741,8 +743,8 @@ int tcmu_emulate_inquiry(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
-	if (!(cdb[1] & 0x01)) {
-		if (!cdb[2])
+	if (!(cdb[1] & 0x01)) {      /* EVPD bit set ? */
+		if (!cdb[2])         /* PAGE CODE field zero ? */
 			return tcmu_emulate_std_inquiry(port, cdb, iovec,
 							iov_cnt, sense);
 		else
