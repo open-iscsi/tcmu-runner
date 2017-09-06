@@ -70,6 +70,8 @@ struct tcmulib_handler {
 	 */
 	bool (*check_config)(const char *cfgstring, char **reason);
 
+	bool (*check_stat)(struct tcmu_device *dev);
+
 	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
 	/* Per-device added/removed callbacks */

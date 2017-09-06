@@ -1004,6 +1004,7 @@ int main(int argc, char **argv)
 		tmp_handler.subtype = (*tmp_r_handler)->subtype;
 		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;
 		tmp_handler.check_config = (*tmp_r_handler)->check_config;
+		tmp_handler.check_stat = (*tmp_r_handler)->check_stat;
 		tmp_handler.reconfig = (*tmp_r_handler)->reconfig;
 		tmp_handler.added = dev_added;
 		tmp_handler.removed = dev_removed;

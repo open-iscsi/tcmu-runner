@@ -2321,7 +2321,7 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case INQUIRY:
 		return handle_inquiry(dev, cmd);
 	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_test_unit_ready(dev, cdb, iovec, iov_cnt, sense);
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
 			return tcmu_emulate_read_capacity_16(num_lbas,

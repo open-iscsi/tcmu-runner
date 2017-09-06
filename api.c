@@ -30,6 +30,7 @@
 #include <endian.h>
 #include <errno.h>
 
+#include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
@@ -757,11 +758,22 @@ int tcmu_emulate_inquiry(
 }
 
 int tcmu_emulate_test_unit_ready(
+	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
 	size_t iov_cnt,
 	uint8_t *sense)
 {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+
+	if (!rhandler->check_stat)
+		return SAM_STAT_GOOD;
+
+	if (!rhandler->check_stat(dev)) {
+		tcmu_err("check_config failed for %s\n", dev->dev_name);
+		return SAM_STAT_CHECK_CONDITION;
+	}
+
 	return SAM_STAT_GOOD;
 }
 
