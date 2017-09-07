@@ -323,6 +323,7 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 	}
 
 	if (!enabled_port) {
+		ret = -EIO;
 		/* User disabled port from under us? */
 		tcmu_dev_err(dev, "Could not find enabled port.\n");
 		goto done;

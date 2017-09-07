@@ -156,7 +156,20 @@ void tcmu_notify_conn_lost(struct tcmu_device *dev)
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 
 	pthread_mutex_lock(&rdev->state_lock);
-	if (rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY)
+
+	/*
+	 * Although there are 2 checks for STOPPING in __tcmu_reopen_dev
+	 * which is called a little later by the recovery thread, STOPPING
+	 * checking is still needed here.
+	 *
+	 * In device removal, tcmu_get_alua_grps will never get access to
+	 * configfs dir resource which is holded by kernel in configfs_rmdir,
+	 * thus tcmulib_cmd->done() will never get a chance to clear
+	 * tracked_aio_ops. This will cause a deadlock in dev_removed
+	 * which is polling tracked_aio_ops.
+	 */
+	if ((rdev->flags & TCMUR_DEV_FLAG_STOPPING) ||
+		(rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY))
 		goto unlock;
 
 	tcmu_dev_err(dev, "Handler connection lost (lock state %d)\n",
