@@ -132,7 +132,7 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 		       '\0', state->image_name, '\0');
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not allocate metadata buf.\n");
-		ret = ENOMEM;
+		ret = -ENOMEM;
 		goto free_daemon_buf;
 	}
 

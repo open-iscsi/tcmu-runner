@@ -330,7 +330,7 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 
 	tpg = setup_tgt_port_grp(enabled_port);
 	if (!tpg) {
-		ret = ENOMEM;
+		ret = -ENOMEM;
 		goto done;
 	}
 	ret = pthread_create(&tpg->recovery_thread, NULL,
