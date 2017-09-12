@@ -74,6 +74,7 @@ struct rbd_aio_cb {
 	struct tcmu_device *dev;
 	struct tcmulib_cmd *tcmulib_cmd;
 
+	/* Only for reading cmds */
 	int64_t length;
 	char *bounce_buffer;
 };
@@ -674,14 +675,14 @@ static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev,
  * the only errno we've to bother about as of now are memory
  * allocation errors.
  */
-
-static void rbd_finish_aio_read(rbd_completion_t completion,
-				struct rbd_aio_cb *aio_cb)
+static void rbd_finish_aio_generic(rbd_completion_t completion,
+				   struct rbd_aio_cb *aio_cb)
 {
 	struct tcmu_device *dev = aio_cb->dev;
 	struct tcmulib_cmd *tcmulib_cmd = aio_cb->tcmulib_cmd;
 	struct iovec *iovec = tcmulib_cmd->iovec;
 	size_t iov_cnt = tcmulib_cmd->iov_cnt;
+	uint16_t asc_ascq;
 	int64_t ret;
 	int tcmu_r;
 
@@ -693,13 +694,20 @@ static void rbd_finish_aio_read(rbd_completion_t completion,
 	} else if (ret == -ESHUTDOWN) {
 		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
 	} else if (ret < 0) {
-		tcmu_dev_err(dev, "Got fatal read error %d.\n", ret);
+		tcmu_dev_err(dev, "Got fatal IO error %d.\n", ret);
+
+		if (aio_cb->bounce_buffer)
+			asc_ascq = ASC_READ_ERROR;
+		else
+			asc_ascq = ASC_WRITE_ERROR;
 		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     MEDIUM_ERROR, ASC_READ_ERROR, NULL);
+					     MEDIUM_ERROR, asc_ascq, NULL);
 	} else {
 		tcmu_r = SAM_STAT_GOOD;
-		tcmu_memcpy_into_iovec(iovec, iov_cnt,
-				       aio_cb->bounce_buffer, aio_cb->length);
+		if (aio_cb->bounce_buffer)
+			tcmu_memcpy_into_iovec(iovec, iov_cnt,
+					       aio_cb->bounce_buffer,
+					       aio_cb->length);
 	}
 
 	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
@@ -734,7 +742,7 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 
 	ret = rbd_aio_create_completion
-		(aio_cb, (rbd_callback_t) rbd_finish_aio_read, &completion);
+		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
 	if (ret < 0) {
 		goto out_free_bounce_buffer;
 	}
@@ -755,38 +763,6 @@ out_free_aio_cb:
 	free(aio_cb);
 out:
 	return SAM_STAT_TASK_SET_FULL;
-}
-
-static void rbd_finish_aio_generic(rbd_completion_t completion,
-				   struct rbd_aio_cb *aio_cb)
-{
-	struct tcmu_device *dev = aio_cb->dev;
-	struct tcmulib_cmd *tcmulib_cmd = aio_cb->tcmulib_cmd;
-	int64_t ret;
-	int tcmu_r;
-
-	ret = rbd_aio_get_return_value(completion);
-	rbd_aio_release(completion);
-
-	if (ret == -ETIMEDOUT) {
-		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev, tcmulib_cmd);
-	} else if (ret == -ESHUTDOWN) {
-		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
-	} else if (ret < 0) {
-		tcmu_dev_err(dev, "Got fatal write error %d.\n", ret);
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     MEDIUM_ERROR, ASC_WRITE_ERROR,
-					     NULL);
-	} else {
-		tcmu_r = SAM_STAT_GOOD;
-	}
-
-	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
-
-	if (aio_cb->bounce_buffer) {
-		free(aio_cb->bounce_buffer);
-	}
-	free(aio_cb);
 }
 
 static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
