@@ -25,7 +25,7 @@
 
 #define TCMUR_DEV_FLAG_FORMATTING	(1 << 0)
 #define TCMUR_DEV_FLAG_IN_RECOVERY	(1 << 1)
-#define TCMUR_DEV_FLAG_SHUTTING_DOWN	(1 << 2)
+#define TCMUR_DEV_FLAG_STOPPING		(1 << 2)
 #define TCMUR_DEV_FLAG_IS_OPEN		(1 << 3)
 
 enum {

@@ -607,7 +607,7 @@ static void cmdproc_thread_cleanup(void *arg)
 	bool is_open = false;
 
 	pthread_mutex_lock(&rdev->state_lock);
-	rdev->flags |= TCMUR_DEV_FLAG_SHUTTING_DOWN;
+	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	/*
@@ -633,8 +633,10 @@ static void *tcmur_cmdproc_thread(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct pollfd pfd;
 	int ret;
+	bool dev_stopping = false;
 
 	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
 
@@ -644,7 +646,8 @@ static void *tcmur_cmdproc_thread(void *arg)
 
 		tcmulib_processing_start(dev);
 
-		while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
+		while (!dev_stopping && (cmd = tcmulib_get_next_command(dev)) != NULL) {
+
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_cdb_debug_info(dev, cmd);
 
@@ -690,12 +693,21 @@ static void *tcmur_cmdproc_thread(void *arg)
 			tcmu_err("ppoll received unexpected revent: 0x%x\n", pfd.revents);
 			break;
 		}
+
+		/*
+		 * LIO will wait for outstanding requests and prevent new ones
+		 * from being sent to runner during device removal, but if the
+		 * tcmu cmd_time_out has fired tcmu-runner may still be executing
+		 * requests that LIO has completed. We only need to wait for replies
+		 * for outstanding requests so throttle the cmdproc thread now.
+		 */
+		pthread_mutex_lock(&rdev->state_lock);
+		if (rdev->flags & TCMUR_DEV_FLAG_STOPPING)
+			dev_stopping = true;
+		pthread_mutex_unlock(&rdev->state_lock);
 	}
 
-	tcmu_err("thread terminating, should never happen\n");
-
-	pthread_cleanup_pop(1);
-
+	pthread_cleanup_pop(0);
 	return NULL;
 }
 
@@ -805,6 +817,10 @@ static void dev_removed(struct tcmu_device *dev)
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
 
+	pthread_mutex_lock(&rdev->state_lock);
+	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
+	pthread_mutex_unlock(&rdev->state_lock);
+
 	/*
 	 * The order of cleaning up worker threads and calling ->removed()
 	 * is important: for sync handlers, the worker thread needs to be
@@ -813,6 +829,9 @@ static void dev_removed(struct tcmu_device *dev)
 	 * are getting invoked when shutting down the handler.
 	 */
 	cleanup_io_work_queue_threads(dev);
+
+	if (aio_wait_for_empty_queue(rdev))
+		tcmu_dev_err(dev, "could not flush queue.\n");
 	tcmulib_cleanup_cmdproc_thread(dev);
 
 	cleanup_io_work_queue(dev, false);
