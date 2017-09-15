@@ -66,7 +66,7 @@ tcmulib_register_handler(struct tcmulib_context *ctx,
 
 static void tcmulib_reg_fail(struct tcmulib_context *ctx)
 {
-	ctx->reg_count_down = 0;
+	// TODO: Report failures back to process performing registration
 }
 
 static gboolean
@@ -129,15 +129,11 @@ tcmulib_reg_name_acquired(GDBusConnection *connection,
 	struct tcmulib_handler *handler = user_data;
 	struct tcmulib_context *ctx = handler->ctx;
 
-	if (!ctx->reg_count_down || --ctx->reg_count_down)
-		return;
-	/* We've acquired all needed buses, now register each handler to
-	 * org.kernel.TCMUService1.HandlerManager1. */
-	darray_foreach(handler, ctx->handlers) {
-		if (!tcmulib_register_handler(ctx, handler)) {
-			tcmulib_reg_fail(ctx);
-			break;
-		}
+	handler->connection = connection;
+
+	if (ctx->connection) {
+		/* The primary service is already available.  Register immediately. */
+		tcmulib_register_handler(ctx, handler);
 	}
 }
 
@@ -147,8 +143,7 @@ tcmulib_reg_name_lost(GDBusConnection *connection,
 		      gpointer         user_data)
 {
 	struct tcmulib_handler *handler = user_data;
-
-	tcmulib_reg_fail(handler->ctx);
+	handler->connection = NULL;
 }
 
 static void tcmulib_handler_own_bus(struct tcmulib_handler *handler)
@@ -176,12 +171,12 @@ tcmulib_reg_name_appeared(GDBusConnection *connection,
 	struct tcmulib_handler *handler;
 
 	ctx->connection = connection;
-	if (!ctx->reg_count_down)
-		return;
+	/* Primary TCMU service is now available. None of the handlers are
+	   registered, so register all handlers that have acquired their bus name */
 	darray_foreach(handler, ctx->handlers) {
-		/* XXX: Set this at initalize time. */
-		handler->ctx = ctx;
-		tcmulib_handler_own_bus(handler);
+		if (handler->connection) {
+			tcmulib_register_handler(ctx, handler);
+		}
 	}
 }
 
@@ -190,15 +185,21 @@ tcmulib_reg_name_vanished(GDBusConnection *connection,
 			  const gchar     *name,
 			  gpointer         user_data)
 {
-	tcmu_err("Failed to get bus %s\n", name);
+	struct tcmulib_context *ctx = user_data;
+
+	ctx->connection = NULL;
 }
 
 void tcmulib_register(struct tcmulib_context *ctx)
 {
-	assert(!ctx->reg_count_down);
-	ctx->reg_count_down = darray_size(ctx->handlers);
-	if (!ctx->reg_count_down)
-		return;
+	struct tcmulib_handler *handler;
+
+	/* Start acquiring buses for each subtype owned by this context. */
+	darray_foreach(handler, ctx->handlers) {
+		tcmulib_handler_own_bus(handler);
+	}
+
+	/* Start waiting for the primary service to become available */
 	g_bus_watch_name(G_BUS_TYPE_SYSTEM,
 			 "org.kernel.TCMUService1",
 			 G_BUS_NAME_WATCHER_FLAGS_NONE,
