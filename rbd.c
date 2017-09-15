@@ -548,7 +548,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		goto free_config;
 	}
 
-	name = strtok(NULL, "/");
+	name = strtok(NULL, ";");
 	if (!name) {
 		tcmu_dev_err(dev, "Could not get image name\n");
 		ret = -EINVAL;
@@ -563,7 +563,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 	}
 
 	/* The next options are optional */
-	next_opt = strtok(NULL, "/");
+	next_opt = strtok(NULL, ";");
 	if (next_opt) {
 		if (!strncmp(next_opt, "osd_op_timeout=", 15)) {
 			state->osd_op_timeout = strdup(next_opt + 15);

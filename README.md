@@ -96,14 +96,14 @@ o- backstores .......................................................... [...]
 
 /backstores> cd user:rbd 
 
-/backstores/user:rbd> create cfgstring=pool/rbd1/osd_op_timeout=30 name=rbd0 size=1G
+/backstores/user:rbd> create cfgstring=pool/rbd1;osd_op_timeout=30 name=rbd0 size=1G
 Created user-backed storage object rbd0 size 1073741824.
 
 
 Note that the cfgstring is handler specific. The format is:
 
 (osd_op_timeout is optional and N is in seconds)
-rbd: /pool_name/image_name/osd_op_timeout=N
+rbd: /pool_name/image_name[;osd_op_timeout=N]
 qcow: /path_to_file
 glfs: /volume@hostname/filename
 
