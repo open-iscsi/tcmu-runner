@@ -73,6 +73,7 @@ typedef void (*cmd_done_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
 
 struct tcmulib_cmd {
 	uint16_t cmd_id;
+	struct tcmu_cmd_entry *entry;
 	uint8_t *cdb;
 	struct iovec *iovec;
 	size_t iov_cnt;

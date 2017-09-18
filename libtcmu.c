@@ -876,6 +876,7 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			cmd = malloc(sizeof(*cmd) + sizeof(*cmd->iovec) * ent->req.iov_cnt + cdb_len);
 			if (!cmd)
 				return NULL;
+			cmd->entry = ent;
 			cmd->cmd_id = ent->hdr.cmd_id;
 
 			/* Convert iovec addrs in-place to not be offsets */
@@ -924,26 +925,22 @@ void tcmulib_command_complete(
 	int result)
 {
 	struct tcmu_mailbox *mb = dev->map;
-	struct tcmu_cmd_entry *ent = get_next_rb_entry(dev);
+	struct tcmu_cmd_entry *tail, *head = device_cmd_head(dev);
+	struct tcmu_cmd_entry *entry = cmd->entry;
 
-	/* current command could be PAD in async case */
-	while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
-		if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
-			break;
-		TCMU_UPDATE_RB_TAIL(mb, ent);
-		ent = get_next_rb_entry(dev);
+	if (cmd->cmd_id != entry->hdr.cmd_id) {
+		tcmu_dev_err(dev, "The ring maybe broken or buggy of multi completing one same cmd!\n");
+		abort();
 	}
 
-	/* cmd_id could be different in async case */
-	if (cmd->cmd_id != ent->hdr.cmd_id) {
-		ent->hdr.cmd_id = cmd->cmd_id;
-	}
-
+	/* First to flag the current entry as completed and
+	 * fill the rsp sense_buffer */
+	entry->hdr.uflags |= TCMU_UFLAG_COMPLETED;
 	if (result == TCMU_NOT_HANDLED) {
 		/* Tell the kernel we didn't handle it */
-		char *buf = ent->rsp.sense_buffer;
+		char *buf = entry->rsp.sense_buffer;
 
-		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
+		entry->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
 
 		buf[0] = 0x70;	/* fixed, current */
 		buf[2] = 0x5;	/* illegal request */
@@ -952,14 +949,29 @@ void tcmulib_command_complete(
 		buf[13] = 0x0;	/* ASCQ: (none) */
 	} else {
 		if (result != SAM_STAT_GOOD) {
-			memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
-			       TCMU_SENSE_BUFFERSIZE);
+			memcpy(entry->rsp.sense_buffer, cmd->sense_buf,
+					TCMU_SENSE_BUFFERSIZE);
 		}
-		ent->rsp.scsi_status = result;
+		entry->rsp.scsi_status = result;
 	}
-
-	TCMU_UPDATE_RB_TAIL(mb, ent);
 	free(cmd);
+
+	/* Then try to complete the ring buffer from the tail */
+	while ((tail = get_next_rb_entry(dev)) != head) {
+		/* If the current entry from tail is _CMD but still
+		 * handling by target device, will do nothing and
+		 * break the loop.
+		 */
+		if (tcmu_hdr_get_op(tail->hdr.len_op) == TCMU_OP_CMD &&
+		    !(tail->hdr.uflags & TCMU_UFLAG_COMPLETED))
+			break;
+
+		/*
+		 * Update the ring buffer's tail.
+		 */
+
+		TCMU_UPDATE_RB_TAIL(mb, tail);
+	}
 }
 
 void tcmulib_processing_start(struct tcmu_device *dev)

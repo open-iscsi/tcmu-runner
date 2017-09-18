@@ -69,6 +69,7 @@ struct tcmu_cmd_entry_hdr {
 	__u16 cmd_id;
 	__u8 kflags;
 #define TCMU_UFLAG_UNKNOWN_OP 0x1
+#define TCMU_UFLAG_COMPLETED  0x2
 	__u8 uflags;
 
 } __attribute__((packed));
