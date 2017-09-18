@@ -68,6 +68,15 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 	return tcmu_get_cfgfs_int(path);
 }
 
+int tcmu_set_attribute(struct tcmu_device *dev, const char *name,
+		       unsigned long val)
+{
+	char path[PATH_MAX];
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/attrib/%s",
+		 dev->tcm_hba_name, dev->tcm_dev_name, name);
+	return tcmu_set_cfgfs_ul(path, val);
+}
 
 /*
  * Return a string that contains the device's WWN, or NULL.
