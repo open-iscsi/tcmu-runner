@@ -911,20 +911,27 @@ do { \
 	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
 } while (0);
 
+static inline struct tcmu_cmd_entry *get_next_rb_entry(struct tcmu_device *dev)
+{
+	struct tcmu_mailbox *mb = dev->map;
+
+	return (struct tcmu_cmd_entry *)((void *) mb + mb->cmdr_off + mb->cmd_tail);
+}
+
 void tcmulib_command_complete(
 	struct tcmu_device *dev,
 	struct tcmulib_cmd *cmd,
 	int result)
 {
 	struct tcmu_mailbox *mb = dev->map;
-	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+	struct tcmu_cmd_entry *ent = get_next_rb_entry(dev);
 
 	/* current command could be PAD in async case */
 	while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
 		if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
 			break;
 		TCMU_UPDATE_RB_TAIL(mb, ent);
-		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+		ent = get_next_rb_entry(dev);
 	}
 
 	/* cmd_id could be different in async case */
