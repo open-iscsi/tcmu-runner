@@ -976,9 +976,9 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 /*
  * For backstore creation
  *
- * Specify poolname/devicename, e.g,
+ * Specify poolname/devicename[;option1;option2;...], e.g,
  *
- * $ targetcli /backstores/user:rbd create test 2G rbd/test/osd_op_timeout=30
+ * $ targetcli /backstores/user:rbd create test 2G rbd/test[;osd_op_timeout=30]
  *
  * poolname must be the name of an existing rados pool.
  *
@@ -986,10 +986,11 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  */
 static const char tcmu_rbd_cfg_desc[] =
 	"RBD config string is of the form:\n"
-	"poolname/devicename/optional osd_op_timeout=N secs\n"
+	"poolname/devicename[;option1;option2;...]\n"
 	"where:\n"
 	"poolname:	Existing RADOS pool\n"
-	"devicename:	Name of the RBD image\n";
+	"devicename:	Name of the RBD image\n"
+	"optionN:	Like: \"osd_op_timeout=30\" in secs\n";
 
 struct tcmur_handler tcmu_rbd_handler = {
 	.name	       = "Ceph RBD handler",
