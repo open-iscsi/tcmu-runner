@@ -165,6 +165,19 @@ target_include_directories(handler_file_optical
   )
 target_link_libraries(handler_file_optical ${PTHREAD})
 
+# Stuff for building the file zbc handler
+add_library(handler_file_zbc
+  SHARED
+  file_zbc.c
+  )
+set_target_properties(handler_file_zbc
+  PROPERTIES
+  PREFIX ""
+  )
+target_include_directories(handler_file_zbc
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  )
+
 
 # The minimal library consumer
 add_executable(consumer

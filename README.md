@@ -84,13 +84,17 @@ https://github.com/open-iscsi/rtslib-fb
 
 /> cd /backstores/
 
-3. By default, tcmu-runner installs the glfs, qcow and rbd tcmu-runner handlers:
+3. By default, tcmu-runner installs the file, zbc, glfs, qcow and rbd tcmu-runner handlers:
 
+```
 /backstores> ls
 o- backstores .......................................................... [...]
   o- user:glfs .......................................... [Storage Objects: 0]
   o- user:qcow .......................................... [Storage Objects: 0]
   o- user:rbd ........................................... [Storage Objects: 0]
+  o- user:file .......................................... [Storage Objects: 0]
+  o- user:zbc ........................................... [Storage Objects: 0]
+```
 
 4. 'cd' to the handler you want to setup:
 
@@ -102,10 +106,30 @@ Created user-backed storage object rbd0 size 1073741824.
 
 Note that the cfgstring is handler specific. The format is:
 
+- **rbd**: /pool_name/image_name[;osd_op_timeout=N]  
 (osd_op_timeout is optional and N is in seconds)
-rbd: /pool_name/image_name[;osd_op_timeout=N]
-qcow: /path_to_file
-glfs: /volume@hostname/filename
+- **qcow**: /path_to_file
+- **glfs**: /volume@hostname/filename
+- **file**: /path_to_file
+- **zbc**: /[opt1[/opt2][...]@]path_to_file
+
+For the zbc handler, the available options are shown in the table below.
+
+| Option | Description | Default value |
+| --- | --- | --- |
+| model-**_type_** | Device model type, _HA_ for host aware or _HM_ for host managed | _HM_
+| lba-**_size (B)_** | LBA size in bytes (512 or 4096) | 512
+| zsize-**_size (MiB)_** | Zone size in MiB | 256 MiB
+| conv-**_num_** | Number of conventional zones at LBA 0 (can be 0) | Number of zones corresponding to 1% of the device capacity
+| open-**_num_** | Optimal (for host aware) or maximum (for host managed) number of open zones | 128
+
+Example:
+```
+cfgstring=model-HM/zsize-128/conv-100@/var/local/zbc.raw
+```
+
+will create a host-managed disk with 128 MiB zones and 100 conventional zones,
+stored in the file /var/local/zbc.raw.
 
 5. The created backstore device can then be mapped to a LUN like traditional
 backstores.
