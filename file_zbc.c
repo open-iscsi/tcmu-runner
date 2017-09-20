@@ -33,8 +33,8 @@
 #include <endian.h>
 #include <errno.h>
 #include <scsi/scsi.h>
-#include <linux/blkzoned.h>
 
+#include "blkzoned_local.h"
 #include "scsi_defs.h"
 #include "libtcmu.h"
 #include "tcmu-runner.h"
