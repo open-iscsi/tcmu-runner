@@ -1,5 +1,6 @@
 [Unit]
 Description=LIO Userspace-passthrough daemon
+After=glusterd.service
 
 [Service]
 LimitNOFILE=1000000
