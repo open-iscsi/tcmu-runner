@@ -33,8 +33,8 @@
 #include <endian.h>
 #include <errno.h>
 #include <scsi/scsi.h>
+#include <linux/types.h>
 
-#include "blkzoned_local.h"
 #include "scsi_defs.h"
 #include "libtcmu.h"
 #include "tcmu-runner.h"
@@ -63,7 +63,6 @@
 #define ASC_READ_BOUNDARY_VIOLATION		0x2107
 #define ASC_INSUFFICIENT_ZONE_RESOURCES		0x550E
 
-
 /*
  * Device zone model.
  */
@@ -71,6 +70,67 @@ enum zbc_dev_model {
 	ZBC_HA = 0x00,
 	ZBC_HM = 0x14,
 };
+
+/*
+ * Zone types.
+ */
+enum zbc_zone_type {
+	ZBC_ZONE_TYPE_CONVENTIONAL	= 0x1,
+	ZBC_ZONE_TYPE_SEQWRITE_REQ	= 0x2,
+	ZBC_ZONE_TYPE_SEQWRITE_PREF	= 0x3,
+};
+
+/*
+ * Zone conditions.
+ */
+enum zbc_zone_cond {
+	ZBC_ZONE_COND_NOT_WP	= 0x0,
+	ZBC_ZONE_COND_EMPTY	= 0x1,
+	ZBC_ZONE_COND_IMP_OPEN	= 0x2,
+	ZBC_ZONE_COND_EXP_OPEN	= 0x3,
+	ZBC_ZONE_COND_CLOSED	= 0x4,
+	ZBC_ZONE_COND_READONLY	= 0xD,
+	ZBC_ZONE_COND_FULL	= 0xE,
+	ZBC_ZONE_COND_OFFLINE	= 0xF,
+};
+
+/*
+ * Metadata zone descriptor.
+ */
+struct zbc_zone {
+	__u64	start;		/* Zone start sector */
+	__u64	len;		/* Zone length in number of sectors */
+	__u64	wp;		/* Zone write pointer position */
+	__u8	type;		/* Zone type */
+	__u8	cond;		/* Zone condition */
+	__u8	non_seq;	/* Non-sequential write resources active */
+	__u8	reset;		/* Reset write pointer recommended */
+	__u8	reserved[36];
+};
+
+/*
+ * Test zone type.
+ */
+#define zbc_zone_conv(z)	((z)->type == ZBC_ZONE_TYPE_CONVENTIONAL)
+#define zbc_zone_seq_req(z)	((z)->type == ZBC_ZONE_TYPE_SEQWRITE_REQ)
+#define zbc_zone_seq_pref(z)	((z)->type == ZBC_ZONE_TYPE_SEQWRITE_PREF)
+#define zbc_zone_seq(z)		(!zbc_zone_conv(z))
+
+/*
+ * Test zone conditions.
+ */
+#define zbc_zone_empty(z)	((z)->cond == ZBC_ZONE_COND_EMPTY)
+#define zbc_zone_full(z)	((z)->cond == ZBC_ZONE_COND_FULL)
+#define zbc_zone_imp_open(z)	((z)->cond == ZBC_ZONE_COND_IMP_OPEN)
+#define zbc_zone_exp_open(z)	((z)->cond == ZBC_ZONE_COND_EXP_OPEN)
+#define zbc_zone_is_open(z)	(zbc_zone_imp_open(z) || zbc_zone_exp_open(z))
+#define zbc_zone_closed(z)	((z)->cond == ZBC_ZONE_COND_CLOSED)
+#define zbc_zone_not_wp(z)	((z)->cond == ZBC_ZONE_COND_NOT_WP)
+#define zbc_zone_closed(z)	((z)->cond == ZBC_ZONE_COND_CLOSED)
+#define zbc_zone_offline(z)	((z)->cond == ZBC_ZONE_COND_OFFLINE)
+#define zbc_zone_rdonly(z)	((z)->cond == ZBC_ZONE_COND_READONLY)
+#define zbc_zone_rwp(z)		((z)->reset)
+#define zbc_zone_non_seq(z)	((z)->non_seq)
 
 /*
  * Reporting options.
@@ -118,22 +178,6 @@ enum zbc_reporting_options {
 	ZBC_RO_PARTIAL		= 0x80,
 
 };
-
-/*
- * Test zone conditions.
- */
-#define zbc_zone_empty(z)	((z)->cond == BLK_ZONE_COND_EMPTY)
-#define zbc_zone_full(z)	((z)->cond == BLK_ZONE_COND_FULL)
-#define zbc_zone_imp_open(z)	((z)->cond == BLK_ZONE_COND_IMP_OPEN)
-#define zbc_zone_exp_open(z)	((z)->cond == BLK_ZONE_COND_EXP_OPEN)
-#define zbc_zone_is_open(z)	(zbc_zone_imp_open(z) || zbc_zone_exp_open(z))
-#define zbc_zone_closed(z)	((z)->cond == BLK_ZONE_COND_CLOSED)
-#define zbc_zone_not_wp(z)	((z)->cond == BLK_ZONE_COND_NOT_WP)
-#define zbc_zone_closed(z)	((z)->cond == BLK_ZONE_COND_CLOSED)
-#define zbc_zone_offline(z)	((z)->cond == BLK_ZONE_COND_OFFLINE)
-#define zbc_zone_rdonly(z)	((z)->cond == BLK_ZONE_COND_READONLY)
-#define zbc_zone_rwp(z)		((z)->reset)
-#define zbc_zone_non_seq(z)	((z)->non_seq)
 
 /*
  * Metadata magic.
@@ -228,7 +272,7 @@ struct zbc_dev {
 	size_t			lba_size;
 	size_t			zone_size;
 
-	struct blk_zone		*zones;
+	struct zbc_zone		*zones;
 	unsigned int		nr_zones;
 	unsigned int		nr_conv_zones;
 	unsigned int		nr_open_zones;
@@ -408,7 +452,7 @@ failed:
  */
 static size_t zbc_meta_size(unsigned int nr_zones)
 {
-	return sizeof(struct zbc_meta) + nr_zones * sizeof(struct blk_zone);
+	return sizeof(struct zbc_meta) + nr_zones * sizeof(struct zbc_zone);
 }
 
 /*
@@ -440,7 +484,7 @@ static int zbc_map_meta(struct zbc_dev *zdev)
 		return ret;
 	}
 
-	zdev->zones = (struct blk_zone *)(zdev->meta + 1);
+	zdev->zones = (struct zbc_zone *)(zdev->meta + 1);
 
 	tcmu_dev_dbg(zdev->dev, "Mapped %zu B of metadata at %p\n",
 		     zdev->meta_size, zdev->meta);
@@ -483,29 +527,30 @@ static bool zbc_check_zone(struct zbc_dev *zdev,
 			   struct zbc_meta *meta,
 			   unsigned int zno)
 {
-	struct blk_zone zone;
+	struct zbc_zone zone;
 	ssize_t ret;
 
-	ret = pread(zdev->fd, &zone, sizeof(struct blk_zone),
-		    sizeof(struct zbc_meta) + zno * sizeof(struct blk_zone));
-	if (ret != sizeof(struct blk_zone))
+	ret = pread(zdev->fd, &zone, sizeof(struct zbc_zone),
+		    sizeof(struct zbc_meta) + zno * sizeof(struct zbc_zone));
+	if (ret != sizeof(struct zbc_zone))
 		return false;
 
-	if (zone.type != BLK_ZONE_TYPE_CONVENTIONAL &&
-	    zone.type != BLK_ZONE_TYPE_SEQWRITE_PREF &&
-	    zone.type != BLK_ZONE_TYPE_SEQWRITE_REQ)
+	switch (zone.type) {
+	case ZBC_ZONE_TYPE_CONVENTIONAL:
+	case ZBC_ZONE_TYPE_SEQWRITE_PREF:
+	case ZBC_ZONE_TYPE_SEQWRITE_REQ:
+		break;
+	default:
+		return false;
+	}
+
+	if (zbc_zone_seq_pref(&zone) && meta->model != ZBC_HA)
 		return false;
 
-	if (zone.type == BLK_ZONE_TYPE_SEQWRITE_PREF &&
-	    meta->model != ZBC_HA)
+	if (zbc_zone_seq_req(&zone) && meta->model != ZBC_HM)
 		return false;
 
-	if (zone.type == BLK_ZONE_TYPE_SEQWRITE_REQ &&
-	    meta->model != ZBC_HM)
-		return false;
-
-	if (zone.type == BLK_ZONE_TYPE_CONVENTIONAL &&
-	    zone.cond != BLK_ZONE_COND_NOT_WP)
+	if (zbc_zone_conv(&zone) && zone.cond != ZBC_ZONE_COND_NOT_WP)
 		return false;
 
 	if (zone.start % meta->zone_size ||
@@ -581,7 +626,7 @@ static int zbc_format_meta(struct zbc_dev *zdev)
 {
 	struct zbc_dev_config *cfg = &zdev->cfg;
 	struct zbc_meta *meta;
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 	__u64 lba = 0;
 	unsigned int i;
 	int ret;
@@ -662,15 +707,15 @@ static int zbc_format_meta(struct zbc_dev *zdev)
 
 		if (i < zdev->nr_conv_zones) {
 			zone->wp = ULLONG_MAX;
-			zone->type = BLK_ZONE_TYPE_CONVENTIONAL;
-			zone->cond = BLK_ZONE_COND_NOT_WP;
+			zone->type = ZBC_ZONE_TYPE_CONVENTIONAL;
+			zone->cond = ZBC_ZONE_COND_NOT_WP;
 		} else {
 			zone->wp = zone->start;
 			if (meta->model == ZBC_HA)
-				zone->type = BLK_ZONE_TYPE_SEQWRITE_PREF;
+				zone->type = ZBC_ZONE_TYPE_SEQWRITE_PREF;
 			else
-				zone->type = BLK_ZONE_TYPE_SEQWRITE_REQ;
-			zone->cond = BLK_ZONE_COND_EMPTY;
+				zone->type = ZBC_ZONE_TYPE_SEQWRITE_REQ;
+			zone->cond = ZBC_ZONE_COND_EMPTY;
 		}
 
 		lba += zone->len;
@@ -687,14 +732,14 @@ static int zbc_format_meta(struct zbc_dev *zdev)
 	return 0;
 }
 
-static void __zbc_close_zone(struct zbc_dev *zdev, struct blk_zone *zone);
+static void __zbc_close_zone(struct zbc_dev *zdev, struct zbc_zone *zone);
 
 /*
  * Initialize metadata.
  */
 static int zbc_init_meta(struct zbc_dev *zdev)
 {
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 	unsigned int i;
 	int ret;
 
@@ -1146,11 +1191,11 @@ static int zbc_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 /*
  * Get a zone descriptor.
  */
-static struct blk_zone *zbc_get_zone(struct zbc_dev *zdev, uint64_t lba,
+static struct zbc_zone *zbc_get_zone(struct zbc_dev *zdev, uint64_t lba,
 				     bool lowest)
 {
 	unsigned int zno = lba / zdev->zone_size;
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 
 	if (zno >= zdev->nr_zones)
 		return NULL;
@@ -1165,7 +1210,7 @@ static struct blk_zone *zbc_get_zone(struct zbc_dev *zdev, uint64_t lba,
 /*
  * Test if a zone must be reported.
  */
-static bool zbc_should_report_zone(struct blk_zone *zone,
+static bool zbc_should_report_zone(struct zbc_zone *zone,
 				   enum zbc_reporting_options ro)
 {
 	enum zbc_reporting_options options = ro & (~ZBC_RO_PARTIAL);
@@ -1205,7 +1250,7 @@ static int zbc_report_zones(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct zbc_dev *zdev = tcmu_get_dev_private(dev);
 	uint8_t *cdb = cmd->cdb;
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
 	bool partial = cdb[14] & ZBC_RO_PARTIAL;
@@ -1315,24 +1360,24 @@ out:
 /*
  * Close an open zone.
  */
-static void __zbc_close_zone(struct zbc_dev *zdev, struct blk_zone *zone)
+static void __zbc_close_zone(struct zbc_dev *zdev, struct zbc_zone *zone)
 {
 
-	if (zone->type == BLK_ZONE_TYPE_CONVENTIONAL)
+	if (zbc_zone_conv(zone))
 		return;
 
 	if (!zbc_zone_is_open(zone))
 		return;
 
-	if (zone->cond == BLK_ZONE_COND_IMP_OPEN)
+	if (zbc_zone_imp_open(zone))
 		zdev->nr_imp_open--;
 	else
 		zdev->nr_exp_open--;
 
 	if (zone->wp == zone->start)
-		zone->cond = BLK_ZONE_COND_EMPTY;
+		zone->cond = ZBC_ZONE_COND_EMPTY;
 	else
-		zone->cond = BLK_ZONE_COND_CLOSED;
+		zone->cond = ZBC_ZONE_COND_CLOSED;
 }
 
 /*
@@ -1355,7 +1400,7 @@ static void __zbc_close_imp_open_zone(struct zbc_dev *zdev)
 /*
  * Explicitly or implicitly open a zone.
  */
-static void __zbc_open_zone(struct zbc_dev *zdev, struct blk_zone *zone,
+static void __zbc_open_zone(struct zbc_dev *zdev, struct zbc_zone *zone,
 			    bool explicit)
 {
 
@@ -1368,12 +1413,12 @@ static void __zbc_open_zone(struct zbc_dev *zdev, struct blk_zone *zone,
 		__zbc_close_imp_open_zone(zdev);
 
 	if (explicit) {
-		zone->cond = BLK_ZONE_COND_EXP_OPEN;
+		zone->cond = ZBC_ZONE_COND_EXP_OPEN;
 		zdev->nr_exp_open++;
 		return;
 	}
 
-	zone->cond = BLK_ZONE_COND_IMP_OPEN;
+	zone->cond = ZBC_ZONE_COND_IMP_OPEN;
 	zdev->nr_imp_open++;
 }
 
@@ -1383,7 +1428,7 @@ static void __zbc_open_zone(struct zbc_dev *zdev, struct blk_zone *zone,
 static int zbc_open_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct zbc_dev *zdev = tcmu_get_dev_private(dev);
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 	uint8_t *cdb = cmd->cdb;
 	bool all = cdb[14] & 0x01;
 	uint64_t lba;
@@ -1422,7 +1467,7 @@ static int zbc_open_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 					   NULL);
 
 	zone = zbc_get_zone(zdev, lba, true);
-	if (!zone || zone->type == BLK_ZONE_TYPE_CONVENTIONAL)
+	if (!zone || zbc_zone_conv(zone))
 		return tcmu_set_sense_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB,
@@ -1451,7 +1496,7 @@ static int zbc_open_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int zbc_close_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct zbc_dev *zdev = tcmu_get_dev_private(dev);
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 	uint8_t *cdb = cmd->cdb;
 	bool all = cdb[14] & 0x01;
 	uint64_t lba;
@@ -1473,7 +1518,7 @@ static int zbc_close_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 					   NULL);
 
 	zone = zbc_get_zone(zdev, lba, true);
-	if (!zone || zone->type == BLK_ZONE_TYPE_CONVENTIONAL)
+	if (!zone || zbc_zone_conv(zone))
 		return tcmu_set_sense_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB,
@@ -1487,11 +1532,11 @@ static int zbc_close_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 /*
  * Finish a zone.
  */
-static void __zbc_finish_zone(struct zbc_dev *zdev, struct blk_zone *zone,
+static void __zbc_finish_zone(struct zbc_dev *zdev, struct zbc_zone *zone,
 			      bool empty)
 {
 
-	if (zone->type == BLK_ZONE_TYPE_CONVENTIONAL)
+	if (zbc_zone_conv(zone))
 		return;
 
 	if (zbc_zone_closed(zone) ||
@@ -1502,7 +1547,7 @@ static void __zbc_finish_zone(struct zbc_dev *zdev, struct blk_zone *zone,
 			__zbc_close_zone(zdev, zone);
 
 		zone->wp = zone->start + zone->len;
-		zone->cond = BLK_ZONE_COND_FULL;
+		zone->cond = ZBC_ZONE_COND_FULL;
 		zone->non_seq = 0;
 		zone->reset = 0;
 
@@ -1515,7 +1560,7 @@ static void __zbc_finish_zone(struct zbc_dev *zdev, struct blk_zone *zone,
 static int zbc_finish_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct zbc_dev *zdev = tcmu_get_dev_private(dev);
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 	uint8_t *cdb = cmd->cdb;
 	bool all = cdb[14] & 0x01;
 	uint64_t lba;
@@ -1537,7 +1582,7 @@ static int zbc_finish_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 					   NULL);
 
 	zone = zbc_get_zone(zdev, lba, true);
-	if (!zone || zone->type == BLK_ZONE_TYPE_CONVENTIONAL)
+	if (!zone || zbc_zone_conv(zone))
 		return tcmu_set_sense_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB,
@@ -1551,17 +1596,17 @@ static int zbc_finish_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 /*
  * Reset a zone.
  */
-static void __zbc_reset_wp(struct zbc_dev *zdev, struct blk_zone *zone)
+static void __zbc_reset_wp(struct zbc_dev *zdev, struct zbc_zone *zone)
 {
 
-	if (zone->type == BLK_ZONE_TYPE_CONVENTIONAL)
+	if (zbc_zone_conv(zone))
 		return;
 
 	if (zbc_zone_is_open(zone))
 		__zbc_close_zone(zdev, zone);
 
 	zone->wp = zone->start;
-	zone->cond = BLK_ZONE_COND_EMPTY;
+	zone->cond = ZBC_ZONE_COND_EMPTY;
 	zone->non_seq = 0;
 	zone->reset = 0;
 }
@@ -1572,7 +1617,7 @@ static void __zbc_reset_wp(struct zbc_dev *zdev, struct blk_zone *zone)
 static int zbc_reset_wp(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct zbc_dev *zdev = tcmu_get_dev_private(dev);
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 	uint8_t *cdb = cmd->cdb;
 	bool all = cdb[14] & 0x01;
 	uint64_t lba;
@@ -1594,7 +1639,7 @@ static int zbc_reset_wp(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 					   NULL);
 
 	zone = zbc_get_zone(zdev, lba, true);
-	if (!zone || zone->type == BLK_ZONE_TYPE_CONVENTIONAL)
+	if (!zone || zbc_zone_conv(zone))
 		return tcmu_set_sense_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB,
@@ -1884,7 +1929,7 @@ static ssize_t __zbc_read(struct zbc_dev *zdev, void *buf,
 			  size_t nr_lbas, uint64_t lba,
 			  int *zone_type)
 {
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 	uint64_t boundary;
 	ssize_t ret;
 	size_t count, bytes, lba_count = nr_lbas;
@@ -1903,15 +1948,14 @@ static ssize_t __zbc_read(struct zbc_dev *zdev, void *buf,
 			}
 		}
 
-		if (zone->type != BLK_ZONE_TYPE_CONVENTIONAL &&
-		    lba >= zone->wp) {
-			/* Read zeros */
+		if (zbc_zone_seq(zone) && lba >= zone->wp) {
+			/* Read zeroes */
 			bytes = lba_count * zdev->lba_size;
 			memset(buf, 0, bytes);
 			break;
 		}
 
-		if (zone->type != BLK_ZONE_TYPE_CONVENTIONAL)
+		if (zbc_zone_seq(zone))
 			boundary = zone->wp;
 		else
 			boundary = zone->start + zone->len;
@@ -1995,7 +2039,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	size_t iov_cnt = cmd->iov_cnt;
 	struct iovec *iovec = cmd->iovec;
 	size_t remaining = tcmu_iovec_length(iovec, iov_cnt);
-	struct blk_zone *zone;
+	struct zbc_zone *zone;
 	off_t offset;
 	ssize_t ret;
 
@@ -2020,8 +2064,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	/* For sequential write required zones, check write pointer position */
-	if (zone->type == BLK_ZONE_TYPE_SEQWRITE_REQ
-	    && lba != zone->wp) {
+	if (zbc_zone_seq_req(zone) && lba != zone->wp) {
 		tcmu_dev_err(dev, "Unaligned write lba %llu, wp %llu\n",
 			     lba, zone->wp);
 		return tcmu_set_sense_data(cmd->sense_buf,
@@ -2062,18 +2105,18 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	}
 
-	if (zone->type != BLK_ZONE_TYPE_CONVENTIONAL) {
+	if (zbc_zone_seq(zone)) {
 		/* Adjust write pointer */
-		if (zone->type == BLK_ZONE_TYPE_SEQWRITE_REQ) {
+		if (zbc_zone_seq_req(zone)) {
 			zone->wp += nr_lbas;
-		} else if (zone->type == BLK_ZONE_TYPE_SEQWRITE_PREF) {
+		} else if (zbc_zone_seq_pref(zone)) {
 			if (lba + nr_lbas >= zone->wp)
 				zone->wp = lba + nr_lbas;
 		}
 		if (zone->wp >= zone->start + zone->len) {
 			if (zbc_zone_is_open(zone))
 				__zbc_close_zone(zdev, zone);
-			zone->cond = BLK_ZONE_COND_FULL;
+			zone->cond = ZBC_ZONE_COND_FULL;
 		}
 	}
 
