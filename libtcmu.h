@@ -31,10 +31,29 @@ extern "C" {
 
 #include "libtcmu_common.h"
 
+enum tcmulib_cfg_type {
+	TCMULIB_CFG_DEV_CFGSTR,
+	TCMULIB_CFG_DEV_SIZE,
+	TCMULIB_CFG_WRITE_CACHE,
+};
+
+struct tcmulib_cfg_info {
+	enum tcmulib_cfg_type type;
+
+	union {
+		uint64_t dev_size;
+		char *dev_cfgstring;
+		bool write_cache;
+	} data;
+};
+
 struct tcmulib_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */
 	const char *cfg_desc;	/* Description of this backstore's config string */
+
+	struct tcmulib_context *ctx; /* The context this handler is added to,
+					used internally by libtcmu. */
 
 	/*
 	 * As much as possible, check that the cfgstring will result
@@ -51,11 +70,14 @@ struct tcmulib_handler {
 	 */
 	bool (*check_config)(const char *cfgstring, char **reason);
 
+	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
+
 	/* Per-device added/removed callbacks */
 	int (*added)(struct tcmu_device *dev);
 	void (*removed)(struct tcmu_device *dev);
 
 	void *hm_private; /* private ptr for handler module */
+	void *connection; /* private, dbus connection for this subtype */
 };
 
 /*
@@ -71,8 +93,11 @@ struct tcmulib_context;
 /* Claim subtypes you wish to handle. Returns libtcmu's master fd or -error.*/
 struct tcmulib_context *tcmulib_initialize(
 	struct tcmulib_handler *handlers,
-	size_t handler_count,
-	void (*err_print)(const char *fmt, ...));
+	size_t handler_count);
+
+/* Register to TCMU DBus service, for the claimed subtypes to be configurable
+ * in targetcli. */
+void tcmulib_register(struct tcmulib_context *ctx);
 
 /* Gets the master file descriptor used by tcmulib. */
 int tcmulib_get_master_fd(struct tcmulib_context *ctx);
@@ -106,6 +131,16 @@ void tcmulib_processing_complete(struct tcmu_device *dev);
 
 /* Clean up loose ends when exiting */
 void tcmulib_close(struct tcmulib_context *ctx);
+
+/* kick start command processing thread */
+int tcmulib_start_cmdproc_thread(struct tcmu_device *dev,
+				 void *(*thread_fn)(void *));
+
+/* cleanup command processing thread for a given device */
+void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev);
+
+/* cleanup all (devices) command processing threads */
+void tcmulib_cleanup_all_cmdproc_threads();
 
 #ifdef __cplusplus
 }

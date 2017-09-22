@@ -2,6 +2,7 @@
 #define _QCOW_H_
 
 #include <stdint.h>
+#include "libtcmu_log.h"
 
 #define QCOW_MAGIC (('Q' << 24) | ('F' << 16) | ('I' << 8) | 0xfb)
 #define QCOW_VERSION 1

@@ -1,7 +1,13 @@
 [Unit]
 Description=LIO Userspace-passthrough daemon
+After=network.target
 
 [Service]
+LimitNOFILE=1000000
 Type=dbus
 BusName=org.kernel.TCMUService1
+KillMode=process
 ExecStart=/usr/bin/tcmu-runner
+
+[Install]
+WantedBy=multi-user.target

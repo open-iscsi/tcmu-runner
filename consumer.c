@@ -18,7 +18,8 @@
  * userspace passthrough devices.
  */
 
-#define _DEFAULT_SOURCE
+#define _GNU_SOURCE
+#define _BITS_UIO_H
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -31,34 +32,15 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <signal.h>
 #include <poll.h>
 
 #include <stdint.h>
 #include <scsi/scsi.h>
-#define _BITS_UIO_H
-#include <linux/target_core_user.h>
+#include "target_core_user_local.h"
 #include "libtcmu.h"
 #include "scsi_defs.h"
-
-/*
- * Debug API implementation
- */
-void dbgp(const char *fmt, ...)
-{
-	va_list va;
-	va_start(va, fmt);
-	vprintf(fmt, va);
-	va_end(va);
-}
-
-void errp(const char *fmt, ...)
-{
-	va_list va;
-
-	va_start(va, fmt);
-	vfprintf(stderr, fmt, va);
-	va_end(va);
-}
+#include "libtcmu_log.h"
 
 struct tcmu_device *tcmu_dev_array[128];
 size_t dev_array_len = 0;
@@ -72,11 +54,6 @@ struct foo_state {
 static int set_medium_error(uint8_t *sense)
 {
 	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
-}
-
-static bool foo_check_config(const char *cfgstring, char **reason)
-{
-	 return true;
 }
 
 static int foo_open(struct tcmu_device *dev)
@@ -111,7 +88,8 @@ static int foo_handle_cmd(
 
 	switch (cmd) {
 	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_inquiry(dev, NULL, cdb, iovec, iov_cnt,
+					    sense);
 		break;
 	case TEST_UNIT_READY:
 		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
@@ -126,11 +104,11 @@ static int foo_handle_cmd(
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case READ_6:
 	case READ_10:
@@ -147,7 +125,7 @@ static int foo_handle_cmd(
 		return SAM_STAT_GOOD;
 
 	default:
-		errp("unknown command %x\n", cdb[0]);
+		tcmu_err("unknown command %x\n", cdb[0]);
 		return TCMU_NOT_HANDLED;
 	}
 }
@@ -156,8 +134,6 @@ static struct tcmulib_handler foo_handler = {
 	.name = "Handler for foo devices (example code)",
 	.subtype = "foo",
 	.cfg_desc = "a description goes here",
-
-	.check_config = foo_check_config,
 
 	.added = foo_open,
 	.removed = foo_close,
@@ -170,12 +146,17 @@ int main(int argc, char **argv)
 	int i;
 	int ret;
 
+	if (tcmu_setup_log()) {
+		fprintf(stderr, "Could not setup tcmu logger.\n");
+		exit(1);
+	}
+
 	/* If any TCMU devices that exist that match subtype,
 	   handler->added() will now be called from within
 	   tcmulib_initialize(). */
-	tcmulib_ctx = tcmulib_initialize(&foo_handler, 1, errp);
+	tcmulib_ctx = tcmulib_initialize(&foo_handler, 1);
 	if (tcmulib_ctx <= 0) {
-		errp("tcmulib_initialize failed with %p\n", tcmulib_ctx);
+		tcmu_err("tcmulib_initialize failed with %p\n", tcmulib_ctx);
 		exit(1);
 	}
 
@@ -190,11 +171,14 @@ int main(int argc, char **argv)
 			pollfds[i+1].revents = 0;
 		}
 
-		ret = poll(pollfds, dev_array_len+1, -1);
-
-		if (ret <= 0) {
-			errp("poll() returned %d, exiting\n", ret);
-			exit(1);
+		/* Use ppoll instead poll to avoid poll call reschedules during signal
+		 * handling. If we were removing a device, then the uio device's memory
+		 * could be freed, but the poll would be rescheduled and end up accessing
+		 * the released device. */
+		ret = ppoll(pollfds, dev_array_len+1, NULL, NULL);
+		if (ret == -1) {
+			tcmu_err("ppoll() returned %d, exiting\n", ret);
+			exit(EXIT_FAILURE);
 		}
 
 		if (pollfds[0].revents) {

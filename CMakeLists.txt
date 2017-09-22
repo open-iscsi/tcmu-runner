@@ -1,14 +1,16 @@
-cmake_minimum_required (VERSION 3.0 FATAL_ERROR)
-project (tcmu-runner VERSION 1.0.4 LANGUAGES C)
-
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=c99")
+cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
+project (tcmu-runner C)
+set(VERSION 1.3.0-rc3)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement -std=c99")
 
 include(GNUInstallDirs)
+include(CheckIncludeFile)
 
-set(tcmu-runner_HANDLER_PATH "${CMAKE_INSTALL_LIBDIR}/tcmu-runner")
+set(tcmu-runner_HANDLER_PATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/tcmu-runner")
 
 option(with-glfs "build Gluster glfs handler" true)
 option(with-qcow "build qcow handler" true)
+option(with-rbd "build Ceph rbd handler" true)
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
@@ -34,33 +36,57 @@ find_library(DL dl)
 # Stuff for building the shared library
 add_library(tcmu
   SHARED
+  configfs.c
   api.c
   libtcmu.c
+  libtcmu-register.c
+  tcmuhandler-generated.c
+  libtcmu_log.c
+  libtcmu_config.c
+  libtcmu_time.c
   )
 set_target_properties(tcmu
   PROPERTIES
-  SOVERSION "1"
+  SOVERSION "2"
   )
 target_include_directories(tcmu
   PUBLIC ${LIBNL_INCLUDE_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 target_link_libraries(tcmu
   ${LIBNL_LIB}
   ${LIBNL_GENL_LIB}
+  ${GLIB_LIBRARIES}
   )
 install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Stuff for building the static library
 add_library(tcmu_static
+  configfs.c
   api.c
   libtcmu.c
+  libtcmu-register.c
+  tcmuhandler-generated.c
+  libtcmu_log.c
+  libtcmu_config.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  )
+target_link_libraries(tcmu_static
+  ${GLIB_LIBRARIES}
   )
 
 # Stuff for building the main binary
 add_executable(tcmu-runner
+  tcmur_cmd_handler.c
+  tcmur_aio.c
+  tcmur_device.c
+  target.c
+  alua.c
   main.c
   tcmuhandler-generated.c
   )
@@ -69,6 +95,7 @@ target_include_directories(tcmu-runner
   PUBLIC ${PROJECT_BINARY_DIR}
   PUBLIC ${GLIB_INCLUDE_DIRS}
   PUBLIC ${KMOD_INCLUDE_DIRS}
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 target_link_libraries(tcmu-runner
   ${GLIB_LIBRARIES}
@@ -80,10 +107,35 @@ target_link_libraries(tcmu-runner
   )
 install(TARGETS tcmu-runner RUNTIME DESTINATION bin)
 
+add_executable(tcmu-synthesizer
+  tcmu-synthesizer.c
+  )
+target_link_libraries(tcmu-synthesizer tcmu)
+target_include_directories(tcmu-synthesizer
+  PUBLIC ${PROJECT_BINARY_DIR}
+  PUBLIC ${GLIB_INCLUDE_DIRS}
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  )
+target_link_libraries(tcmu-synthesizer
+  ${GLIB_LIBRARIES}
+  )
+
+install(TARGETS RUNTIME DESTINATION bin)
+
 add_custom_command(
-  OUTPUT tcmuhandler-generated.c tcmuhandler-generated.h
-  COMMAND gdbus-codegen ${CMAKE_SOURCE_DIR}/tcmu-handler.xml --generate-c-code tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
+  OUTPUT ${CMAKE_SOURCE_DIR}/tcmuhandler-generated.c ${CMAKE_SOURCE_DIR}/tcmuhandler-generated.h
+  COMMAND gdbus-codegen ${CMAKE_SOURCE_DIR}/tcmu-handler.xml --generate-c-code ${CMAKE_SOURCE_DIR}/tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
   MAIN_DEPENDENCY tcmu-handler.xml
+  )
+
+add_custom_target(
+  cscope
+  COMMAND find -name '*.[ch]' > cscope.files
+  COMMAND cscope -bq
+  )
+set_directory_properties(
+  PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES
+  "cscope.files;cscope.in.out;cscope.out;cscope.po.out"
   )
 
 # Stuff for building the file handler
@@ -95,24 +147,64 @@ set_target_properties(handler_file
   PROPERTIES
   PREFIX ""
   )
-
-# Stuff for building the async file handler
-add_library(handler_file_async
-  SHARED
-  file_example.c
+target_include_directories(handler_file
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
-set_target_properties(handler_file_async
+
+# Stuff for building the file optical handler
+add_library(handler_file_optical
+  SHARED
+  file_optical.c
+  )
+set_target_properties(handler_file_optical
   PROPERTIES
   PREFIX ""
-  COMPILE_FLAGS "-DASYNC_FILE_HANDLER"
   )
-target_link_libraries(handler_file_async ${PTHREAD})
+target_include_directories(handler_file_optical
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  )
+target_link_libraries(handler_file_optical ${PTHREAD})
+
+# Stuff for building the file zbc handler
+add_library(handler_file_zbc
+  SHARED
+  file_zbc.c
+  )
+set_target_properties(handler_file_zbc
+  PROPERTIES
+  PREFIX ""
+  )
+target_include_directories(handler_file_zbc
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  )
+
 
 # The minimal library consumer
 add_executable(consumer
   consumer.c
   )
 target_link_libraries(consumer tcmu)
+
+if (with-rbd)
+	find_library(LIBRBD rbd)
+
+	# Stuff for building the rbd handler
+	add_library(handler_rbd
+	  SHARED
+	  rbd.c
+	  )
+	set_target_properties(handler_rbd
+	  PROPERTIES
+	  PREFIX ""
+	  )
+	target_include_directories(handler_rbd
+	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+	  )
+	target_link_libraries(handler_rbd
+	  ${LIBRBD}
+	  )
+	install(TARGETS handler_rbd DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-rbd)
 
 if (with-glfs)
 	find_library(GFAPI gfapi)
@@ -125,6 +217,9 @@ if (with-glfs)
 	set_target_properties(handler_glfs
 	  PROPERTIES
 	  PREFIX ""
+	  )
+	target_include_directories(handler_glfs
+	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
 	  )
 	target_link_libraries(handler_glfs
 	  ${GFAPI}
@@ -144,6 +239,11 @@ if (with-qcow)
 	  PROPERTIES
 	  PREFIX ""
 	  )
+	target_include_directories(handler_qcow
+	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+	  )
+
+	CHECK_INCLUDE_FILE("linux/falloc.h" HAVE_LINUX_FALLOC)
 	if (HAVE_LINUX_FALLOC)
 		set_target_properties(handler_qcow
 		  PROPERTIES
@@ -160,16 +260,20 @@ endif (with-qcow)
 # to the source code
 configure_file (
   "${PROJECT_SOURCE_DIR}/version.h.in"
-  "${PROJECT_BINARY_DIR}/version.h"
+  "${PROJECT_SOURCE_DIR}/version.h"
   )
 
+configure_file (
+  "${PROJECT_SOURCE_DIR}/tcmu.conf_install.cmake.in"
+  "${PROJECT_SOURCE_DIR}/tcmu.conf_install.cmake"
+  )
+install(SCRIPT tcmu.conf_install.cmake)
 
-install(FILES libtcmu.h libtcmu_common.h
-  DESTINATION include)
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
 if (SUPPORT_SYSTEMD)
   install(FILES tcmu-runner.service DESTINATION /usr/lib/systemd/system/)
 endif (SUPPORT_SYSTEMD)
-
+install(FILES tcmu-runner.8
+    DESTINATION ${CMAKE_INSTALL_PREFIX}/share/man/man8)

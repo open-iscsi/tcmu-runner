@@ -1,6 +1,4 @@
 
-#define TCMUR_VERSION_MAJOR @tcmu-runner_VERSION_MAJOR@
-#define TCMUR_VERSION_MINOR @tcmu-runner_VERSION_MINOR@
-#define TCMUR_VERSION_PATCHLEVEL @tcmu-runner_VERSION_PATCH@
+#define TCMUR_VERSION "@VERSION@"
 
 #define DEFAULT_HANDLER_PATH "@tcmu-runner_HANDLER_PATH@"

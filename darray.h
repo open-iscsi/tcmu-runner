@@ -328,24 +328,23 @@ Examples:
 
 	darray(int)  arr;
 	int        *i;
-	
+
 	darray_appends(arr, 0,1,2,3,4);
 	darray_appends(arr, -5,-4,-3,-2,-1);
 	darray_foreach(i, arr)
 		printf("%d ", *i);
 	printf("\n");
-	
+
 	darray_free(arr);
-	
 
 	typedef struct {int n,d;} Fraction;
 	darray(Fraction) fractions;
 	Fraction        *i;
-	
+
 	darray_appends(fractions, {3,4}, {3,5}, {2,1});
 	darray_foreach(i, fractions)
 		printf("%d/%d\n", i->n, i->d);
-	
+
 	darray_free(fractions);
 */
 

@@ -34,10 +34,13 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 
 1. Install cmake.
 1. Clone this repo.
-1. Install development packages for dependencies: libnl3, libglib2 (or glib2-devel on Fedora), libpthread, libdl, libkmod, libgfapi (Gluster), zlib.
+1. Install development packages for dependencies, usually ending with "-devel" or "-dev": libnl3, libglib2 (or glib2-devel on Fedora), libpthread, libdl, libkmod, libgfapi (Gluster), librbd1 (Ceph), zlib.
 1. Type `cmake .`.
    * *Note:* tcmu-runner can be compiled without the Gluster or qcow handlers using the `-Dwith-glfs=false` and `-Dwith-qcow=false` cmake parameters respectively.
+   * *Note:*  If using systemd, `-DSUPPORT_SYSTEMD=ON -DCMAKE_INSTALL_PREFIX=/usr` should be passed to cmake, so files are installed to the correct location.
 1. Type `make`.
+1. Type `make install`.
+
 
 ##### Running tcmu-runner
 
@@ -45,9 +48,131 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 1. If using systemd, copy `org.kernel.TCMUService1.service` to `/usr/share/dbus-1/system-services/` and `tcmu-runner.service` to `/lib/systemd/system`.
 1. Or, run it from the command line as root. It should print the number of handlers and devices found.
 
-##### Creating a LIO user-backed storage object in configfs
 
-Support for creating user backstores via targetcli is under development, but for now:
+##### Creating a LIO user-backed storage object with backstore specific tools
+
+- Ceph:
+
+If setting up tcmu-runner in a HA configuration, the ceph-iscsi-cli
+(https://github.com/ceph/ceph-iscsi-cli) tool is the preferred management
+tool.
+
+Bug reports should be made to the tcmu-runner github:
+https://github.com/open-iscsi/tcmu-runner/issues, but can be made to
+ceph-users@ceph.com mailing list.
+
+- Gluster:
+
+Gluster management must be done with the gluster-block tools
+(https://github.com/gluster/gluster-block).
+
+Bug reports must be made to the gluster-block github:
+https://github.com/gluster/gluster-block/issues
+
+##### Creating a LIO user-backed storage object with targetcli-fb or configfs
+
+Support for the user/tcmu backstore is supported in targetcli-fb/rtslib-fb:
+
+https://github.com/open-iscsi/targetcli-fb
+https://github.com/open-iscsi/rtslib-fb
+
+1. Start targetcli
+
+\# targetcli
+
+2. Go to the user/tcmu backstore dir.
+
+/> cd /backstores/
+
+3. By default, tcmu-runner installs the file, zbc, glfs, qcow and rbd tcmu-runner handlers:
+
+```
+/backstores> ls
+o- backstores .......................................................... [...]
+  o- user:glfs .......................................... [Storage Objects: 0]
+  o- user:qcow .......................................... [Storage Objects: 0]
+  o- user:rbd ........................................... [Storage Objects: 0]
+  o- user:file .......................................... [Storage Objects: 0]
+  o- user:zbc ........................................... [Storage Objects: 0]
+```
+
+4. 'cd' to the handler you want to setup:
+
+/backstores> cd user:rbd 
+
+/backstores/user:rbd> create cfgstring=pool/rbd1;osd_op_timeout=30 name=rbd0 size=1G
+Created user-backed storage object rbd0 size 1073741824.
+
+
+Note that the cfgstring is handler specific. The format is:
+
+- **rbd**: /pool_name/image_name[;osd_op_timeout=N]  
+(osd_op_timeout is optional and N is in seconds)
+- **qcow**: /path_to_file
+- **glfs**: /volume@hostname/filename
+- **file**: /path_to_file
+- **zbc**: /[opt1[/opt2][...]@]path_to_file
+
+For the zbc handler, the available options are shown in the table below.
+
+| Option | Description | Default value |
+| --- | --- | --- |
+| model-**_type_** | Device model type, _HA_ for host aware or _HM_ for host managed | _HM_
+| lba-**_size (B)_** | LBA size in bytes (512 or 4096) | 512
+| zsize-**_size (MiB)_** | Zone size in MiB | 256 MiB
+| conv-**_num_** | Number of conventional zones at LBA 0 (can be 0) | Number of zones corresponding to 1% of the device capacity
+| open-**_num_** | Optimal (for host aware) or maximum (for host managed) number of open zones | 128
+
+Example:
+```
+cfgstring=model-HM/zsize-128/conv-100@/var/local/zbc.raw
+```
+
+will create a host-managed disk with 128 MiB zones and 100 conventional zones,
+stored in the file /var/local/zbc.raw.
+
+5. The created backstore device can then be mapped to a LUN like traditional
+backstores.
+
+##### Logger setting and system configuration
+
+- Logger setting:
+
+There are 5 logging levels supported:
+
+1. ERROR
+2. WARNING
+3. INFO
+4. DEBUG
+5. DEBUG SCSI CMD
+
+And the default logging level is 3, if you want to change the default level,
+uncomment the following line in /etc/tcmu/tcmu.conf and set your level number:
+
+\# log_level = 3
+
+The priority of the logdir setting can be managed via following options:
+
+1. Cli argument
+</br>eg: --tcmu_log_dir/-l `LOG_DIR_PATH` [Highest prio]
+2. Environment variable
+</br>eg: export TCMU_LOGDIR="/var/log/mylogdir/"
+3. Configuration file
+</br>eg: uncommenting and adjusting value of 'log_dir_path' at /etc/tcmu/tcmu.conf
+4. Default logdir as hard coded i.e. '/var/log/' [Least prio]
+
+- System configuration:
+
+The default configuration file is installed into /etc/tcmu/tcmu.conf.
+
+Tcmu-runner's configuration systems supports dynamic reloading without restarting
+the daemon. To change values open /etc/tcmu/tcmu.conf, update the value, and then
+close the file.
+
+------------------------------
+
+If your version of targetcli/rtslib does not support tcmu, setup can be done
+manually through configfs:
 
 1. Ensure `target_core_user` kernel module is loaded.
 2. Create the HBA (user_1) and the storage object (test): `mkdir -p /sys/kernel/config/target/core/user_1/test`
@@ -63,6 +188,8 @@ To delete:
 1. `rmdir /sys/kernel/config/target/core/user_1/test`
 2. `rmdir /sys/kernel/config/target/core/user_1`
 
+------------------------------
+
 ### Writing a TCMU handler
 
 #### libtcmu and tcmu-runner
@@ -72,14 +199,32 @@ difference is who is responsible for the event loop.
 
 ##### tcmu-runner plugin handler
 
-With a tcmu-runner handler, tcmu-runner is in charge of the event loop
+There are two different ways to write a tcmu-runner plugin handler:
+
+1. one can register .handle_cmd to take the full control of command handling
+2. or else one can register .{read, write, flush, ...} to handle specific
+   operations and .handle_cmd to override the generic handling if needed.
+
+With the option 1, tcmu-runner is in charge of the event loop
 for your plugin, and your handler's `handle_cmd` function is called
 repeatedly to respond to each incoming SCSI command. While your
 handler sees all SCSI commands, there are helper functions provided
 that save each handler from writing boilerplate code for mandatory
 SCSI commands, if desired.
 
-The `glfs`, `qcow`, and `file` handlers are examples of this type.
+The `file_optical` handler is an examples of this type.
+
+With the option 2, tcmu-runner will be partially or fully in charge of the event
+loop and SCSI command handling for your plugin, and your handler's registered
+functions are called repeatedly to handle storage requests as required by the
+upper SCSI layer, which will handle most of the SCSI commands for you.
+
+* *Note:* If the .handle_cmd is also implemented by the handler, tcmu-runner will
+try to pass through the commands to the handler first, if and only when the handler
+won't support the commands it should return TCMU_NOT_HANDLED, then the tcmu-runner
+will handle them in generic.
+
+The `file_example` handler is an example of this type.
 
 ##### tcmulib
 

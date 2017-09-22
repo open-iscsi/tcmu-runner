@@ -1,7 +1,10 @@
 tcmu-runner
+tcmu-synthesizer
 consumer
 *.o
 *.a
+*.swp
+*.patch
 handler_*.so
 libtcmu.so*
 *generated.[ch]
@@ -11,3 +14,7 @@ CMakeCache*
 CMakeFiles/*
 cmake_install.cmake
 install_manifest.txt
+cscope.*
+ncscope.*
+tcmu.conf_install.cmake
+core.*

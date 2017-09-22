@@ -25,9 +25,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/uio.h>
+#include <gio/gio.h>
+#include <pthread.h>
 
 #include "scsi_defs.h"
 #include "darray.h"
+#include "ccan/list/list.h"
+#include "tcmur_aio.h"
+#include "tcmu-runner.h"
 
 #define KERN_IFACE_VER 2
 
@@ -40,26 +45,49 @@ struct tcmulib_context {
 
 	struct nl_sock *nl_sock;
 
-	void (*err_print)(const char *fmt, ...);
+	GDBusConnection *connection;
 };
-
-void tcmu_errp(struct tcmulib_context *ctx, char *fmt, ...);
 
 struct tcmu_device {
 	int fd;
+
 	struct tcmu_mailbox *map;
 	size_t map_len;
+
 	uint32_t cmd_tail;
+
+	uint64_t num_lbas;
+	uint32_t block_size;
+	uint32_t max_xfer_len;
+	uint32_t opt_unmap_gran;
+	uint32_t unmap_gran_align;
+	unsigned int  write_cache_enabled:1;
 
 	char dev_name[16]; /* e.g. "uio14" */
 	char tcm_hba_name[16]; /* e.g. "user_8" */
 	char tcm_dev_name[128]; /* e.g. "backup2" */
-	char cfgstring[256];
+	char cfgstring[PATH_MAX];
 
 	struct tcmulib_handler *handler;
 	struct tcmulib_context *ctx;
 
+	void *d_private; /* private ptr for the daemon */
 	void *hm_private; /* private ptr for handler module */
 };
+
+struct tcmu_thread {
+	pthread_t thread_id;
+	struct tcmu_device *dev;
+};
+
+/* internal (private) helpers */
+
+/* pthread cleanup handler: unlock a mutex */
+void _cleanup_mutex_lock(void *);
+/* pthread cleanup handler: unlock a spinlock */
+void _cleanup_spin_lock(void *);
+
+/* cancel (+join) a thread */
+void cancel_thread(pthread_t);
 
 #endif
