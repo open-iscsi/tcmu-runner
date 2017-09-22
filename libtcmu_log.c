@@ -161,6 +161,7 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	unsigned int head;
 	char *msg;
 	int n;
+	struct tcmur_handler *rhandler;
 
 	if (pri > tcmu_log_level)
 		return;
@@ -179,8 +180,16 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	head = logbuf->head;
 	rb_set_pri(logbuf, head, pri);
 	msg = rb_get_msg(logbuf, head);
-	n = sprintf(msg, "%s:%d %s: ", funcname, linenr,
-		    dev ? dev->tcm_dev_name: "");
+
+	if (dev) {
+		rhandler = tcmu_get_runner_handler(dev);
+		n = sprintf(msg, "%s:%d %s/%s: ", funcname, linenr,
+		            rhandler ? rhandler->subtype: "",
+		            dev ? dev->tcm_dev_name: "");
+	} else {
+		n = sprintf(msg, "%s:%d: ", funcname, linenr);
+	}
+
 	vsnprintf(msg + n, LOG_MSG_LEN - n, fmt, args);
 
 	rb_update_head(logbuf);
