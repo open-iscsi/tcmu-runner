@@ -505,13 +505,34 @@ static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 	free(state);
 }
 
+static int tcmu_rbd_check_image_size(struct tcmu_device *dev, uint64_t new_size)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	uint64_t rbd_size;
+	int ret;
+
+	ret = rbd_get_size(state->image, &rbd_size);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not get rbd size from cluster. Err %d.\n",
+			     ret);
+		return ret;
+	}
+
+	if (new_size != rbd_size) {
+		tcmu_dev_err(dev, "Mismatched sizes. RBD image size %" PRIu64 ". Requested new size %" PRIu64 ".\n",
+			     rbd_size, new_size);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int tcmu_rbd_open(struct tcmu_device *dev)
 {
 	rbd_image_info_t image_info;
 	char *pool, *name, *next_opt;
 	char *config, *dev_cfg_dup;
 	struct tcmu_rbd_state *state;
-	uint64_t rbd_size;
 	int ret;
 
 	state = calloc(1, sizeof(*state));
@@ -526,7 +547,10 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		goto free_state;
 	}
 
-	tcmu_dev_dbg(dev, "tcmu_rbd_open config %s\n", config);
+	tcmu_dev_dbg(dev, "tcmu_rbd_open config %s block size %u num lbas %" PRIu64 ".\n",
+		     config, tcmu_get_dev_block_size(dev),
+		     tcmu_get_dev_num_lbas(dev));
+
 	config = strchr(config, '/');
 	if (!config) {
 		tcmu_dev_err(dev, "no configuration found in cfgstring\n");
@@ -583,18 +607,9 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	tcmu_rbd_check_excl_lock_enabled(dev);
 
-	ret = rbd_get_size(state->image, &rbd_size);
-	if (ret < 0) {
-		tcmu_dev_err(dev, "error getting rbd_size %s\n", name);
-		goto stop_image;
-	}
-
-	if (rbd_size !=
-	    tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev)) {
-		tcmu_dev_err(dev, "device size and backing size disagree: device (num LBAs %lld, block size %ld) backing %lld\n",
-			     tcmu_get_dev_num_lbas(dev),
-			     tcmu_get_dev_block_size(dev), rbd_size);
-		ret = -EIO;
+	ret = tcmu_rbd_check_image_size(dev, tcmu_get_dev_block_size(dev) *
+					tcmu_get_dev_num_lbas(dev));
+	if (ret) {
 		goto stop_image;
 	}
 
@@ -608,8 +623,6 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	tcmu_set_dev_write_cache_enabled(dev, 0);
 
-	tcmu_dev_dbg(dev, "config %s, size %lld\n", tcmu_get_dev_cfgstring(dev),
-		     rbd_size);
 	free(dev_cfg_dup);
 	return 0;
 
@@ -973,6 +986,24 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return ret;
 }
 
+static int tcmu_rbd_reconfig(struct tcmu_device *dev,
+			     struct tcmulib_cfg_info *cfg)
+{
+	int ret;
+
+	switch (cfg->type) {
+	case TCMULIB_CFG_DEV_SIZE:
+		ret = tcmu_rbd_check_image_size(dev, cfg->data.dev_size);
+		if (!ret)
+			ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
+		return ret;
+	case TCMULIB_CFG_DEV_CFGSTR:
+	case TCMULIB_CFG_WRITE_CACHE:
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 /*
  * For backstore creation
  *
@@ -1000,6 +1031,7 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.close	       = tcmu_rbd_close,
 	.read	       = tcmu_rbd_read,
 	.write	       = tcmu_rbd_write,
+	.reconfig      = tcmu_rbd_reconfig,
 #ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 	.flush	       = tcmu_rbd_flush,
 #endif
