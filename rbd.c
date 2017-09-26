@@ -989,14 +989,9 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int tcmu_rbd_reconfig(struct tcmu_device *dev,
 			     struct tcmulib_cfg_info *cfg)
 {
-	int ret;
-
 	switch (cfg->type) {
 	case TCMULIB_CFG_DEV_SIZE:
-		ret = tcmu_rbd_check_image_size(dev, cfg->data.dev_size);
-		if (!ret)
-			ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
-		return ret;
+		return tcmu_rbd_check_image_size(dev, cfg->data.dev_size);
 	case TCMULIB_CFG_DEV_CFGSTR:
 	case TCMULIB_CFG_WRITE_CACHE:
 	default:

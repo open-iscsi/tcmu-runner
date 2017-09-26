@@ -666,6 +666,41 @@ static void *tcmur_cmdproc_thread(void *arg)
 	return NULL;
 }
 
+static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	int ret;
+
+	if (tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev) ==
+	    cfg->data.dev_size)
+		return 0;
+
+	ret = rhandler->reconfig(dev, cfg);
+	if (ret)
+		return ret;
+
+	ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
+	if (!ret)
+		tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+
+	return ret;
+}
+
+static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+
+	if (!rhandler->reconfig)
+		return -EOPNOTSUPP;
+
+	switch (cfg->type) {
+	case TCMULIB_CFG_DEV_SIZE:
+		return dev_resize(dev, cfg);
+	default:
+		return rhandler->reconfig(dev, cfg);
+	}
+}
+
 static int dev_added(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -978,7 +1013,7 @@ int main(int argc, char **argv)
 		tmp_handler.subtype = (*tmp_r_handler)->subtype;
 		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;
 		tmp_handler.check_config = (*tmp_r_handler)->check_config;
-		tmp_handler.reconfig = (*tmp_r_handler)->reconfig;
+		tmp_handler.reconfig = dev_reconfig;
 		tmp_handler.added = dev_added;
 		tmp_handler.removed = dev_removed;
 

@@ -171,7 +171,12 @@ static int file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	switch (cfg->type) {
 	case TCMULIB_CFG_DEV_SIZE:
-		return tcmu_update_num_lbas(dev, cfg->data.dev_size);
+		/*
+		 * TODO - For open/reconfig we should make sure the FS the
+		 * file is on is large enough for the requested size. For
+		 * now assume we can grow the file and return 0.
+		 */
+		return 0;
 	case TCMULIB_CFG_DEV_CFGSTR:
 	case TCMULIB_CFG_WRITE_CACHE:
 	default:
