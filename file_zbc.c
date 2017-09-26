@@ -442,7 +442,7 @@ static bool zbc_parse_config(const char *cfgstring, struct zbc_dev_config *cfg,
 err:
 	msg = "Invalid configuration string format";
 failed:
-	if (!msg || asprintf(reason, msg) == -1)
+	if (!msg || asprintf(reason, "%s", msg) == -1)
 		*reason = NULL;
 	return false;
 }
