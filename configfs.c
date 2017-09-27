@@ -104,7 +104,10 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 	/* Kill the trailing '\n' */
 	buf[ret-1] = '\0';
 
-	/* Skip to the good stuff */
+	/* Skip to the good stuff
+	 * eg: cat /sys/kernel/config/target/core/user_1/block1/wwn/vpd_unit_serial
+	 * T10 VPD Unit Serial Number: c67b1e41-72ce-4966-982e-e7d0ece6e710
+	 */
 	ret = asprintf(&ret_buf, "%s", &buf[28]);
 	if (ret == -1) {
 		tcmu_err("could not convert string to value: %s\n",

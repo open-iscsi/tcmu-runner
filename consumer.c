@@ -92,7 +92,7 @@ static int foo_handle_cmd(
 					    sense);
 		break;
 	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_test_unit_ready(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)

@@ -474,19 +474,10 @@ static char* tcmu_get_path( struct tcmu_device *dev)
 	return config;
 }
 
-static int tcmu_glfs_open(struct tcmu_device *dev)
+static bool tcmu_glfs_stat_check(struct tcmu_device *dev, struct glfs_state *gfsp)
 {
-	struct glfs_state *gfsp;
-	int ret = 0;
 	char *config;
 	struct stat st;
-
-	gfsp = calloc(1, sizeof(*gfsp));
-	if (!gfsp)
-		return -ENOMEM;
-
-	tcmu_set_dev_private(dev, gfsp);
-	tcmu_set_dev_write_cache_enabled(dev, 1);
 
 	config = tcmu_get_path(dev);
 	if (!config) {
@@ -502,13 +493,12 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 	gfsp->gfd = glfs_open(gfsp->fs, gfsp->hosts->path, ALLOWED_BSOFLAGS);
 	if (!gfsp->gfd) {
 		tcmu_dev_err(dev, "glfs_open failed: %m\n");
-		goto unref;
+		goto fail;
 	}
 
-	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
-	if (ret) {
+	if (glfs_lstat(gfsp->fs, gfsp->hosts->path, &st)) {
 		tcmu_dev_err(dev, "glfs_lstat failed: %m\n");
-		goto unref;
+		goto fail;
 	}
 
 	if (st.st_size != tcmu_get_device_size(dev)) {
@@ -517,13 +507,51 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 		             "device %lld backing %lld\n",
 		             tcmu_get_device_size(dev),
 		             (long long) st.st_size);
-		goto unref;
+		goto fail;
+	}
+
+	return true;
+
+fail:
+	return false;
+}
+
+static bool tcmu_glfs_stat(struct tcmu_device *dev)
+{
+	bool result = false;
+	struct glfs_state *gfsp;
+
+	gfsp = calloc(1, sizeof(*gfsp));
+	if (!gfsp)
+		return false;
+
+	result = tcmu_glfs_stat_check(dev, gfsp);
+
+	if (gfsp->gfd)
+		glfs_close(gfsp->gfd);
+
+	gluster_free_server(&gfsp->hosts);
+	free(gfsp);
+
+	return result;
+}
+
+static int tcmu_glfs_open(struct tcmu_device *dev)
+{
+	struct glfs_state *gfsp;
+
+	gfsp = calloc(1, sizeof(*gfsp));
+	if (!gfsp)
+		return -ENOMEM;
+
+	tcmu_set_dev_private(dev, gfsp);
+	tcmu_set_dev_write_cache_enabled(dev, 1);
+
+	if(!tcmu_glfs_stat_check(dev, gfsp)) {
+		goto fail;
 	}
 
 	return 0;
-
-unref:
-	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
 
 fail:
 	if (gfsp->gfd)
@@ -675,6 +703,7 @@ struct tcmur_handler glfs_handler = {
 	.subtype 	= "glfs",
 	.cfg_desc	= glfs_cfg_desc,
 
+	.check_stat     = tcmu_glfs_stat,
 	.open 		= tcmu_glfs_open,
 	.close 		= tcmu_glfs_close,
 	.read 		= tcmu_glfs_read,

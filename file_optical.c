@@ -1525,7 +1525,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	switch(cdb[0]) {
 	case TEST_UNIT_READY:
-		ret = tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		ret = tcmu_emulate_test_unit_ready(dev, cdb, iovec, iov_cnt, sense);
 		break;
 	case REQUEST_SENSE:
 		ret = fbo_emulate_request_sense(dev, cdb, iovec, iov_cnt, sense);
