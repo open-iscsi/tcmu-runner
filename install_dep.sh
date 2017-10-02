@@ -19,7 +19,9 @@ if [ y`uname`y = yLinuxy ]; then
 		# for glusterfs
 		$SUDO yum install -y glusterfs-api glusterfs-api-devel
 		# for ceph
-		$SUDO yum install -y librados2 librados2-devel librbd1 librbd-devel
+		$SUDO yum install -y librados2 librados2-devel librbd1
+		yum search librbd-devel | grep -q "N/S matched" && LIBRBD=librbd || LIBRBD=librbd1
+	        $DUDO yum install -y $LIBRBD-devel
 		;;
 	*)
 		echo "TODO: only fedora/rhel/centos are supported for now!"
