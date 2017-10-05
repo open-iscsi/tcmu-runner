@@ -2074,7 +2074,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	/* If the zone is not open, implicitly open it */
-	if (!zbc_zone_is_open(zone)) {
+	if (zbc_zone_seq(zone) && !zbc_zone_is_open(zone)) {
 
 		/* Too many explicit open ? */
 		if (zdev->nr_exp_open >= zdev->nr_open_zones)
