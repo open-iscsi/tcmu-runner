@@ -277,7 +277,7 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not connect to cluster. (Err %d)\n",
 			     ret);
-		goto set_cluster_null;
+		goto rados_shutdown;
 	}
 
 	ret = tcmu_rbd_service_register(dev);
@@ -305,7 +305,6 @@ rados_destroy:
 	state->io_ctx = NULL;
 rados_shutdown:
 	rados_shutdown(state->cluster);
-set_cluster_null:
 	state->cluster = NULL;
 	return ret;
 }
