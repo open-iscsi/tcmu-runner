@@ -112,6 +112,7 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 	struct utsname u;
 	char *daemon_buf = NULL;
 	char *metadata_buf = NULL;
+	char *image_id_buf = NULL;
 	int ret;
 
 	ret = uname(&u);
@@ -121,16 +122,30 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 		return ret;
 	}
 
+	image_id_buf = malloc(RBD_MAX_BLOCK_NAME_SIZE);
+	if (image_id_buf == NULL) {
+		tcmu_dev_err(dev, "Could not allocate image id buf.\n");
+		return -ENOMEM;
+	}
+
+	ret = rbd_get_id(state->image, image_id_buf, RBD_MAX_BLOCK_NAME_SIZE);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not retrieve image id.\n");
+		goto free_image_id_buf;
+	}
+
 	ret = asprintf(&daemon_buf, "%s:%s/%s",
 		       u.nodename, state->pool_name, state->image_name);
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not allocate daemon buf.\n");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto free_image_id_buf;
 	}
 
-	ret = asprintf(&metadata_buf, "pool_name%c%s%cimage_name%c%s%c",
-		       '\0', state->pool_name, '\0',
-		       '\0', state->image_name, '\0');
+	ret = asprintf(&metadata_buf, "%s%c%s%c%s%c%s%c%s%c%s%c",
+		       "pool_name", '\0', state->pool_name, '\0',
+		       "image_name", '\0', state->image_name, '\0',
+		       "image_id", '\0', image_id_buf, '\0');
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not allocate metadata buf.\n");
 		ret = -ENOMEM;
@@ -147,6 +162,8 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 	free(metadata_buf);
 free_daemon_buf:
 	free(daemon_buf);
+free_image_id_buf:
+	free(image_id_buf);
 	return ret;
 }
 
@@ -280,10 +297,6 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 		goto set_cluster_null;
 	}
 
-	ret = tcmu_rbd_service_register(dev);
-	if (ret < 0)
-		goto rados_shutdown;
-
 	ret = rados_ioctx_create(state->cluster, state->pool_name,
 				 &state->io_ctx);
 	if (ret < 0) {
@@ -298,8 +311,16 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 			     state->image_name, ret);
 		goto rados_destroy;
 	}
+
+	ret = tcmu_rbd_service_register(dev);
+	if (ret < 0)
+		goto rbd_close;
+
 	return 0;
 
+rbd_close:
+	rbd_close(state->image);
+	state->image = NULL;
 rados_destroy:
 	rados_ioctx_destroy(state->io_ctx);
 	state->io_ctx = NULL;
