@@ -74,7 +74,7 @@ struct rbd_aio_cb {
 	struct tcmu_device *dev;
 	struct tcmulib_cmd *tcmulib_cmd;
 
-	/* Only for reading cmds */
+	bool read;
 	int64_t length;
 	char *bounce_buffer;
 };
@@ -709,7 +709,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal IO error %d.\n", ret);
 
-		if (aio_cb->bounce_buffer)
+		if (aio_cb->read)
 			asc_ascq = ASC_READ_ERROR;
 		else
 			asc_ascq = ASC_WRITE_ERROR;
@@ -717,7 +717,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 					     MEDIUM_ERROR, asc_ascq, NULL);
 	} else {
 		tcmu_r = SAM_STAT_GOOD;
-		if (aio_cb->bounce_buffer)
+		if (aio_cb->read)
 			tcmu_memcpy_into_iovec(iovec, iov_cnt,
 					       aio_cb->bounce_buffer,
 					       aio_cb->length);
@@ -725,7 +725,8 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 
 	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
 
-	free(aio_cb->bounce_buffer);
+	if (aio_cb->bounce_buffer)
+		free(aio_cb->bounce_buffer);
 	free(aio_cb);
 }
 
@@ -747,6 +748,7 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	aio_cb->dev = dev;
 	aio_cb->length = length;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = true;
 
 	aio_cb->bounce_buffer = malloc(length);
 	if (!aio_cb->bounce_buffer) {
@@ -796,6 +798,7 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	aio_cb->dev = dev;
 	aio_cb->length = length;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = false;
 
 	aio_cb->bounce_buffer = malloc(length);
 	if (!aio_cb->bounce_buffer) {
@@ -846,6 +849,7 @@ static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	aio_cb->dev = dev;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = false;
 	aio_cb->bounce_buffer = NULL;
 
 	ret = rbd_aio_create_completion
@@ -885,6 +889,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	aio_cb->dev = dev;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = false;
 	aio_cb->bounce_buffer = NULL;
 
 	ret = rbd_aio_create_completion
@@ -929,6 +934,7 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 
 	aio_cb->dev = dev;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = false;
 	aio_cb->length = tcmu_iovec_length(iov, iov_cnt);
 
 	aio_cb->bounce_buffer = malloc(aio_cb->length);
