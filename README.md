@@ -107,8 +107,9 @@ Created user-backed storage object rbd0 size 1073741824.
 
 Note that the cfgstring is handler specific. The format is:
 
-- **rbd**: /pool_name/image_name[;osd_op_timeout=N]  
+- **rbd**: /pool_name/image_name[;osd_op_timeout=N;conf=N]
 (osd_op_timeout is optional and N is in seconds)
+(conf is optional and N is the path to the conf file)
 - **qcow**: /path_to_file
 - **glfs**: /volume@hostname/filename
 - **file**: /path_to_file

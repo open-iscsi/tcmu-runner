@@ -68,6 +68,7 @@ struct tcmu_rbd_state {
 	char *image_name;
 	char *pool_name;
 	char *osd_op_timeout;
+	char *conf_path;
 };
 
 struct rbd_aio_cb {
@@ -263,8 +264,14 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 		return ret;
 	}
 
-	/* Fow now, we will only read /etc/ceph/ceph.conf */
-	rados_conf_read_file(state->cluster, NULL);
+	/* Try default location when conf_path=NULL, but ignore failure */
+	ret = rados_conf_read_file(state->cluster, state->conf_path);
+	if (state->conf_path && ret < 0) {
+		tcmu_dev_err(dev, "Could not read config %s (Err %d)",
+			     state->conf_path, ret);
+		goto rados_shutdown;
+	}
+
 	rados_conf_set(state->cluster, "rbd_cache", "false");
 
 	ret = timer_check_and_set_def(dev);
@@ -495,6 +502,8 @@ static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 {
+	if (state->conf_path)
+		free(state->conf_path);
 	if (state->osd_op_timeout)
 		free(state->osd_op_timeout);
 	if (state->image_name)
@@ -594,6 +603,13 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 			    !strlen(state->osd_op_timeout)) {
 				ret = -ENOMEM;
 				tcmu_dev_err(dev, "Could not copy osd op timeout.\n");
+				goto free_config;
+			}
+		} else if (strncmp(next_opt, "conf=", 5)) {
+			state->conf_path = strdup(next_opt + 5);
+			if (!state->conf_path || !strlen(state->conf_path)) {
+				return -ENOMEM;
+				tcmu_dev_err(dev, "Could not copy conf path.\n");
 				goto free_config;
 			}
 		}
@@ -1015,7 +1031,8 @@ static const char tcmu_rbd_cfg_desc[] =
 	"where:\n"
 	"poolname:	Existing RADOS pool\n"
 	"devicename:	Name of the RBD image\n"
-	"optionN:	Like: \"osd_op_timeout=30\" in secs\n";
+	"optionN:	Like: \"osd_op_timeout=30\" in secs\n"
+	"                     \"conf=/etc/ceph/cluster.conf\"\n";
 
 struct tcmur_handler tcmu_rbd_handler = {
 	.name	       = "Ceph RBD handler",
