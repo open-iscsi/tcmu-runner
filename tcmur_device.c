@@ -194,7 +194,7 @@ void tcmu_notify_lock_lost(struct tcmu_device *dev)
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 
 	pthread_mutex_lock(&rdev->state_lock);
-	tcmu_dev_err(dev, "Async lock drop. Old state %d\n", rdev->lock_state);
+	tcmu_dev_warn(dev, "Async lock drop. Old state %d\n", rdev->lock_state);
 	/*
 	 * We could be getting stale IO completions. If we are trying to
 	 * reaquire the lock do not change state.
