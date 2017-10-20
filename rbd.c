@@ -629,7 +629,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		} else if (strncmp(next_opt, "conf=", 5)) {
 			state->conf_path = strdup(next_opt + 5);
 			if (!state->conf_path || !strlen(state->conf_path)) {
-				return -ENOMEM;
+				ret = -ENOMEM;
 				tcmu_dev_err(dev, "Could not copy conf path.\n");
 				goto free_config;
 			}
