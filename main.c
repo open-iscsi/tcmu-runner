@@ -190,6 +190,11 @@ static int open_handlers(void)
 
 static gboolean sighandler(gpointer user_data)
 {
+	/*
+	 * FIXME: this is broken if IO is running in runner when called.
+	 * IO could be running in the handler or runner and we could free
+	 * resources while in use.
+	 */
 	tcmulib_cleanup_all_cmdproc_threads();
 	g_main_loop_quit((GMainLoop*)user_data);
 
@@ -554,7 +559,14 @@ static int load_our_module(void)
 	return ret;
 }
 
-static void cmdproc_thread_cleanup(void *arg)
+/*
+ * tcmur_stop_device - stop device for removal
+ * @arg: tcmu_device to stop
+ *
+ * Stop internal tcmur device operations like lock and recovery and close
+ * the device. Running IO must be stopped before calling this.
+ */
+static void tcmur_stop_device(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -562,6 +574,11 @@ static void cmdproc_thread_cleanup(void *arg)
 	bool is_open = false;
 
 	pthread_mutex_lock(&rdev->state_lock);
+	/* check if this was already called due to thread cancelation */
+	if (rdev->flags & TCMUR_DEV_FLAG_STOPPED) {
+		pthread_mutex_unlock(&rdev->state_lock);
+		return;
+	}
 	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
 	pthread_mutex_unlock(&rdev->state_lock);
 
@@ -581,6 +598,11 @@ static void cmdproc_thread_cleanup(void *arg)
 
 	if (is_open)
 		rhandler->close(dev);
+
+	pthread_mutex_lock(&rdev->state_lock);
+	rdev->flags |= TCMUR_DEV_FLAG_STOPPED;
+	pthread_mutex_unlock(&rdev->state_lock);
+
 	tcmu_dev_dbg(dev, "cmdproc cleanup done\n");
 }
 
@@ -593,7 +615,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 	int ret;
 	bool dev_stopping = false;
 
-	pthread_cleanup_push(cmdproc_thread_cleanup, dev);
+	pthread_cleanup_push(tcmur_stop_device, dev);
 
 	while (1) {
 		int completed = 0;
@@ -662,8 +684,48 @@ static void *tcmur_cmdproc_thread(void *arg)
 		pthread_mutex_unlock(&rdev->state_lock);
 	}
 
+	/*
+	 * If we are doing a clean shutdown via dev_removed the
+	 * removing thread will call the cleanup function when
+	 * it has stopped and flushed the device.
+	 */
 	pthread_cleanup_pop(0);
 	return NULL;
+}
+
+static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	int ret;
+
+	if (tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev) ==
+	    cfg->data.dev_size)
+		return 0;
+
+	ret = rhandler->reconfig(dev, cfg);
+	if (ret)
+		return ret;
+
+	ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
+	if (!ret)
+		tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+
+	return ret;
+}
+
+static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+
+	if (!rhandler->reconfig)
+		return -EOPNOTSUPP;
+
+	switch (cfg->type) {
+	case TCMULIB_CFG_DEV_SIZE:
+		return dev_resize(dev, cfg);
+	default:
+		return rhandler->reconfig(dev, cfg);
+	}
 }
 
 static int dev_added(struct tcmu_device *dev)
@@ -788,6 +850,7 @@ static void dev_removed(struct tcmu_device *dev)
 	if (aio_wait_for_empty_queue(rdev))
 		tcmu_dev_err(dev, "could not flush queue.\n");
 	tcmulib_cleanup_cmdproc_thread(dev);
+	tcmur_stop_device(dev);
 
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(rdev);
@@ -978,7 +1041,7 @@ int main(int argc, char **argv)
 		tmp_handler.subtype = (*tmp_r_handler)->subtype;
 		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;
 		tmp_handler.check_config = (*tmp_r_handler)->check_config;
-		tmp_handler.reconfig = (*tmp_r_handler)->reconfig;
+		tmp_handler.reconfig = dev_reconfig;
 		tmp_handler.added = dev_added;
 		tmp_handler.removed = dev_removed;
 

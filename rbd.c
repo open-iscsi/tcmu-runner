@@ -68,13 +68,14 @@ struct tcmu_rbd_state {
 	char *image_name;
 	char *pool_name;
 	char *osd_op_timeout;
+	char *conf_path;
 };
 
 struct rbd_aio_cb {
 	struct tcmu_device *dev;
 	struct tcmulib_cmd *tcmulib_cmd;
 
-	/* Only for reading cmds */
+	bool read;
 	int64_t length;
 	char *bounce_buffer;
 };
@@ -112,6 +113,7 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 	struct utsname u;
 	char *daemon_buf = NULL;
 	char *metadata_buf = NULL;
+	char *image_id_buf = NULL;
 	int ret;
 
 	ret = uname(&u);
@@ -121,16 +123,30 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 		return ret;
 	}
 
+	image_id_buf = malloc(RBD_MAX_BLOCK_NAME_SIZE);
+	if (image_id_buf == NULL) {
+		tcmu_dev_err(dev, "Could not allocate image id buf.\n");
+		return -ENOMEM;
+	}
+
+	ret = rbd_get_id(state->image, image_id_buf, RBD_MAX_BLOCK_NAME_SIZE);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not retrieve image id.\n");
+		goto free_image_id_buf;
+	}
+
 	ret = asprintf(&daemon_buf, "%s:%s/%s",
 		       u.nodename, state->pool_name, state->image_name);
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not allocate daemon buf.\n");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto free_image_id_buf;
 	}
 
-	ret = asprintf(&metadata_buf, "pool_name%c%s%cimage_name%c%s%c",
-		       '\0', state->pool_name, '\0',
-		       '\0', state->image_name, '\0');
+	ret = asprintf(&metadata_buf, "%s%c%s%c%s%c%s%c%s%c%s%c",
+		       "pool_name", '\0', state->pool_name, '\0',
+		       "image_name", '\0', state->image_name, '\0',
+		       "image_id", '\0', image_id_buf, '\0');
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not allocate metadata buf.\n");
 		ret = -ENOMEM;
@@ -147,6 +163,8 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 	free(metadata_buf);
 free_daemon_buf:
 	free(daemon_buf);
+free_image_id_buf:
+	free(image_id_buf);
 	return ret;
 }
 
@@ -263,8 +281,14 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 		return ret;
 	}
 
-	/* Fow now, we will only read /etc/ceph/ceph.conf */
-	rados_conf_read_file(state->cluster, NULL);
+	/* Try default location when conf_path=NULL, but ignore failure */
+	ret = rados_conf_read_file(state->cluster, state->conf_path);
+	if (state->conf_path && ret < 0) {
+		tcmu_dev_err(dev, "Could not read config %s (Err %d)",
+			     state->conf_path, ret);
+		goto rados_shutdown;
+	}
+
 	rados_conf_set(state->cluster, "rbd_cache", "false");
 
 	ret = timer_check_and_set_def(dev);
@@ -277,12 +301,8 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not connect to cluster. (Err %d)\n",
 			     ret);
-		goto set_cluster_null;
-	}
-
-	ret = tcmu_rbd_service_register(dev);
-	if (ret < 0)
 		goto rados_shutdown;
+	}
 
 	ret = rados_ioctx_create(state->cluster, state->pool_name,
 				 &state->io_ctx);
@@ -298,14 +318,21 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 			     state->image_name, ret);
 		goto rados_destroy;
 	}
+
+	ret = tcmu_rbd_service_register(dev);
+	if (ret < 0)
+		goto rbd_close;
+
 	return 0;
 
+rbd_close:
+	rbd_close(state->image);
+	state->image = NULL;
 rados_destroy:
 	rados_ioctx_destroy(state->io_ctx);
 	state->io_ctx = NULL;
 rados_shutdown:
 	rados_shutdown(state->cluster);
-set_cluster_null:
 	state->cluster = NULL;
 	return ret;
 }
@@ -496,6 +523,8 @@ static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
 
 static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 {
+	if (state->conf_path)
+		free(state->conf_path);
 	if (state->osd_op_timeout)
 		free(state->osd_op_timeout);
 	if (state->image_name)
@@ -505,13 +534,34 @@ static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 	free(state);
 }
 
+static int tcmu_rbd_check_image_size(struct tcmu_device *dev, uint64_t new_size)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	uint64_t rbd_size;
+	int ret;
+
+	ret = rbd_get_size(state->image, &rbd_size);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not get rbd size from cluster. Err %d.\n",
+			     ret);
+		return ret;
+	}
+
+	if (new_size != rbd_size) {
+		tcmu_dev_err(dev, "Mismatched sizes. RBD image size %" PRIu64 ". Requested new size %" PRIu64 ".\n",
+			     rbd_size, new_size);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int tcmu_rbd_open(struct tcmu_device *dev)
 {
 	rbd_image_info_t image_info;
 	char *pool, *name, *next_opt;
 	char *config, *dev_cfg_dup;
 	struct tcmu_rbd_state *state;
-	uint64_t rbd_size;
 	int ret;
 
 	state = calloc(1, sizeof(*state));
@@ -526,7 +576,10 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 		goto free_state;
 	}
 
-	tcmu_dev_dbg(dev, "tcmu_rbd_open config %s\n", config);
+	tcmu_dev_dbg(dev, "tcmu_rbd_open config %s block size %u num lbas %" PRIu64 ".\n",
+		     config, tcmu_get_dev_block_size(dev),
+		     tcmu_get_dev_num_lbas(dev));
+
 	config = strchr(config, '/');
 	if (!config) {
 		tcmu_dev_err(dev, "no configuration found in cfgstring\n");
@@ -573,6 +626,13 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 				tcmu_dev_err(dev, "Could not copy osd op timeout.\n");
 				goto free_config;
 			}
+		} else if (strncmp(next_opt, "conf=", 5)) {
+			state->conf_path = strdup(next_opt + 5);
+			if (!state->conf_path || !strlen(state->conf_path)) {
+				ret = -ENOMEM;
+				tcmu_dev_err(dev, "Could not copy conf path.\n");
+				goto free_config;
+			}
 		}
 	}
 
@@ -583,18 +643,9 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	tcmu_rbd_check_excl_lock_enabled(dev);
 
-	ret = rbd_get_size(state->image, &rbd_size);
-	if (ret < 0) {
-		tcmu_dev_err(dev, "error getting rbd_size %s\n", name);
-		goto stop_image;
-	}
-
-	if (rbd_size !=
-	    tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev)) {
-		tcmu_dev_err(dev, "device size and backing size disagree: device (num LBAs %lld, block size %ld) backing %lld\n",
-			     tcmu_get_dev_num_lbas(dev),
-			     tcmu_get_dev_block_size(dev), rbd_size);
-		ret = -EIO;
+	ret = tcmu_rbd_check_image_size(dev, tcmu_get_dev_block_size(dev) *
+					tcmu_get_dev_num_lbas(dev));
+	if (ret) {
 		goto stop_image;
 	}
 
@@ -608,8 +659,6 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	tcmu_set_dev_write_cache_enabled(dev, 0);
 
-	tcmu_dev_dbg(dev, "config %s, size %lld\n", tcmu_get_dev_cfgstring(dev),
-		     rbd_size);
 	free(dev_cfg_dup);
 	return 0;
 
@@ -696,7 +745,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal IO error %d.\n", ret);
 
-		if (aio_cb->bounce_buffer)
+		if (aio_cb->read)
 			asc_ascq = ASC_READ_ERROR;
 		else
 			asc_ascq = ASC_WRITE_ERROR;
@@ -704,7 +753,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 					     MEDIUM_ERROR, asc_ascq, NULL);
 	} else {
 		tcmu_r = SAM_STAT_GOOD;
-		if (aio_cb->bounce_buffer)
+		if (aio_cb->read)
 			tcmu_memcpy_into_iovec(iovec, iov_cnt,
 					       aio_cb->bounce_buffer,
 					       aio_cb->length);
@@ -712,7 +761,8 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 
 	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
 
-	free(aio_cb->bounce_buffer);
+	if (aio_cb->bounce_buffer)
+		free(aio_cb->bounce_buffer);
 	free(aio_cb);
 }
 
@@ -734,6 +784,7 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	aio_cb->dev = dev;
 	aio_cb->length = length;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = true;
 
 	aio_cb->bounce_buffer = malloc(length);
 	if (!aio_cb->bounce_buffer) {
@@ -783,6 +834,7 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	aio_cb->dev = dev;
 	aio_cb->length = length;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = false;
 
 	aio_cb->bounce_buffer = malloc(length);
 	if (!aio_cb->bounce_buffer) {
@@ -833,6 +885,7 @@ static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	aio_cb->dev = dev;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = false;
 	aio_cb->bounce_buffer = NULL;
 
 	ret = rbd_aio_create_completion
@@ -872,6 +925,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	aio_cb->dev = dev;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = false;
 	aio_cb->bounce_buffer = NULL;
 
 	ret = rbd_aio_create_completion
@@ -916,6 +970,7 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 
 	aio_cb->dev = dev;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->read = false;
 	aio_cb->length = tcmu_iovec_length(iov, iov_cnt);
 
 	aio_cb->bounce_buffer = malloc(aio_cb->length);
@@ -973,6 +1028,19 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return ret;
 }
 
+static int tcmu_rbd_reconfig(struct tcmu_device *dev,
+			     struct tcmulib_cfg_info *cfg)
+{
+	switch (cfg->type) {
+	case TCMULIB_CFG_DEV_SIZE:
+		return tcmu_rbd_check_image_size(dev, cfg->data.dev_size);
+	case TCMULIB_CFG_DEV_CFGSTR:
+	case TCMULIB_CFG_WRITE_CACHE:
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 /*
  * For backstore creation
  *
@@ -990,7 +1058,8 @@ static const char tcmu_rbd_cfg_desc[] =
 	"where:\n"
 	"poolname:	Existing RADOS pool\n"
 	"devicename:	Name of the RBD image\n"
-	"optionN:	Like: \"osd_op_timeout=30\" in secs\n";
+	"optionN:	Like: \"osd_op_timeout=30\" in secs\n"
+	"                     \"conf=/etc/ceph/cluster.conf\"\n";
 
 struct tcmur_handler tcmu_rbd_handler = {
 	.name	       = "Ceph RBD handler",
@@ -1000,6 +1069,7 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.close	       = tcmu_rbd_close,
 	.read	       = tcmu_rbd_read,
 	.write	       = tcmu_rbd_write,
+	.reconfig      = tcmu_rbd_reconfig,
 #ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 	.flush	       = tcmu_rbd_flush,
 #endif

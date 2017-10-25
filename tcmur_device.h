@@ -25,8 +25,11 @@
 
 #define TCMUR_DEV_FLAG_FORMATTING	(1 << 0)
 #define TCMUR_DEV_FLAG_IN_RECOVERY	(1 << 1)
-#define TCMUR_DEV_FLAG_STOPPING		(1 << 2)
-#define TCMUR_DEV_FLAG_IS_OPEN		(1 << 3)
+#define TCMUR_DEV_FLAG_IS_OPEN		(1 << 2)
+#define TCMUR_DEV_FLAG_STOPPING		(1 << 3)
+#define TCMUR_DEV_FLAG_STOPPED		(1 << 4)
+
+#define TCMUR_UA_DEV_SIZE_CHANGED	0
 
 enum {
 	TMCUR_DEV_FAILOVER_ALL_ACTIVE,
@@ -54,6 +57,7 @@ struct tcmur_device {
 
 	/* General lock for lock state, thread, dev state, etc */
 	pthread_mutex_t state_lock;
+	int pending_uas;
 
 	/*
 	 * lock order:
