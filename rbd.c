@@ -423,7 +423,7 @@ static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
 		tcmu_dev_err(dev, "Could not break lock from %s. (Err %d)\n",
 			     owners[0], ret);
 		if (ret == -ETIMEDOUT)
-			return ret;
+			goto free_owners;
 
 		ret = -EAGAIN;
 		if (!*orig_owner) {
