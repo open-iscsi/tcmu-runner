@@ -34,6 +34,7 @@
 #include <sys/mman.h>
 #include <signal.h>
 #include <poll.h>
+#include <sys/uio.h>
 
 #include <stdint.h>
 #include <scsi/scsi.h>
