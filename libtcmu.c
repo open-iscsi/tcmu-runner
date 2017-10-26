@@ -17,7 +17,6 @@
 #include <memory.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <limits.h>
 #include <sys/mman.h>
@@ -28,12 +27,18 @@
 #include <dirent.h>
 #include <scsi/scsi.h>
 
+/*
+ * fcntl.h must be included *after* target_core_user_local.h is included, to
+ * avoid duplicate "struct iovec" compilation error, since the structure is
+ * defined differently in struct_iovec.h and linux/uio.h
+ */
+#include "target_core_user_local.h"
+#include <fcntl.h>
 
 #include <libnl3/netlink/genl/genl.h>
 #include <libnl3/netlink/genl/mngt.h>
 #include <libnl3/netlink/genl/ctrl.h>
 
-#include "target_core_user_local.h"
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
