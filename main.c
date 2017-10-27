@@ -797,12 +797,12 @@ static int dev_added(struct tcmu_device *dev)
 	rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
 
 	/*
-	 * Set the optimal unmap granularity and the alignment to
-	 * max xfer len
+	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
+	 * alignment starts at the begining of the device.
 	 */
 	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
 	tcmu_set_dev_opt_unmap_gran(dev, max_xfer_length);
-	tcmu_set_dev_unmap_gran_align(dev, max_xfer_length);
+	tcmu_set_dev_unmap_gran_align(dev, 0);
 
 	ret = tcmulib_start_cmdproc_thread(dev, tcmur_cmdproc_thread);
 	if (ret < 0)
