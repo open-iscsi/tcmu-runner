@@ -1,6 +1,18 @@
 #ifndef _TCMU_BE_BYTESHIFT_H
 #define _TCMU_BE_BYTESHIFT_H
 
+static inline void __put_unaligned_be24(uint32_t val, uint8_t *p)
+{
+	*p++ = (val >> 16) & 0xFF;
+	*p++ = (val >> 8) & 0xFF;
+	*p++ = val & 0xFF;
+}
+
+static inline void put_unaligned_be24(uint32_t val, void *p)
+{
+	__put_unaligned_be24(val, p);
+}
+
 static inline void __put_unaligned_be32(uint32_t val, uint8_t *p)
 {
 	*p++ = val >> 24;
@@ -12,6 +24,17 @@ static inline void __put_unaligned_be32(uint32_t val, uint8_t *p)
 static inline void put_unaligned_be32(uint32_t val, void *p)
 {
 	__put_unaligned_be32(val, p);
+}
+
+static inline void __put_unaligned_be64(uint64_t val, uint8_t *p)
+{
+	__put_unaligned_be32(val >> 32, p);
+	__put_unaligned_be32(val, p + 4);
+}
+
+static inline void put_unaligned_be64(uint64_t val, void *p)
+{
+	__put_unaligned_be64(val, p);
 }
 
 static inline void __put_unaligned_be16(uint16_t val, uint8_t *p)

@@ -35,6 +35,7 @@
 #include "libtcmu_priv.h"
 #include "target.h"
 #include "alua.h"
+#include "be_byteshift.h"
 
 int tcmu_get_cdb_length(uint8_t *cdb)
 {
@@ -995,6 +996,85 @@ static ssize_t handle_mode_sense(struct tcmu_device *dev,
 }
 
 /*
+ * handle_long_lba_block_descriptor - setup long lba block descriptor and header
+ * @dev: device to setup for
+ * @buf: buffer starting at header
+ * @alloc_len: buffer len
+ *
+ * This function only sets up the block descriptor length part of the header
+ * so we do not account for the header part of the buffer used and only return
+ * the size of the block descriptor that was setup.
+ */
+static int handle_long_lba_block_descriptor(struct tcmu_device *dev,
+					    uint8_t *buf, size_t alloc_len)
+
+{
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	uint16_t desc_len = 16;
+
+	/* BLOCK DESCRIPTOR LENGTH */
+	put_unaligned_be16(desc_len, &buf[6]);
+
+	if (8 + desc_len > alloc_len)
+		goto done;
+
+	/* mode 10 header */
+	buf += 8;
+	put_unaligned_be64(num_lbas, buf);
+	put_unaligned_be32(block_size, &buf[12]);
+done:
+	return desc_len;
+}
+
+/*
+ * handle_short_lba_block_descriptor - setup short lba block descriptor and header
+ * @dev: device to setup for
+ * @buf: buffer starting at header
+ * @alloc_len: buffer len
+ *
+ * This function only sets up the block descriptor length part of the header
+ * so we do not account for the header part of the buffer used and only return
+ * the size of the block descriptor that was setup.
+ */
+static int handle_short_lba_block_descriptor(struct tcmu_device *dev,
+					     uint8_t *buf, size_t alloc_len,
+					     bool sense_ten)
+{
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
+	uint16_t desc_len = 8;
+	int header_len;
+
+	if (sense_ten) {
+		/* BLOCK DESCRIPTOR LENGTH */
+		put_unaligned_be16(desc_len, &buf[6]);
+
+		/* mode 10 header */
+		header_len = 8;
+	} else {
+		/* BLOCK DESCRIPTOR LENGTH */
+		buf[3] = 8;
+		/* mode 6 header */
+		header_len = 4;
+	}
+
+	if (header_len + desc_len > alloc_len)
+		goto done;
+	buf += header_len;
+
+	if (num_lbas < 0x100000000ULL)
+		put_unaligned_be32(num_lbas, buf);
+	else
+		put_unaligned_be32(0xffffffff, buf);
+
+	/* byte 4 is reserved so only 3 bytes */
+	put_unaligned_be24(block_size, &buf[6]);
+done:
+	return desc_len;
+}
+
+/*
  * Handle MODE_SENSE(6) and MODE_SENSE(10).
  *
  * For TYPE_DISK only.
@@ -1029,13 +1109,42 @@ int tcmu_emulate_mode_sense(
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 	orig_buf = buf;
-	buf += used_len;
 
-	/* Don't fill in device-specific parameter */
+	/* disable block descriptors (DBD) */
+	if (cdb[1] & 0x08)
+		goto setup_pages;
+
+	/*
+	 * For the mode parameter header we only support
+	 * MEDIUM_TYPE = 00h
+	 * No DEVICE - SPECIFIC PARAMETERs set.
+	 */
+
+	/*
+	 * BLOCK DESCRIPTOR
+	 */
+	if (sense_ten) {
+		/* Long LBA Accepted (LLBA) */
+		if (cdb[1] & 0x10) {
+			used_len += handle_long_lba_block_descriptor(dev,
+							buf, alloc_len);
+		} else {
+			used_len += handle_short_lba_block_descriptor(dev,
+							buf, alloc_len,
+							sense_ten);
+		}
+	} else {
+		used_len += handle_short_lba_block_descriptor(dev, buf,
+							alloc_len, sense_ten);
+	}
+
+setup_pages:
+	if (used_len < alloc_len)
+		buf += used_len;
+	else
+		buf = NULL;
+
 	/* This helper fn doesn't support sw write protect (SWP) */
-
-	/* Don't report block descriptors */
-
 	if (page_code == 0x3f) {
 		for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
 			ret = handle_mode_sense(dev, &modesense_handlers[i],
@@ -1062,13 +1171,10 @@ int tcmu_emulate_mode_sense(
 			goto free_buf;
 	}
 
-	if (sense_ten) {
-		uint16_t *ptr = (uint16_t*) orig_buf;
-		*ptr = htobe16(used_len - 2);
-	}
-	else {
+	if (sense_ten)
+		put_unaligned_be16(used_len - 2, &orig_buf[0]);
+	else
 		orig_buf[0] = used_len - 1;
-	}
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, orig_buf, alloc_len);
 	free(orig_buf);
