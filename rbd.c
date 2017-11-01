@@ -186,6 +186,120 @@ static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
 
 #endif /* LIBRADOS_SUPPORTS_SERVICES */
 
+static char *tcmu_rbd_find_quote(char *string)
+{
+	/* ignore escaped quotes */
+	while (true) {
+		string = strpbrk(string, "\"\\");
+		if (!string) {
+			break;
+		}
+
+		if (*string == '"') {
+			break;
+		}
+
+		if (*++string == '\0') {
+			break;
+		}
+
+		/* skip past the escaped character */
+		++string;
+	}
+	return string;
+}
+
+static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	char *mon_cmd_bufs[2] = {NULL, NULL};
+	char *mon_buf = NULL, *mon_status_buf = NULL;
+	size_t mon_buf_len = 0, mon_status_buf_len = 0;
+	char *crush_rule = NULL, *crush_rule_end = NULL;
+	int ret;
+
+	/* request the crush rule name for the image's pool */
+	ret = asprintf(&mon_cmd_bufs[0],
+		       "{\"prefix\": \"osd pool get\", "
+		        "\"pool\": \"%s\", "
+		        "\"var\": \"crush_rule\", "
+			"\"format\": \"json\"}", state->pool_name);
+	if (ret < 0) {
+		tcmu_dev_warn(dev, "Could not allocate crush rule command.\n");
+		return;
+	}
+
+	ret = rados_mon_command(state->cluster, (const char **)mon_cmd_bufs, 1,
+				"", 0, &mon_buf, &mon_buf_len,
+				&mon_status_buf, &mon_status_buf_len);
+	free(mon_cmd_bufs[0]);
+	if (ret < 0 || !mon_buf) {
+		tcmu_dev_warn(dev, "Could not retrieve pool crush rule (Err %d)\n",
+			      ret);
+		return;
+	}
+	rados_buffer_free(mon_status_buf);
+
+	/* expected JSON output: "{..."crush_rule":"<rule name>"...}" */
+	mon_buf[mon_buf_len] = '\0';
+	crush_rule = strstr(mon_buf, "\"crush_rule\":\"");
+	if (!crush_rule) {
+		tcmu_dev_warn(dev, "Could not locate crush rule key\n");
+		rados_buffer_free(mon_buf);
+		return;
+	}
+
+	/* skip past key to the start of the quoted rule name */
+	crush_rule += 13;
+	crush_rule_end = tcmu_rbd_find_quote(crush_rule + 1);
+	if (!crush_rule_end) {
+		tcmu_dev_warn(dev, "Could not extract crush rule\n");
+		rados_buffer_free(mon_buf);
+		return;
+	}
+
+	*(crush_rule_end + 1) = '\0';
+	crush_rule = strdup(crush_rule);
+	rados_buffer_free(mon_buf);
+	tcmu_dev_dbg(dev, "Pool %s using crush rule %s\n", state->pool_name,
+		     crush_rule);
+
+	/* request a list of crush rules associated to SSD device class */
+	ret = asprintf(&mon_cmd_bufs[0],
+		       "{\"prefix\": \"osd crush rule ls-by-class\", "
+		        "\"class\": \"ssd\", \"format\": \"json\"}");
+	if (ret < 0) {
+		tcmu_dev_warn(dev, "Could not allocate crush rule ls-by-class command.\n");
+		goto free_crush_rule;
+	}
+
+	ret = rados_mon_command(state->cluster, (const char **)mon_cmd_bufs, 1,
+				"", 0, &mon_buf, &mon_buf_len,
+				&mon_status_buf, &mon_status_buf_len);
+	free(mon_cmd_bufs[0]);
+	if (ret == -ENOENT) {
+		tcmu_dev_dbg(dev, "SSD not a registered device class.\n");
+		goto free_crush_rule;
+	} else if (ret < 0 || !mon_buf) {
+		tcmu_dev_warn(dev, "Could not retrieve pool crush rule ls-by-class (Err %d)\n",
+			      ret);
+		goto free_crush_rule;
+	}
+	rados_buffer_free(mon_status_buf);
+
+	/* expected JSON output: ["<rule name>",["<rule name>"...]] */
+	mon_buf[mon_buf_len] = '\0';
+	if (strstr(mon_buf, crush_rule)) {
+		tcmu_dev_dbg(dev, "Pool %s associated to SSD device class.\n",
+			     state->pool_name);
+		tcmu_set_dev_solid_state_media(dev, true);
+	}
+	rados_buffer_free(mon_buf);
+
+free_crush_rule:
+	free(crush_rule);
+}
+
 static void tcmu_rbd_image_close(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
@@ -304,6 +418,7 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 		goto rados_shutdown;
 	}
 
+	tcmu_rbd_detect_device_class(dev);
 	ret = rados_ioctx_create(state->cluster, state->pool_name,
 				 &state->io_ctx);
 	if (ret < 0) {
