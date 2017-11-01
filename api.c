@@ -675,6 +675,11 @@ finish_page83:
 		val16 = htobe16(0x003c);
 		memcpy(&data[2], &val16, 2);
 
+		if (tcmu_get_dev_solid_state_media(dev)) {
+			val16 = htobe16(0x0001);
+			memcpy(&data[4], &val16, 2);
+		}
+
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 		return SAM_STAT_GOOD;
 	}
