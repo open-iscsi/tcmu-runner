@@ -30,6 +30,7 @@
 #include "darray.h"
 
 #include "tcmu-runner.h"
+#include "libtcmu.h"
 
 #define ALLOWED_BSOFLAGS (O_DIRECT | O_RDWR | O_LARGEFILE)
 
@@ -634,6 +635,41 @@ out:
 	return SAM_STAT_TASK_SET_FULL;
 }
 
+static int tcmu_glfs_get_image_size(struct tcmu_device *dev,
+                                    uint64_t new_size)
+{
+	struct glfs_state *gfsp = tcmu_get_dev_private(dev);
+	struct stat st;
+	int ret;
+
+	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
+	if (ret) {
+		tcmu_dev_err(dev, "glfs_lstat failed: %m\n");
+		return ret;
+	}
+
+	if (st.st_size != new_size) {
+		tcmu_dev_err(dev, "Mismatched sizes. glfs image size %lld. Requested new size %" PRIu64 ".\n",
+		                  (long long) st.st_size, new_size);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int tcmu_glfs_reconfig(struct tcmu_device *dev,
+                              struct tcmulib_cfg_info *cfg)
+{
+	switch (cfg->type) {
+	case TCMULIB_CFG_DEV_SIZE:
+		return tcmu_glfs_get_image_size(dev, cfg->data.dev_size);
+	case TCMULIB_CFG_DEV_CFGSTR:
+	case TCMULIB_CFG_WRITE_CACHE:
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 static int tcmu_glfs_flush(struct tcmu_device *dev,
                            struct tcmulib_cmd *cmd)
 {
@@ -679,6 +715,7 @@ struct tcmur_handler glfs_handler = {
 	.close 		= tcmu_glfs_close,
 	.read 		= tcmu_glfs_read,
 	.write		= tcmu_glfs_write,
+	.reconfig       = tcmu_glfs_reconfig,
 	.flush		= tcmu_glfs_flush,
 };
 
