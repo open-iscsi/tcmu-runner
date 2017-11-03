@@ -1864,6 +1864,36 @@ out:
 	return ret;
 }
 
+static int tcmur_caw_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+        tcmur_caw_fn_t caw_fn = cmd->cmdstate;
+        uint32_t block_size = tcmu_get_dev_block_size(dev);
+        uint8_t *cdb = cmd->cdb;
+        uint64_t off = block_size * tcmu_get_lba(cdb);
+        size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
+
+        cmd->done = handle_generic_cbk;
+        return caw_fn(dev, cmd, off, half, cmd->iovec, cmd->iov_cnt);
+}
+
+int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		     tcmur_caw_fn_t caw_fn)
+{
+        int ret;
+
+        ret = tcmur_alua_implicit_transition(dev, cmd);
+        if (ret)
+                return ret;
+
+        ret = handle_caw_check(dev, cmd);
+        if (ret)
+                return ret;
+
+        cmd->cmdstate = caw_fn;
+
+        return async_handle_cmd(dev, cmd, tcmur_caw_fn);
+}
+
 /* async flush */
 static int flush_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {

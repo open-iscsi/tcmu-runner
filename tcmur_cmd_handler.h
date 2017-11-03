@@ -33,5 +33,10 @@ typedef int (*tcmur_writesame_fn_t)(struct tcmu_device *dev, struct tcmulib_cmd 
 int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			   tcmur_writesame_fn_t write_same_fn);
 
+typedef int (*tcmur_caw_fn_t)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+                              uint64_t off, uint64_t len, struct iovec *iov,
+                              size_t iov_cnt);
+int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+                     tcmur_caw_fn_t caw_fn);
 
 #endif /* __TCMUR_CMD_HANDLER_H */
