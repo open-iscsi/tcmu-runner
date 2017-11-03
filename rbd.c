@@ -67,6 +67,13 @@
 #endif
 #endif
 
+/* defined in librbd.h if supported */
+#ifdef LIBRBD_SUPPORTS_COMPARE_AND_WRITE
+#if LIBRBD_SUPPORTS_COMPARE_AND_WRITE
+#define RBD_COMPARE_AND_WRITE_SUPPORT
+#endif
+#endif
+
 struct tcmu_rbd_state {
 	rados_t cluster;
 	rados_ioctx_t io_ctx;
@@ -81,6 +88,7 @@ struct tcmu_rbd_state {
 enum rbd_aio_type {
         RBD_AIO_TYPE_WRITE = 0,
         RBD_AIO_TYPE_READ,
+        RBD_AIO_TYPE_CAW
 };
 
 struct rbd_aio_cb {
@@ -92,6 +100,10 @@ struct rbd_aio_cb {
                 struct {
                         int64_t length;
                 } read;
+                struct {
+                        uint64_t offset;
+                        uint64_t miscompare_offset;
+                } caw;
         };
         char *bounce_buffer;
 };
@@ -922,6 +934,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	struct tcmulib_cmd *tcmulib_cmd = aio_cb->tcmulib_cmd;
 	struct iovec *iovec = tcmulib_cmd->iovec;
 	size_t iov_cnt = tcmulib_cmd->iov_cnt;
+	uint32_t cmp_offset;
 	uint16_t asc_ascq;
 	int64_t ret;
 	int tcmu_r;
@@ -933,6 +946,14 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev, tcmulib_cmd);
 	} else if (ret == -ESHUTDOWN) {
 		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
+	} else if (ret == -EILSEQ && aio_cb->type == RBD_AIO_TYPE_CAW) {
+		cmp_offset = aio_cb->caw.miscompare_offset - aio_cb->caw.offset;
+		tcmu_dev_dbg(dev, "CAW miscompare at offset %u.\n", cmp_offset);
+
+		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
+					     MISCOMPARE,
+					     ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
+					     &cmp_offset);
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal IO error %d.\n", ret);
 
@@ -1177,6 +1198,65 @@ out:
 }
 #endif /* RBD_WRITE_SAME_SUPPORT */
 
+#ifdef RBD_COMPARE_AND_WRITE_SUPPORT
+static int tcmu_rbd_aio_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			    uint64_t off, uint64_t len, struct iovec *iov,
+			    size_t iov_cnt)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct rbd_aio_cb *aio_cb;
+	rbd_completion_t completion;
+	uint64_t buffer_length = 2 * len;
+	ssize_t ret;
+
+	aio_cb = calloc(1, sizeof(*aio_cb));
+	if (!aio_cb) {
+		tcmu_dev_err(dev, "Could not allocate aio_cb.\n");
+		goto out;
+	}
+
+	aio_cb->dev = dev;
+	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->type = RBD_AIO_TYPE_CAW;
+	aio_cb->caw.offset = off;
+
+	aio_cb->bounce_buffer = malloc(buffer_length);
+	if (!aio_cb->bounce_buffer) {
+		tcmu_dev_err(dev, "Failed to allocate bounce buffer.\n");
+		goto out_free_aio_cb;
+	}
+
+	/* compare followed by write buffer are combined */
+	tcmu_memcpy_from_iovec(aio_cb->bounce_buffer, buffer_length, iov,
+			       iov_cnt);
+
+	ret = rbd_aio_create_completion(
+		aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
+	if (ret < 0) {
+		goto out_free_bounce_buffer;
+	}
+
+	tcmu_dev_dbg(dev, "Start CAW off:%llu, len:%llu\n", off, len);
+	ret = rbd_aio_compare_and_write(state->image, off, len,
+					aio_cb->bounce_buffer,
+					aio_cb->bounce_buffer + len, completion,
+					&aio_cb->caw.miscompare_offset, 0);
+	if (ret < 0)
+		goto out_remove_tracked_aio;
+
+	return 0;
+
+out_remove_tracked_aio:
+	rbd_aio_release(completion);
+out_free_bounce_buffer:
+	free(aio_cb->bounce_buffer);
+out_free_aio_cb:
+	free(aio_cb);
+out:
+	return SAM_STAT_TASK_SET_FULL;
+}
+#endif /* RBD_COMPARE_AND_WRITE_SUPPORT */
+
 /*
  * Return scsi status or TCMU_NOT_HANDLED
  */
@@ -1190,6 +1270,11 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case WRITE_SAME:
 	case WRITE_SAME_16:
 		ret = tcmur_handle_writesame(dev, cmd, tcmu_rbd_aio_writesame);
+		break;
+#endif
+#ifdef RBD_COMPARE_AND_WRITE_SUPPORT
+	case COMPARE_AND_WRITE:
+		ret = tcmur_handle_caw(dev, cmd, tcmu_rbd_aio_caw);
 		break;
 #endif
 	default:
