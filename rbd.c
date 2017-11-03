@@ -78,13 +78,22 @@ struct tcmu_rbd_state {
 	char *conf_path;
 };
 
-struct rbd_aio_cb {
-	struct tcmu_device *dev;
-	struct tcmulib_cmd *tcmulib_cmd;
+enum rbd_aio_type {
+        RBD_AIO_TYPE_WRITE = 0,
+        RBD_AIO_TYPE_READ,
+};
 
-	bool read;
-	int64_t length;
-	char *bounce_buffer;
+struct rbd_aio_cb {
+        struct tcmu_device *dev;
+        struct tcmulib_cmd *tcmulib_cmd;
+
+        enum rbd_aio_type type;
+        union {
+                struct {
+                        int64_t length;
+                } read;
+        };
+        char *bounce_buffer;
 };
 
 #ifdef LIBRADOS_SUPPORTS_SERVICES
@@ -927,7 +936,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal IO error %d.\n", ret);
 
-		if (aio_cb->read)
+		if (aio_cb->type == RBD_AIO_TYPE_READ)
 			asc_ascq = ASC_READ_ERROR;
 		else
 			asc_ascq = ASC_WRITE_ERROR;
@@ -935,10 +944,11 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 					     MEDIUM_ERROR, asc_ascq, NULL);
 	} else {
 		tcmu_r = SAM_STAT_GOOD;
-		if (aio_cb->read && aio_cb->bounce_buffer) {
+		if (aio_cb->type == RBD_AIO_TYPE_READ &&
+		    aio_cb->bounce_buffer) {
 			tcmu_memcpy_into_iovec(iovec, iov_cnt,
 					       aio_cb->bounce_buffer,
-					       aio_cb->length);
+					       aio_cb->read.length);
 		}
 	}
 
@@ -964,9 +974,9 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 
 	aio_cb->dev = dev;
-	aio_cb->length = length;
+	aio_cb->type = RBD_AIO_TYPE_READ;
+	aio_cb->read.length = length;
 	aio_cb->tcmulib_cmd = cmd;
-	aio_cb->read = true;
 
 	ret = rbd_aio_create_completion
 		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
@@ -1004,9 +1014,8 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 
 	aio_cb->dev = dev;
-	aio_cb->length = length;
+	aio_cb->type = RBD_AIO_TYPE_WRITE;
 	aio_cb->tcmulib_cmd = cmd;
-	aio_cb->read = false;
 
 	ret = rbd_aio_create_completion
 		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
@@ -1047,7 +1056,7 @@ static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	aio_cb->dev = dev;
 	aio_cb->tcmulib_cmd = cmd;
-	aio_cb->read = false;
+	aio_cb->type = RBD_AIO_TYPE_WRITE;
 	aio_cb->bounce_buffer = NULL;
 
 	ret = rbd_aio_create_completion
@@ -1087,7 +1096,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	aio_cb->dev = dev;
 	aio_cb->tcmulib_cmd = cmd;
-	aio_cb->read = false;
+	aio_cb->type = RBD_AIO_TYPE_WRITE;
 	aio_cb->bounce_buffer = NULL;
 
 	ret = rbd_aio_create_completion
@@ -1122,6 +1131,7 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
+	size_t length = tcmu_iovec_length(iov, iov_cnt);
 	ssize_t ret;
 
 	aio_cb = calloc(1, sizeof(*aio_cb));
@@ -1132,16 +1142,15 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 
 	aio_cb->dev = dev;
 	aio_cb->tcmulib_cmd = cmd;
-	aio_cb->read = false;
-	aio_cb->length = tcmu_iovec_length(iov, iov_cnt);
+	aio_cb->type = RBD_AIO_TYPE_WRITE;
 
-	aio_cb->bounce_buffer = malloc(aio_cb->length);
+	aio_cb->bounce_buffer = malloc(length);
 	if (!aio_cb->bounce_buffer) {
 		tcmu_dev_err(dev, "Failed to allocate bounce buffer.\n");
 		goto out_free_aio_cb;
 	}
 
-	tcmu_memcpy_from_iovec(aio_cb->bounce_buffer, aio_cb->length, iov, iov_cnt);
+	tcmu_memcpy_from_iovec(aio_cb->bounce_buffer, length, iov, iov_cnt);
 
 	ret = rbd_aio_create_completion
 		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
@@ -1151,7 +1160,7 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 	tcmu_dev_dbg(dev, "Start write same off:%llu, len:%llu\n", off, len);
 
 	ret = rbd_aio_writesame(state->image, off, len, aio_cb->bounce_buffer,
-				aio_cb->length, completion, 0);
+				length, completion, 0);
 	if (ret < 0)
 		goto out_remove_tracked_aio;
 
