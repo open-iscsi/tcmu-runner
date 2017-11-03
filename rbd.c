@@ -954,6 +954,11 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 					     MISCOMPARE,
 					     ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
 					     &cmp_offset);
+	} else if (ret == -EINVAL) {
+		tcmu_dev_err(dev, "Invalid IO request.\n");
+		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
+					     ILLEGAL_REQUEST,
+					     ASC_INVALID_FIELD_IN_CDB, NULL);
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal IO error %d.\n", ret);
 
