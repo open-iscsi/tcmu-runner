@@ -96,6 +96,22 @@ static void free_iovec(struct tcmulib_cmd *cmd)
 	cmd->iovec = NULL;
 }
 
+static inline int check_iovec_length(struct tcmu_device *dev,
+				     struct tcmulib_cmd *cmd, uint32_t sectors)
+{
+        size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
+	uint8_t *sense = cmd->sense_buf;
+
+        if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
+                tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
+                             iov_length, sectors, tcmu_get_dev_block_size(dev));
+
+                return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+                                           ASC_INTERNAL_TARGET_FAILURE, NULL);
+        }
+	return 0;
+}
+
 static inline int check_lbas(struct tcmu_device *dev,
 			     uint64_t start_lba, uint64_t lba_cnt)
 {
@@ -115,17 +131,12 @@ static int check_lba_and_length(struct tcmu_device *dev,
 {
 	uint8_t *cdb = cmd->cdb;
 	uint64_t start_lba = tcmu_get_lba(cdb);
-	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
 	uint8_t *sense = cmd->sense_buf;
 	int ret;
 
-	if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
-		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
-			     iov_length, sectors, tcmu_get_dev_block_size(dev));
-
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
-	}
+	ret = check_iovec_length(dev, cmd, sectors);
+	if (ret)
+		return ret;
 
 	ret = check_lbas(dev, start_lba, sectors);
 	if (ret)
@@ -1808,10 +1819,19 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmulib_cmd *readcmd;
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	uint64_t start_lba = tcmu_get_lba(cmd->cdb);
+	uint8_t *sense = cmd->sense_buf;
+	uint8_t sectors = cmd->cdb[13];
 
-	ret = check_lba_and_length(dev, cmd, cmd->cdb[13] * 2);
+	/* double sectors since we have two buffers */
+	ret = check_iovec_length(dev, cmd, sectors * 2);
 	if (ret)
 		return ret;
+
+	ret = check_lbas(dev, start_lba, sectors);
+	if (ret)
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_LBA_OUT_OF_RANGE, NULL);
 
 	readcmd = caw_init_readcmd(cmd, half);
 	if (!readcmd) {
