@@ -1813,12 +1813,9 @@ finish_err:
 	caw_free_readcmd(readcmd);
 }
 
-static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
-	struct tcmulib_cmd *readcmd;
-	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	uint64_t start_lba = tcmu_get_lba(cmd->cdb);
 	uint8_t *sense = cmd->sense_buf;
 	uint8_t sectors = cmd->cdb[13];
@@ -1832,6 +1829,20 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (ret)
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE, NULL);
+
+	return 0;
+}
+
+static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	int ret;
+	struct tcmulib_cmd *readcmd;
+	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+        ret = handle_caw_check(dev, cmd);
+        if (ret)
+                return ret;
 
 	readcmd = caw_init_readcmd(cmd, half);
 	if (!readcmd) {
