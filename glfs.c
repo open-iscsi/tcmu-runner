@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include <scsi/scsi.h>
 #include <pthread.h>
 #include <glusterfs/api/glfs.h>
