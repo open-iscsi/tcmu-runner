@@ -811,6 +811,16 @@ bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev)
 	return dev->write_cache_enabled;
 }
 
+void tcmu_set_dev_solid_state_media(struct tcmu_device *dev, bool solid_state)
+{
+	dev->solid_state_media = solid_state;
+}
+
+bool tcmu_get_dev_solid_state_media(struct tcmu_device *dev)
+{
+	return dev->solid_state_media;
+}
+
 int tcmu_get_dev_fd(struct tcmu_device *dev)
 {
 	return dev->fd;

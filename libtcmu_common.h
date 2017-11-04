@@ -108,6 +108,8 @@ void tcmu_set_dev_unmap_gran_align(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_get_dev_unmap_gran_align(struct tcmu_device *dev);
 void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled);
 bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev);
+void tcmu_set_dev_solid_state_media(struct tcmu_device *dev, bool solid_state);
+bool tcmu_get_dev_solid_state_media(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
 struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev);
 
