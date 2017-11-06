@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 LimitNOFILE=1000000
+LimitNPROC=1000000
 Type=dbus
 BusName=org.kernel.TCMUService1
 KillMode=process
