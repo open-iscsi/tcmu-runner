@@ -60,6 +60,13 @@
 #define RBD_WRITE_SAME_SUPPORT
 #endif
 
+/* defined in librbd.h if supported */
+#ifdef LIBRBD_SUPPORTS_IOVEC
+#if LIBRBD_SUPPORTS_IOVEC
+#define RBD_IOVEC_SUPPORT
+#endif
+#endif
+
 struct tcmu_rbd_state {
 	rados_t cluster;
 	rados_ioctx_t io_ctx;
@@ -833,6 +840,66 @@ static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev,
 	return SAM_STAT_BUSY;
 }
 
+#ifdef RBD_IOVEC_SUPPORT
+
+static rbd_image_t tcmu_dev_to_image(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	return state->image;
+}
+
+#define tcmu_rbd_aio_read(dev, aio_cb, completion, iov, iov_cnt, length, offset) \
+	rbd_aio_readv(tcmu_dev_to_image(dev), iov, iov_cnt, offset, completion);
+
+#define tcmu_rbd_aio_write(dev, aio_cb, completion, iov, iov_cnt, length, offset) \
+	rbd_aio_writev(tcmu_dev_to_image(dev), iov, iov_cnt, offset, completion);
+
+#else
+
+static int tcmu_rbd_aio_read(struct tcmu_device *dev, struct rbd_aio_cb *aio_cb,
+			     rbd_completion_t completion, struct iovec *iov,
+			     size_t iov_cnt, size_t length, off_t offset)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	int ret;
+
+	aio_cb->bounce_buffer = malloc(length);
+	if (!aio_cb->bounce_buffer) {
+		tcmu_dev_err(dev, "Could not allocate bounce buffer.\n");
+		return -ENOMEM;
+	}
+
+	ret = rbd_aio_read(state->image, offset, length, aio_cb->bounce_buffer,
+			   completion);
+	if (ret < 0)
+		free(aio_cb->bounce_buffer);
+	return ret;
+}
+
+static int tcmu_rbd_aio_write(struct tcmu_device *dev, struct rbd_aio_cb *aio_cb,
+			      rbd_completion_t completion, struct iovec *iov,
+			      size_t iov_cnt, size_t length, off_t offset)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	int ret;
+
+	aio_cb->bounce_buffer = malloc(length);
+	if (!aio_cb->bounce_buffer) {
+		tcmu_dev_err(dev, "Failed to allocate bounce buffer.\n");
+		return -ENOMEM;;
+	}
+
+	tcmu_memcpy_from_iovec(aio_cb->bounce_buffer, length, iov, iov_cnt);
+
+	ret = rbd_aio_write(state->image, offset, length, aio_cb->bounce_buffer,
+			    completion);
+	if (ret < 0)
+		free(aio_cb->bounce_buffer);
+	return ret;
+}
+
+#endif
+
 /*
  * NOTE: RBD async APIs almost always return 0 (success), except
  * when allocation (via new) fails - which is not caught. So,
@@ -868,10 +935,11 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 					     MEDIUM_ERROR, asc_ascq, NULL);
 	} else {
 		tcmu_r = SAM_STAT_GOOD;
-		if (aio_cb->read)
+		if (aio_cb->read && aio_cb->bounce_buffer) {
 			tcmu_memcpy_into_iovec(iovec, iov_cnt,
 					       aio_cb->bounce_buffer,
 					       aio_cb->length);
+		}
 	}
 
 	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
@@ -885,7 +953,6 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			     struct iovec *iov, size_t iov_cnt, size_t length,
 			     off_t offset)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
 	ssize_t ret;
@@ -901,30 +968,21 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	aio_cb->tcmulib_cmd = cmd;
 	aio_cb->read = true;
 
-	aio_cb->bounce_buffer = malloc(length);
-	if (!aio_cb->bounce_buffer) {
-		tcmu_dev_err(dev, "Could not allocate bounce buffer.\n");
-		goto out_free_aio_cb;
-	}
-
 	ret = rbd_aio_create_completion
 		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
 	if (ret < 0) {
-		goto out_free_bounce_buffer;
+		goto out_free_aio_cb;
 	}
 
-	ret = rbd_aio_read(state->image, offset, length, aio_cb->bounce_buffer,
-			   completion);
-	if (ret < 0) {
-		goto out_remove_tracked_aio;
-	}
+	ret = tcmu_rbd_aio_read(dev, aio_cb, completion, iov, iov_cnt,
+				length, offset);
+	if (ret < 0)
+		goto out_release_tracked_aio;
 
 	return 0;
 
-out_remove_tracked_aio:
+out_release_tracked_aio:
 	rbd_aio_release(completion);
-out_free_bounce_buffer:
-	free(aio_cb->bounce_buffer);
 out_free_aio_cb:
 	free(aio_cb);
 out:
@@ -935,7 +993,6 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			  struct iovec *iov, size_t iov_cnt, size_t length,
 			  off_t offset)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
 	ssize_t ret;
@@ -951,32 +1008,22 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	aio_cb->tcmulib_cmd = cmd;
 	aio_cb->read = false;
 
-	aio_cb->bounce_buffer = malloc(length);
-	if (!aio_cb->bounce_buffer) {
-		tcmu_dev_err(dev, "Failed to allocate bounce buffer.\n");
-		goto out_free_aio_cb;
-	}
-
-	tcmu_memcpy_from_iovec(aio_cb->bounce_buffer, length, iov, iov_cnt);
-
 	ret = rbd_aio_create_completion
 		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
 	if (ret < 0) {
-		goto out_free_bounce_buffer;
+		goto out_free_aio_cb;
 	}
 
-	ret = rbd_aio_write(state->image, offset,
-			    length, aio_cb->bounce_buffer, completion);
+	ret = tcmu_rbd_aio_write(dev, aio_cb, completion, iov, iov_cnt,
+				 length, offset);
 	if (ret < 0) {
-		goto out_remove_tracked_aio;
+		goto out_release_tracked_aio;
 	}
 
 	return 0;
 
-out_remove_tracked_aio:
+out_release_tracked_aio:
 	rbd_aio_release(completion);
-out_free_bounce_buffer:
-	free(aio_cb->bounce_buffer);
 out_free_aio_cb:
 	free(aio_cb);
 out:
