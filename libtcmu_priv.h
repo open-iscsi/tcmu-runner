@@ -76,11 +76,4 @@ struct tcmu_device {
 	void *hm_private; /* private ptr for handler module */
 };
 
-/* internal (private) helpers */
-
-/* pthread cleanup handler: unlock a mutex */
-void _cleanup_mutex_lock(void *);
-/* pthread cleanup handler: unlock a spinlock */
-void _cleanup_spin_lock(void *);
-
 #endif

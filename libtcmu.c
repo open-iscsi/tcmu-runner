@@ -1077,13 +1077,3 @@ void tcmulib_processing_complete(struct tcmu_device *dev)
 		tcmu_err("failed to write device /dev/%s, %d\n",
 			 dev->dev_name, errno);
 }
-
-void _cleanup_mutex_lock(void *arg)
-{
-	pthread_mutex_unlock(arg);
-}
-
-void _cleanup_spin_lock(void *arg)
-{
-	pthread_spin_unlock(arg);
-}

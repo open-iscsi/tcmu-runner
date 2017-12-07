@@ -35,6 +35,11 @@
 #include "tcmu-runner.h"
 #include "alua.h"
 
+static void _cleanup_spin_lock(void *arg)
+{
+	pthread_spin_unlock(arg);
+}
+
 void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			    int rc)
 {

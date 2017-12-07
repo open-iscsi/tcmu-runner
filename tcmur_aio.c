@@ -35,6 +35,11 @@ struct tcmu_work {
 	struct list_node entry;
 };
 
+static void _cleanup_mutex_lock(void *arg)
+{
+	pthread_mutex_unlock(arg);
+}
+
 void track_aio_request_start(struct tcmur_device *rdev)
 {
 	struct tcmu_track_aio *aio_track = &rdev->track_queue;
