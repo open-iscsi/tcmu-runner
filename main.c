@@ -190,12 +190,6 @@ static int open_handlers(void)
 
 static gboolean sighandler(gpointer user_data)
 {
-	/*
-	 * FIXME: this is broken if IO is running in runner when called.
-	 * IO could be running in the handler or runner and we could free
-	 * resources while in use.
-	 */
-	tcmulib_cleanup_all_cmdproc_threads();
 	g_main_loop_quit((GMainLoop*)user_data);
 
 	return G_SOURCE_CONTINUE;
@@ -872,6 +866,8 @@ static void dev_removed(struct tcmu_device *dev)
 		tcmu_err("could not cleanup mailbox lock %d\n", ret);
 
 	free(rdev);
+
+	tcmu_dev_dbg(dev, "removed from tcmu-runner\n");
 }
 
 #define TCMUR_MIN_OPEN_FD 65536
