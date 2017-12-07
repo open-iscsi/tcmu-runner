@@ -237,12 +237,21 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev)
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret, retries = 0, new_state = TCMUR_DEV_LOCK_UNLOCKED;
 
+	/* Block the kernel device */
+	tcmu_block_device(dev);
+
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	if (aio_wait_for_empty_queue(rdev)) {
 		tcmu_dev_err(dev, "Not able to flush queue before taking lock.\n");
 		ret = TCMUR_LOCK_FAILED;
 		goto done;
 	}
+
+	/*
+	 * Handle race where cmd could be in tcmur_generic_handle_cmd before
+	 * the aio handler.
+	 */
+	tcmu_flush_device(dev);
 
 retry:
 	tcmu_dev_dbg(dev, "lock call state %d retries %d\n",
@@ -283,6 +292,8 @@ done:
 	rdev->lock_state = new_state;
 	tcmu_dev_dbg(dev, "lock call done. lock state %d\n", rdev->lock_state);
 	pthread_mutex_unlock(&rdev->state_lock);
+
+	tcmu_unblock_device(dev);
 
 	return ret;
 }
