@@ -54,8 +54,6 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_SUPP_KERN_CMD_REPLY] = { .type = NLA_U8 },
 };
 
-static darray(struct tcmu_thread) g_threads = darray_new();
-
 static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		      char *cfgstring, bool reopen);
 static void remove_device(struct tcmulib_context *ctx, char *dev_name,
@@ -1080,23 +1078,6 @@ void tcmulib_processing_complete(struct tcmu_device *dev)
 			 dev->dev_name, errno);
 }
 
-int tcmulib_start_cmdproc_thread(struct tcmu_device *dev,
-				 void *(*thread_fn)(void *))
-{
-	int ret;
-	struct tcmu_thread thread;
-
-	thread.dev = dev;
-
-	ret = pthread_create(&thread.thread_id, NULL, thread_fn, dev);
-	if (ret) {
-		return -1;
-	}
-
-	darray_append(g_threads, thread);
-	return 0;
-}
-
 void _cleanup_mutex_lock(void *arg)
 {
 	pthread_mutex_unlock(arg);
@@ -1105,57 +1086,4 @@ void _cleanup_mutex_lock(void *arg)
 void _cleanup_spin_lock(void *arg)
 {
 	pthread_spin_unlock(arg);
-}
-
-void cancel_thread(pthread_t thread)
-{
-	void *join_retval;
-	int ret;
-
-	ret = pthread_cancel(thread);
-	if (ret) {
-		tcmu_err("pthread_cancel failed with value %d\n", ret);
-		return;
-	}
-
-	ret = pthread_join(thread, &join_retval);
-	if (ret) {
-		tcmu_err("pthread_join failed with value %d\n", ret);
-		return;
-	}
-
-	if (join_retval != PTHREAD_CANCELED)
-		tcmu_err("unexpected join retval: %p\n", join_retval);
-}
-
-void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev)
-{
-	struct tcmu_thread *thread;
-	int i = 0;
-	bool found = false;
-
-	darray_foreach(thread, g_threads) {
-		if (thread->dev == dev) {
-			found = true;
-			break;
-		} else {
-			i++;
-		}
-	}
-
-	if (!found) {
-		tcmu_err("could not remove a device: not found\n");
-		return;
-	}
-
-	cancel_thread(thread->thread_id);
-	darray_remove(g_threads, i);
-}
-
-void tcmulib_cleanup_all_cmdproc_threads()
-{
-	struct tcmu_thread *thread;
-	darray_foreach(thread, g_threads) {
-		cancel_thread(thread->thread_id);
-	}
 }

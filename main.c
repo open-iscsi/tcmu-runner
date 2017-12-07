@@ -798,7 +798,8 @@ static int dev_added(struct tcmu_device *dev)
 	tcmu_set_dev_opt_unmap_gran(dev, max_xfer_length);
 	tcmu_set_dev_unmap_gran_align(dev, 0);
 
-	ret = tcmulib_start_cmdproc_thread(dev, tcmur_cmdproc_thread);
+	ret = pthread_create(&rdev->cmdproc_thread, NULL, tcmur_cmdproc_thread,
+			     dev);
 	if (ret < 0)
 		goto close_dev;
 
@@ -823,6 +824,27 @@ free_rdev:
 	return ret;
 }
 
+void tcmu_cancel_thread(pthread_t thread)
+{
+	void *join_retval;
+	int ret;
+
+	ret = pthread_cancel(thread);
+	if (ret) {
+		tcmu_err("pthread_cancel failed with value %d\n", ret);
+		return;
+	}
+
+	ret = pthread_join(thread, &join_retval);
+	if (ret) {
+		tcmu_err("pthread_join failed with value %d\n", ret);
+		return;
+	}
+
+	if (join_retval != PTHREAD_CANCELED)
+		tcmu_err("unexpected join retval: %p\n", join_retval);
+}
+
 static void dev_removed(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
@@ -843,7 +865,8 @@ static void dev_removed(struct tcmu_device *dev)
 
 	if (aio_wait_for_empty_queue(rdev))
 		tcmu_dev_err(dev, "could not flush queue.\n");
-	tcmulib_cleanup_cmdproc_thread(dev);
+
+	tcmu_cancel_thread(rdev->cmdproc_thread);
 	tcmur_stop_device(dev);
 
 	cleanup_io_work_queue(dev, false);

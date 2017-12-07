@@ -244,7 +244,7 @@ void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 
 	for (i = 0; i < nr_threads; i++) {
 		if (io_wq->io_wq_threads[i]) {
-			cancel_thread(io_wq->io_wq_threads[i]);
+			tcmu_cancel_thread(io_wq->io_wq_threads[i]);
 		}
 	}
 }

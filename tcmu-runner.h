@@ -151,6 +151,11 @@ struct tcmur_handler {
 int tcmur_register_handler(struct tcmur_handler *handler);
 bool tcmur_unregister_handler(struct tcmur_handler *handler);
 
+/*
+ * Misc
+ */
+void tcmu_cancel_thread(pthread_t thread);
+
 #ifdef __cplusplus
 }
 #endif
