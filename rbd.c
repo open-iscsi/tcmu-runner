@@ -490,6 +490,19 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	return 0;
 }
 
+static int tcmu_rbd_get_lock_state(struct tcmu_device *dev)
+{
+	int ret;
+
+	ret = tcmu_rbd_has_lock(dev);
+	if (ret == 1)
+		return TCMUR_DEV_LOCK_LOCKED;
+	else if (ret == 0 || ret == -ESHUTDOWN)
+		return TCMUR_DEV_LOCK_UNLOCKED;
+	else
+		return TCMUR_DEV_LOCK_UNKNOWN;
+}
+
 /**
  * tcmu_rbd_lock_break - break rbd exclusive lock if needed
  * @dev: device to break the lock for.
@@ -1241,6 +1254,7 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.handle_cmd    = tcmu_rbd_handle_cmd,
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
 	.lock          = tcmu_rbd_lock,
+	.get_lock_state = tcmu_rbd_get_lock_state,
 #endif
 };
 

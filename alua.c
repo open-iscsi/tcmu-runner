@@ -358,6 +358,8 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	if (!tcmu_get_enabled_port(group_list))
 		return TCMU_NOT_HANDLED;
 
+	tcmu_update_dev_lock_state(dev);
+
 	if (alloc_len < 4)
 		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB, NULL);

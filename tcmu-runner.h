@@ -127,6 +127,10 @@ struct tcmur_handler {
 	 * Must return a TCMUR_LOCK return value.
 	 */
 	int (*lock)(struct tcmu_device *dev);
+	/*
+	 * Must return TCMUR_DEV_LOCK state value.
+	 */
+	int (*get_lock_state)(struct tcmu_device *dev);
 
 	/*
 	 * internal field, don't touch this

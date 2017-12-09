@@ -2299,8 +2299,11 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 					   ASC_INTERNAL_TARGET_FAILURE, NULL);
 
 	port = tcmu_get_enabled_port(&group_list);
-	if (!port)
+	if (!port) {
 		tcmu_dev_dbg(dev, "no enabled ports found. Skipping ALUA support\n");
+	} else {
+		tcmu_update_dev_lock_state(dev);
+	}
 
 	ret = tcmu_emulate_inquiry(dev, port, cmd->cdb, cmd->iovec,
 				   cmd->iov_cnt, cmd->sense_buf);
