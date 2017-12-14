@@ -2423,9 +2423,12 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 			return handle_recv_copy_result(dev, cmd);
 		return TCMU_NOT_HANDLED;
 	case MAINTENANCE_IN:
-		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
+		switch(cdb[1] & 0x1f) {
+		case MI_REPORT_TARGET_PGS:
 			return handle_rtpg(dev, cmd);
-		return TCMU_NOT_HANDLED;
+		default:
+			return TCMU_NOT_HANDLED;
+                }
 	default:
 		return TCMU_NOT_HANDLED;
 	}
