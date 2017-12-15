@@ -140,6 +140,7 @@ void tcmu_cancel_recovery(struct tcmu_device *dev)
 		pthread_mutex_lock(&rdev->state_lock);
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
+	tcmu_dev_dbg(dev, "Recovery thread wait done\n");
 }
 
 /**

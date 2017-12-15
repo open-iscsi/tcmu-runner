@@ -114,6 +114,7 @@ struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
 struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev);
 void tcmu_block_device(struct tcmu_device *dev);
 void tcmu_unblock_device(struct tcmu_device *dev);
+void tcmu_flush_device(struct tcmu_device *dev);
 
 /* Helper routines for processing commands */
 char *tcmu_get_cfgfs_str(const char *path);
