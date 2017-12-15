@@ -56,7 +56,8 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 
 static darray(struct tcmu_thread) g_threads = darray_new();
 
-static int add_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
+static int add_device(struct tcmulib_context *ctx, char *dev_name,
+		      char *cfgstring, bool reopen);
 static void remove_device(struct tcmulib_context *ctx, char *dev_name, char *cfgstring);
 static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 			  struct genl_info *info, void *arg);
@@ -222,7 +223,8 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 	case TCMU_CMD_ADDED_DEVICE:
 		reply_cmd = TCMU_CMD_ADDED_DEVICE_DONE;
 		ret = add_device(ctx, buf,
-				 nla_get_string(info->attrs[TCMU_ATTR_DEVICE]));
+				 nla_get_string(info->attrs[TCMU_ATTR_DEVICE]),
+				 false);
 		break;
 	case TCMU_CMD_REMOVED_DEVICE:
 		reply_cmd = TCMU_CMD_REMOVED_DEVICE_DONE;
@@ -374,8 +376,36 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 	return NULL;
 }
 
-static int add_device(struct tcmulib_context *ctx,
-		      char *dev_name, char *cfgstring)
+void tcmu_block_device(struct tcmu_device *dev)
+{
+	int rc;
+
+	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 1);
+	if (rc == -ENOENT) {
+		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
+		return;
+	} else if (rc) {
+		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
+		return;
+	}
+}
+
+void tcmu_unblock_device(struct tcmu_device *dev)
+{
+	int rc;
+
+	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 0);
+	if (rc == -ENOENT) {
+		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
+		return;
+	} else if (rc) {
+		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
+		return;
+	}
+}
+
+static int add_device(struct tcmulib_context *ctx, char *dev_name,
+		      char *cfgstring, bool reopen)
 {
 	struct tcmu_device *dev;
 	struct tcmu_mailbox *mb;
@@ -445,12 +475,29 @@ static int add_device(struct tcmulib_context *ctx,
 		goto err_free;
 	}
 
+	if (reopen) {
+		/*
+		 * We might not have cleanly shutdown and IO might be
+		 * running in the kernel or have timed out. Block the device
+		 * so new IO is stopped, and reset the ring so we can start
+		 * from a fresh slate. We will unblock below when we are
+		 * completely setup.
+		 */
+		tcmu_block_device(dev);
+		/*
+		 * Force a retry of the outstanding commands.
+		 */
+		ret = tcmu_exec_cfgfs_dev_action(dev, "reset_ring", 1);
+		if (ret)
+			tcmu_dev_err(dev, "Could not reset ring %d.\n", ret);
+	}
+
 	snprintf(str_buf, sizeof(str_buf), "/dev/%s", dev_name);
 
 	dev->fd = open(str_buf, O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (dev->fd == -1) {
 		tcmu_err("could not open %s\n", str_buf);
-		goto err_free;
+		goto err_unblock;
 	}
 
 	snprintf(str_buf, sizeof(str_buf), "/sys/class/uio/%s/maps/map0/size", dev->dev_name);
@@ -488,7 +535,6 @@ static int add_device(struct tcmulib_context *ctx,
 	}
 
 	dev->cmd_tail = mb->cmd_tail;
-
 	dev->ctx = ctx;
 
 	ret = dev->handler->added(dev);
@@ -499,12 +545,18 @@ static int add_device(struct tcmulib_context *ctx,
 
 	darray_append(ctx->devices, dev);
 
+	if (reopen)
+		tcmu_unblock_device(dev);
+
 	return 0;
 
 err_munmap:
 	munmap(dev->map, dev->map_len);
 err_fd_close:
 	close(dev->fd);
+err_unblock:
+	if (reopen)
+		tcmu_unblock_device(dev);
 err_free:
 	free(dev);
 
@@ -626,7 +678,7 @@ static int open_devices(struct tcmulib_context *ctx)
 		if (read_uio_name(dirent_list[i]->d_name, &dev_name))
 			continue;
 
-		if (add_device(ctx, dirent_list[i]->d_name, dev_name) < 0) {
+		if (add_device(ctx, dirent_list[i]->d_name, dev_name, true) < 0) {
 			free (dev_name);
 			continue;
 		}
