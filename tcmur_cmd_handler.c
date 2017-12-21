@@ -96,6 +96,22 @@ static void free_iovec(struct tcmulib_cmd *cmd)
 	cmd->iovec = NULL;
 }
 
+static inline int check_iovec_length(struct tcmu_device *dev,
+				     struct tcmulib_cmd *cmd, uint32_t sectors)
+{
+        size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
+	uint8_t *sense = cmd->sense_buf;
+
+        if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
+                tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
+                             iov_length, sectors, tcmu_get_dev_block_size(dev));
+
+                return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+                                           ASC_INTERNAL_TARGET_FAILURE, NULL);
+        }
+	return 0;
+}
+
 static inline int check_lbas(struct tcmu_device *dev,
 			     uint64_t start_lba, uint64_t lba_cnt)
 {
@@ -115,17 +131,12 @@ static int check_lba_and_length(struct tcmu_device *dev,
 {
 	uint8_t *cdb = cmd->cdb;
 	uint64_t start_lba = tcmu_get_lba(cdb);
-	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
 	uint8_t *sense = cmd->sense_buf;
 	int ret;
 
-	if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
-		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
-			     iov_length, sectors, tcmu_get_dev_block_size(dev));
-
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
-	}
+	ret = check_iovec_length(dev, cmd, sectors);
+	if (ret)
+		return ret;
 
 	ret = check_lbas(dev, start_lba, sectors);
 	if (ret)
@@ -1802,6 +1813,26 @@ finish_err:
 	caw_free_readcmd(readcmd);
 }
 
+static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	int ret;
+	uint64_t start_lba = tcmu_get_lba(cmd->cdb);
+	uint8_t *sense = cmd->sense_buf;
+	uint8_t sectors = cmd->cdb[13];
+
+	/* double sectors since we have two buffers */
+	ret = check_iovec_length(dev, cmd, sectors * 2);
+	if (ret)
+		return ret;
+
+	ret = check_lbas(dev, start_lba, sectors);
+	if (ret)
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_LBA_OUT_OF_RANGE, NULL);
+
+	return 0;
+}
+
 static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
@@ -1809,9 +1840,9 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 
-	ret = check_lba_and_length(dev, cmd, cmd->cdb[13] * 2);
-	if (ret)
-		return ret;
+        ret = handle_caw_check(dev, cmd);
+        if (ret)
+                return ret;
 
 	readcmd = caw_init_readcmd(cmd, half);
 	if (!readcmd) {
@@ -1831,6 +1862,36 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	caw_free_readcmd(readcmd);
 out:
 	return ret;
+}
+
+static int tcmur_caw_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+        tcmur_caw_fn_t caw_fn = cmd->cmdstate;
+        uint32_t block_size = tcmu_get_dev_block_size(dev);
+        uint8_t *cdb = cmd->cdb;
+        uint64_t off = block_size * tcmu_get_lba(cdb);
+        size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
+
+        cmd->done = handle_generic_cbk;
+        return caw_fn(dev, cmd, off, half, cmd->iovec, cmd->iov_cnt);
+}
+
+int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		     tcmur_caw_fn_t caw_fn)
+{
+        int ret;
+
+        ret = tcmur_alua_implicit_transition(dev, cmd);
+        if (ret)
+                return ret;
+
+        ret = handle_caw_check(dev, cmd);
+        if (ret)
+                return ret;
+
+        cmd->cmdstate = caw_fn;
+
+        return async_handle_cmd(dev, cmd, tcmur_caw_fn);
 }
 
 /* async flush */
