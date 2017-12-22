@@ -731,6 +731,7 @@ static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 static int dev_added(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct list_head group_list;
 	struct tcmur_device *rdev;
 	int32_t block_size, max_sectors;
 	uint32_t max_xfer_length;
@@ -794,6 +795,14 @@ static int dev_added(struct tcmu_device *dev)
 	ret = rhandler->open(dev);
 	if (ret)
 		goto cleanup_aio_tracking;
+	/*
+	 * On the initial creation ALUA will probably not yet have been setup,
+	 * but for reopens it will be so we need to sync our failover state.
+	 */
+	list_head_init(&group_list);
+	tcmu_get_alua_grps(dev, &group_list);
+	tcmu_release_alua_grps(&group_list);
+
 	rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
 
 	/*
