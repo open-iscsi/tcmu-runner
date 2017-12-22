@@ -770,7 +770,7 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 					   NULL);
 	}
 
-	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
+	max_xfer_length = tcmu_get_dev_max_xfer_len(dev) * block_size;
 	length = round_up(length, max_xfer_length);
 	length = min(length, (size_t)lba_cnt * block_size);
 
@@ -2171,7 +2171,7 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	cmd->cmdstate = state;
 	state->done_blocks = 0;
 
-	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
+	max_xfer_length = tcmu_get_dev_max_xfer_len(dev) * block_size;
 	length = round_up(length, max_xfer_length);
 	state->length = length;
 
