@@ -1195,7 +1195,12 @@ static int tcmu_rbd_reconfig(struct tcmu_device *dev,
 {
 	switch (cfg->type) {
 	case TCMULIB_CFG_DEV_SIZE:
-		return tcmu_rbd_check_image_size(dev, cfg->data.dev_size);
+		/*
+		 * Apps will already have resized on the ceph side, so no
+		 * need to double check and have to also handle unblacklisting
+		 * the client from this context.
+		 */
+		return 0;
 	case TCMULIB_CFG_DEV_CFGSTR:
 	case TCMULIB_CFG_WRITE_CACHE:
 	default:
