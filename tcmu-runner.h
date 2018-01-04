@@ -75,7 +75,7 @@ struct tcmur_handler {
 	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
 	/* Per-device added/removed callbacks */
-	int (*open)(struct tcmu_device *dev);
+	int (*open)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 	void (*close)(struct tcmu_device *dev);
 
 	/*

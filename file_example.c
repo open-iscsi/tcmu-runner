@@ -48,7 +48,7 @@ struct file_state {
 	int fd;
 };
 
-static int file_open(struct tcmu_device *dev)
+static int file_open(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	struct file_state *state;
 	char *config;

@@ -89,7 +89,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev)
 		pthread_mutex_unlock(&rdev->state_lock);
 
 		tcmu_dev_dbg(dev, "Opening device.\n");
-		ret = rhandler->open(dev);
+		ret = rhandler->open(dev, NULL);
 
 		pthread_mutex_lock(&rdev->state_lock);
 		if (!ret) {
