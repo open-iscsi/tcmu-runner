@@ -1107,7 +1107,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	uint64_t offset;
 	int length = 0;
 	int remaining;
-	size_t ret;
+	ssize_t ret;
 	int rc;
 
 	// TBD: If we simulate start/stop, then fail if stopped
@@ -1165,7 +1165,7 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 			 size_t iov_cnt, uint64_t offset, int length,
 			 uint8_t *sense)
 {
-	size_t ret;
+	ssize_t ret;
 	uint32_t cmp_offset;
 	void *buf;
 	int rc = SAM_STAT_GOOD;
@@ -1227,7 +1227,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	uint64_t offset;
 	int length = 0;
 	int remaining;
-	size_t ret;
+	ssize_t ret;
 	int rc = SAM_STAT_GOOD;
 	int rc1;
 
@@ -1319,7 +1319,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	uint64_t offset = 0;
 	uint8_t *buf;
 	unsigned int length = 1024 * 1024;
-	size_t ret;
+	ssize_t ret;
 	int rc = SAM_STAT_GOOD;
 
 	buf = malloc(length);
