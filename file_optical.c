@@ -481,11 +481,13 @@ static int fbo_emulate_allow_medium_removal(struct tcmu_device *dev,
 {
 	struct fbo_state *state = tcmu_get_dev_private(dev);
 
+	pthread_mutex_lock(&state->state_mtx);
 	/* We're ignoring the persistent prevent bit */
 	if (cdb[4] & 0x01)
 		state->flags |= FBO_PREV_EJECT;
 	else
 		state->flags &= ~FBO_PREV_EJECT;
+	pthread_mutex_unlock(&state->state_mtx);
 
 	return SAM_STAT_GOOD;
 }
