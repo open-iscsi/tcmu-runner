@@ -155,7 +155,7 @@ int main(int argc, char **argv)
 	   handler->added() will now be called from within
 	   tcmulib_initialize(). */
 	tcmulib_ctx = tcmulib_initialize(&foo_handler, 1);
-	if (tcmulib_ctx <= 0) {
+	if (!tcmulib_ctx) {
 		tcmu_err("tcmulib_initialize failed with %p\n", tcmulib_ctx);
 		exit(1);
 	}
