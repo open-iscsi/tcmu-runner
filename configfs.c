@@ -33,7 +33,7 @@ int tcmu_get_cfgfs_int(const char *path)
 	int fd;
 	char buf[16];
 	ssize_t ret;
-	unsigned int val;
+	unsigned long val;
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
@@ -51,8 +51,8 @@ int tcmu_get_cfgfs_int(const char *path)
 	}
 
 	val = strtoul(buf, NULL, 0);
-	if (val == ULONG_MAX) {
-		tcmu_err("could not convert string to value\n");
+	if (val > INT_MAX ) {
+		tcmu_err("could not convert string %s to value\n", buf);
 		return -EINVAL;
 	}
 
