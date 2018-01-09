@@ -517,9 +517,9 @@ static bool tcmu_logdir_check(const char *path)
 	if (!path)
 		return false;
 
-	if (strlen(path) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
+	if (strlen(path) >= PATH_MAX - TCMU_LOG_FILENAME_MAX) {
 		tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
-			 path, PATH_MAX - TCMU_LOG_FILENAME_MAX);
+			 path, PATH_MAX - TCMU_LOG_FILENAME_MAX - 1);
 		return false;
 	}
 
