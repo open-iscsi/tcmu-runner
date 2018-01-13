@@ -265,7 +265,8 @@ static void tcmu_parse_option(char **cur, const char *end)
 
 		return;
 	}
-
+	/* skip character '='  */
+	s++;
 	while (isblank(*r) || *r == '=')
 		r--;
 	r++;
@@ -282,7 +283,7 @@ static void tcmu_parse_option(char **cur, const char *end)
 		} else if (isdigit(*r)) {
 			type = TCMU_OPT_INT;
 		} else {
-			tcmu_err("option type %d not supported!\n");
+			tcmu_err("option type not supported!\n");
 			return;
 		}
 
