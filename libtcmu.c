@@ -588,7 +588,7 @@ static void close_devices(struct tcmulib_context *ctx)
 	struct tcmu_device *dev;
 	char *cfgstring = "";
 
-	darray_foreach(dev_ptr, ctx->devices) {
+	darray_foreach_reverse(dev_ptr, ctx->devices) {
 		dev = *dev_ptr;
 		remove_device(ctx, dev->dev_name, cfgstring, true);
 	}
