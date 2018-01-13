@@ -531,6 +531,8 @@ void tcmu_destroy_config(struct tcmu_config *cfg)
 	}
 
 	tcmu_conf_free_str_keys(cfg);
+	if (cfg->log_dir_path)
+		free(cfg->log_dir_path);
 	free(cfg->path);
 	free(cfg);
 }
