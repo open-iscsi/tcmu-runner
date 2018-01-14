@@ -167,6 +167,7 @@ char *tcmu_get_cfgfs_str(const char *path)
 	ssize_t ret;
 	char *val;
 
+	memset(buf, 0, sizeof(buf));
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
 		tcmu_err("Could not open configfs to read attribute %s: %s\n",
@@ -185,8 +186,25 @@ char *tcmu_get_cfgfs_str(const char *path)
 	if (ret == 0)
 		return NULL;
 
+	/*
+	 * Some files like members ends with a null char, but other files like
+	 * the alua ones end with a newline.
+	 */
 	if (buf[ret - 1] == '\n')
 		buf[ret - 1] = '\0';
+
+	if (buf[ret - 1] != '\0') {
+		if (ret >= CFGFS_BUF_SIZE) {
+			tcmu_err("Invalid cfgfs file %s: not enough space for ending null char.\n",
+				 path);
+			return NULL;
+		}
+		/*
+		 * In case the file does "return sprintf()" with no ending
+		 * newline add the ending null so we will not crash below.
+		 */
+		buf[ret] = '\0';
+	}
 
 	val = strdup(buf);
 	if (!val) {
