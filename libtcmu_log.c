@@ -30,6 +30,7 @@
 #include "libtcmu_config.h"
 #include "libtcmu_time.h"
 #include "libtcmu_priv.h"
+#include "string_priv.h"
 
 /* tcmu ring buffer for log */
 #define LOG_ENTRY_LEN 256 /* rb[0] is reserved for pri */
@@ -578,7 +579,7 @@ static int tcmu_mkdirs(const char *pathname)
 	char path[PATH_MAX], *ch;
 	int ind = 0;
 
-	strncpy(path, pathname, PATH_MAX);
+	strlcpy(path, pathname, PATH_MAX);
 
 	if (path[0] == '/')
 		ind++;
