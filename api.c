@@ -50,7 +50,7 @@ int tcmu_get_cdb_length(uint8_t *cdb)
 	case 3: /*011b Reserved ? */
 		if (cdb[0] == 0x7f)
 			return 8 + cdb[7];
-		return -EINVAL;
+		goto cdb_not_supp;
 	case 4: /*100b for 16 bytes commands */
 		return 16;
 	case 5: /*101b for 12 bytes commands */
@@ -59,8 +59,12 @@ int tcmu_get_cdb_length(uint8_t *cdb)
 	case 7: /*111b Vendor Specific */
 	default:
 		/* TODO: */
-		return -EINVAL;
+		goto cdb_not_supp;
 	}
+
+cdb_not_supp:
+	tcmu_err("CDB %x0x not supported.\n", cdb[0]);
+	return -EINVAL;
 }
 
 uint64_t tcmu_get_lba(uint8_t *cdb)
@@ -78,7 +82,7 @@ uint64_t tcmu_get_lba(uint8_t *cdb)
 	case 16:
 		return be64toh(*((u_int64_t *)&cdb[2]));
 	default:
-		return -EINVAL;
+		assert_perror(EINVAL);
 	}
 }
 
@@ -94,7 +98,7 @@ uint32_t tcmu_get_xfer_length(uint8_t *cdb)
 	case 16:
 		return be32toh(*((u_int32_t *)&cdb[10]));
 	default:
-		return -EINVAL;
+		assert_perror(EINVAL);
 	}
 }
 
@@ -1188,6 +1192,9 @@ void tcmu_cdb_debug_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd)
 	buf = fix;
 
 	bytes = tcmu_get_cdb_length(cmd->cdb);
+	if (bytes < 0)
+		return;
+
 	if (bytes > CDB_FIX_SIZE) {
 		buf = malloc(CDB_TO_BUF_SIZE(bytes));
 		if (!buf) {
