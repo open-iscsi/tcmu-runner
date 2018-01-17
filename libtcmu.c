@@ -756,6 +756,16 @@ uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev)
 	return dev->block_size;
 }
 
+void tcmu_set_dev_cmd_time_out(struct tcmu_device *dev, uint32_t cmd_time_out)
+{
+	dev->cmd_time_out = cmd_time_out;
+}
+
+uint32_t tcmu_get_dev_cmd_time_out(struct tcmu_device *dev)
+{
+	return dev->cmd_time_out;
+}
+
 /**
  * tcmu_set_dev_max_xfer_len - set device's max command size
  * @dev: tcmu device

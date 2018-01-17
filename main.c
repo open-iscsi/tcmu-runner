@@ -733,7 +733,7 @@ static int dev_added(struct tcmu_device *dev)
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct list_head group_list;
 	struct tcmur_device *rdev;
-	int32_t block_size, max_sectors;
+	int32_t block_size, max_sectors, cmd_time_out;
 	uint32_t max_xfer_length;
 	int64_t dev_size;
 	int ret;
@@ -767,6 +767,19 @@ static int dev_added(struct tcmu_device *dev)
 
 	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld\n",
 		     block_size, dev_size);
+
+	cmd_time_out = tcmu_get_attribute(dev, "cmd_time_out");
+	if (cmd_time_out == -ENOENT) {
+		tcmu_set_dev_cmd_time_out(dev, 0);
+	} else if (cmd_time_out < 0) {
+		tcmu_dev_err(dev, "Could not get cmd_time_out\n");
+		goto free_rdev;
+	} else {
+		tcmu_set_dev_cmd_time_out(dev, cmd_time_out);
+	}
+
+	tcmu_dev_dbg(dev, "Got device cmd_time_out %d second%s\n",
+		     cmd_time_out, cmd_time_out > 1 ? "s" : "");
 
 	ret = pthread_spin_init(&rdev->lock, 0);
 	if (ret != 0)

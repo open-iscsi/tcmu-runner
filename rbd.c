@@ -341,16 +341,74 @@ static void tcmu_rbd_image_close(struct tcmu_device *dev)
 	state->image = NULL;
 }
 
+static int update_cmd_time_out(struct tcmu_device *dev,
+					uint32_t timeout)
+{
+	int ret;
+
+	ret = tcmu_set_attribute(dev, "cmd_time_out", timeout);
+	if (ret == -ENOENT) {
+		return 0;
+	} else if (ret < 0) {
+		tcmu_dev_err(dev, "Failed to set \"cmd_time_out\"\n");
+		return ret;
+	}
+
+	tcmu_dev_dbg(dev, "The ring's cmd_time_out has been update(%d --> %d)\n",
+		     tcmu_get_dev_cmd_time_out(dev), timeout);
+
+	tcmu_set_dev_cmd_time_out(dev, timeout);
+
+	return 0;
+}
+
+static int realloc_state_osd_op_timeout(struct tcmu_device *dev,
+					uint32_t timeout)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	char buf[128];
+	int len;
+
+	if (state->osd_op_timeout)
+		free(state->osd_op_timeout);
+
+	len = sprintf(buf, "%d", timeout);
+	buf[len] = '\0';
+
+	state->osd_op_timeout = strdup(buf);
+	if (!state->osd_op_timeout) {
+		tcmu_dev_err(dev, "Failed to alloc memory for ->osd_op_timeout\n");
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+/*
+ * The rados osd op timeout must be longer than the timeouts to detect
+ * unreachable OSDs (osd heartbeat grace + osd heartbeat interval) or
+ * we will end up failing the transport connection when we just needed
+ * to try a different OSD.
+ *
+ * And also the cmd time out in ring buffer in kernel must be longer
+ * than the rados osd op timeout too, then we can make sure that before
+ * the cmd in the osd timed out and get the reply from the osd, the cmd
+ * in ring buffer is still alive.
+ *
+ * Or for the multipath case, the client may resend the same cmd just
+ * before the osd really timedout.
+ */
 static int timer_check_and_set_def(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	char buf[128];
-	int grace, interval, ret, len;
-	float timeout;
+	int grace, interval, ret;
+	uint32_t cmd_time_out;
+	float timeout, new;
 
 	ret = rados_conf_get(state->cluster, "osd_heartbeat_grace",
 			     buf, 128);
-	if (ret) {
+	if (ret < 0) {
 		tcmu_dev_err(dev, "Failed to get cluster's default osd_heartbeat_grace\n");
 		return ret;
 	}
@@ -358,7 +416,7 @@ static int timer_check_and_set_def(struct tcmu_device *dev)
 
 	ret = rados_conf_get(state->cluster, "osd_heartbeat_interval",
 			     buf, 128);
-	if (ret) {
+	if (ret < 0) {
 		tcmu_dev_err(dev, "Failed to get cluster's default osd_heartbeat_interval\n");
 		return ret;
 	}
@@ -366,7 +424,7 @@ static int timer_check_and_set_def(struct tcmu_device *dev)
 
 	ret = rados_conf_get(state->cluster, "rados_osd_op_timeout",
 			     buf, 128);
-	if (ret) {
+	if (ret < 0) {
 		tcmu_dev_err(dev, "Failed to get cluster's default rados_osd_op_timeout\n");
 		return ret;
 	}
@@ -375,41 +433,64 @@ static int timer_check_and_set_def(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "The cluster's default osd op timeout(%f), osd heartbeat grace(%d) interval(%d)\n",
 		     timeout, grace, interval);
 
+	cmd_time_out = tcmu_get_dev_cmd_time_out(dev);
+
 	/* Frist: Try to use new osd op timeout value */
-	if (state->osd_op_timeout && atof(state->osd_op_timeout) > grace + interval)
+	if (state->osd_op_timeout && atof(state->osd_op_timeout) > grace + interval) {
+		/* Make sure cmd_time_out is larger than osd_op_timeout */
+		if (cmd_time_out && atoi(state->osd_op_timeout) >= cmd_time_out) {
+			cmd_time_out = atoi(state->osd_op_timeout) + 5;
+			ret = update_cmd_time_out(dev, cmd_time_out);
+			if (ret < 0)
+				return ret;
+		}
 		goto set;
+	}
 
 	/* Second: Try to use the default osd op timeout value as read from the cluster */
 	if (timeout > grace + interval) {
-		tcmu_dev_dbg(dev, "The osd op timeout will remain the default value: %f\n", timeout);
+		tcmu_dev_dbg(dev, "The osd op timeout will remain the default value: %f\n",
+			     timeout);
+
+		/* Make sure cmd_time_out is larger than osd_op_timeout */
+		if (!cmd_time_out)
+			return 0;
+
+		if (timeout >= cmd_time_out) {
+			ret = update_cmd_time_out(dev, timeout + 5);
+			if (ret < 0)
+				return ret;
+		}
+
 		return 0;
 	}
-
-	tcmu_dev_warn(dev, "osd op timeout (%s) must be larger than osd heartbeat grace (%d) + interval (%d)!\n",
-		      state->osd_op_timeout, grace, interval);
 
 	/*
 	 * At last: Set the default rados_osd_op_timeout to grace + interval + 5
 	 * to make sure rados_osd_op_timeout > grace + interval.
 	 */
-	len = sprintf(buf, "%d", grace + interval + 5);
-	buf[len] = '\0';
+	new = grace + interval + 5;
+	ret = realloc_state_osd_op_timeout(dev, new);
+	if (ret < 0)
+		return ret;
 
-	if (state->osd_op_timeout)
-		free(state->osd_op_timeout);
-
-	state->osd_op_timeout = strdup(buf);
-	if (!state->osd_op_timeout) {
-		tcmu_dev_err(dev, "Failed to alloc memory for ->osd_op_timeout\n");
-		return -ENOMEM;
+	/* Make sure cmd_time_out is larger than osd_op_timeout */
+	if (new >= cmd_time_out) {
+		ret = update_cmd_time_out(dev, new + 5);
+		if (ret < 0)
+			return ret;
 	}
 
+set:
 	tcmu_dev_warn(dev, "Will set the osd op timeout to %s instead!\n",
 		      state->osd_op_timeout);
 
-set:
-	return rados_conf_set(state->cluster, "rados_osd_op_timeout",
-			      state->osd_op_timeout);
+	ret = rados_conf_set(state->cluster, "rados_osd_op_timeout",
+			     state->osd_op_timeout);
+	if (ret < 0)
+		tcmu_dev_err(dev, "Failed to set cluster's rados_osd_op_timeout\n");
+
+	return ret;
 }
 
 static int tcmu_rbd_image_open(struct tcmu_device *dev)

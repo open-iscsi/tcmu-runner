@@ -56,6 +56,8 @@ struct tcmu_device {
 
 	uint32_t cmd_tail;
 
+	uint32_t cmd_time_out;
+
 	uint64_t num_lbas;
 	uint32_t block_size;
 	uint32_t max_xfer_len;
