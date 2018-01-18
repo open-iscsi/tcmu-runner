@@ -30,6 +30,7 @@
 #include "libtcmu_config.h"
 #include "libtcmu_time.h"
 #include "libtcmu_priv.h"
+#include "string_priv.h"
 
 /* tcmu ring buffer for log */
 #define LOG_ENTRY_LEN 256 /* rb[0] is reserved for pri */
@@ -517,9 +518,9 @@ static bool tcmu_logdir_check(const char *path)
 	if (!path)
 		return false;
 
-	if (strlen(path) > PATH_MAX - TCMU_LOG_FILENAME_MAX) {
+	if (strlen(path) >= PATH_MAX - TCMU_LOG_FILENAME_MAX) {
 		tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
-			 path, PATH_MAX - TCMU_LOG_FILENAME_MAX);
+			 path, PATH_MAX - TCMU_LOG_FILENAME_MAX - 1);
 		return false;
 	}
 
@@ -578,7 +579,7 @@ static int tcmu_mkdirs(const char *pathname)
 	char path[PATH_MAX], *ch;
 	int ind = 0;
 
-	strncpy(path, pathname, PATH_MAX);
+	strlcpy(path, pathname, PATH_MAX);
 
 	if (path[0] == '/')
 		ind++;

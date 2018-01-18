@@ -1065,6 +1065,7 @@ int main(int argc, char **argv)
 	darray_foreach(tmp_r_handler, g_runner_handlers) {
 		struct tcmulib_handler tmp_handler;
 
+		memset(&tmp_handler, 0, sizeof(tmp_handler));
 		tmp_handler.name = (*tmp_r_handler)->name;
 		tmp_handler.subtype = (*tmp_r_handler)->subtype;
 		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;

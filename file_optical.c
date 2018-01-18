@@ -481,11 +481,13 @@ static int fbo_emulate_allow_medium_removal(struct tcmu_device *dev,
 {
 	struct fbo_state *state = tcmu_get_dev_private(dev);
 
+	pthread_mutex_lock(&state->state_mtx);
 	/* We're ignoring the persistent prevent bit */
 	if (cdb[4] & 0x01)
 		state->flags |= FBO_PREV_EJECT;
 	else
 		state->flags &= ~FBO_PREV_EJECT;
+	pthread_mutex_unlock(&state->state_mtx);
 
 	return SAM_STAT_GOOD;
 }
@@ -1107,7 +1109,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	uint64_t offset;
 	int length = 0;
 	int remaining;
-	size_t ret;
+	ssize_t ret;
 	int rc;
 
 	// TBD: If we simulate start/stop, then fail if stopped
@@ -1165,7 +1167,7 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 			 size_t iov_cnt, uint64_t offset, int length,
 			 uint8_t *sense)
 {
-	size_t ret;
+	ssize_t ret;
 	uint32_t cmp_offset;
 	void *buf;
 	int rc = SAM_STAT_GOOD;
@@ -1227,7 +1229,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	uint64_t offset;
 	int length = 0;
 	int remaining;
-	size_t ret;
+	ssize_t ret;
 	int rc = SAM_STAT_GOOD;
 	int rc1;
 
@@ -1319,7 +1321,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	uint64_t offset = 0;
 	uint8_t *buf;
 	unsigned int length = 1024 * 1024;
-	size_t ret;
+	ssize_t ret;
 	int rc = SAM_STAT_GOOD;
 
 	buf = malloc(length);

@@ -965,7 +965,16 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			int i;
 			struct tcmulib_cmd *cmd;
 			uint8_t *cdb = (uint8_t *) mb + ent->req.cdb_off;
-			unsigned cdb_len = tcmu_get_cdb_length(cdb);
+			int cdb_len = tcmu_get_cdb_length(cdb);
+
+			if (cdb_len < 0) {
+				/*
+				 * This should never happen so just drop cmd
+				 * for now instead of adding a lock in the
+				 * main IO path.
+				 */
+				break;
+			}
 
 			/* Alloc memory for cmd itself, iovec and cdb */
 			cmd = malloc(sizeof(*cmd) + sizeof(*cmd->iovec) * ent->req.iov_cnt + cdb_len);
