@@ -43,7 +43,7 @@ bool tcmu_dev_in_recovery(struct tcmu_device *dev)
 /*
  * TCMUR_DEV_FLAG_IN_RECOVERY must be set before calling
  */
-int __tcmu_reopen_dev(struct tcmu_device *dev)
+int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -67,7 +67,8 @@ int __tcmu_reopen_dev(struct tcmu_device *dev)
 	 * async lock requests in progress that might be accessing
 	 * the device.
 	 */
-	tcmu_cancel_lock_thread(dev);
+	if (!in_lock_thread)
+		tcmu_cancel_lock_thread(dev);
 
 	/*
 	 * Force a reacquisition of the lock when we have reopend the
@@ -120,7 +121,7 @@ int tcmu_reopen_dev(struct tcmu_device *dev)
 	rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	return __tcmu_reopen_dev(dev);
+	return __tcmu_reopen_dev(dev, true);
 }
 
 void tcmu_cancel_recovery(struct tcmu_device *dev)
@@ -207,7 +208,6 @@ void tcmu_notify_lock_lost(struct tcmu_device *dev)
 int tcmu_cancel_lock_thread(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	void *join_retval;
 	int ret;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -215,18 +215,16 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev)
 		pthread_mutex_unlock(&rdev->state_lock);
 		return 0;
 	}
-	pthread_mutex_unlock(&rdev->state_lock);
 	/*
 	 * It looks like lock calls are not cancelable, so
 	 * we wait here to avoid crashes.
 	 */
 	tcmu_dev_dbg(dev, "Waiting on lock thread\n");
-	ret = pthread_join(rdev->lock_thread, &join_retval);
-	/*
-	 * We may be called from the lock thread to reopen the device.
-	 */
-	if (ret != EDEADLK)
-		tcmu_dev_err(dev, "pthread_join failed with value %d\n", ret);
+
+	tcmu_dev_dbg(rdev->dev, "waiting for lock thread to exit\n");
+	ret = pthread_cond_wait(&rdev->lock_cond, &rdev->state_lock);
+	pthread_mutex_unlock(&rdev->state_lock);
+
 	return ret;
 }
 
@@ -274,9 +272,6 @@ retry:
 
 	ret = rhandler->lock(dev);
 	switch (ret) {
-	case TCMUR_LOCK_BUSY:
-		new_state = TCMUR_DEV_LOCK_LOCKING;
-		break;
 	case TCMUR_LOCK_FAILED:
 		new_state = TCMUR_DEV_LOCK_UNLOCKED;
 		break;
@@ -306,6 +301,7 @@ done:
 	pthread_mutex_lock(&rdev->state_lock);
 	rdev->lock_state = new_state;
 	tcmu_dev_dbg(dev, "lock call done. lock state %d\n", rdev->lock_state);
+	pthread_cond_signal(&rdev->lock_cond);
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	return ret;

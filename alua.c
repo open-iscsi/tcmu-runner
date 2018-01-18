@@ -440,6 +440,7 @@ static void *alua_lock_thread_fn(void *arg)
 int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	pthread_attr_t attr;
 	int ret = SAM_STAT_GOOD;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -453,11 +454,18 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	rdev->lock_state = TCMUR_DEV_LOCK_LOCKING;
+
+	/*
+	 * Make the lock_thread as detached to fix the memory leakage bug.
+	 */
+	pthread_attr_init (&attr);
+	pthread_attr_setdetachstate (&attr, PTHREAD_CREATE_DETACHED);
+
 	/*
 	 * The initiator is going to be queueing commands, so do this
 	 * in the background to avoid command timeouts.
 	 */
-	if (pthread_create(&rdev->lock_thread, NULL, alua_lock_thread_fn,
+	if (pthread_create(&rdev->lock_thread, &attr, alua_lock_thread_fn,
 			   dev)) {
 		tcmu_dev_err(dev, "Could not start implicit transition thread:%s\n",
 			     strerror(errno));
