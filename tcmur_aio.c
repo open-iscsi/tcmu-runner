@@ -35,6 +35,11 @@ struct tcmu_work {
 	struct list_node entry;
 };
 
+static void _cleanup_mutex_lock(void *arg)
+{
+	pthread_mutex_unlock(arg);
+}
+
 void track_aio_request_start(struct tcmur_device *rdev)
 {
 	struct tcmu_track_aio *aio_track = &rdev->track_queue;
@@ -244,7 +249,7 @@ void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 
 	for (i = 0; i < nr_threads; i++) {
 		if (io_wq->io_wq_threads[i]) {
-			cancel_thread(io_wq->io_wq_threads[i]);
+			tcmu_cancel_thread(io_wq->io_wq_threads[i]);
 		}
 	}
 }

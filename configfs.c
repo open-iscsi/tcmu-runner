@@ -228,3 +228,13 @@ int tcmu_set_cfgfs_ul(const char *path, unsigned long val)
 	sprintf(buf, "%lu", val);
 	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
 }
+
+int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
+			       unsigned long val)
+{
+	char path[PATH_MAX];
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/action/%s",
+		 dev->tcm_hba_name, dev->tcm_dev_name, name);
+	return tcmu_set_cfgfs_ul(path, val);
+}

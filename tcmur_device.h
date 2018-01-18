@@ -46,6 +46,8 @@ enum {
 struct tcmur_device {
 	struct tcmu_device *dev;
 
+	pthread_t cmdproc_thread;
+
 	/* TCMUR_DEV flags */
 	uint32_t flags;
 	uint8_t failover_type;
