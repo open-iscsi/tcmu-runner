@@ -2299,9 +2299,33 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		goto untrack;
 	}
 
-	ret = tcmur_alua_implicit_transition(dev, cmd);
-	if (ret)
-		goto untrack;
+	/* Don't perform alua implicit transition if command is not supported */
+	switch(cdb[0]) {
+	case READ_6:
+	case READ_10:
+	case READ_12:
+	case READ_16:
+	case WRITE_6:
+	case WRITE_10:
+	case WRITE_12:
+	case WRITE_16:
+	case UNMAP:
+	case SYNCHRONIZE_CACHE:
+	case SYNCHRONIZE_CACHE_16:
+	case EXTENDED_COPY:
+	case COMPARE_AND_WRITE:
+	case WRITE_VERIFY:
+	case WRITE_VERIFY_16:
+	case WRITE_SAME:
+	case WRITE_SAME_16:
+	case FORMAT_UNIT:
+		ret = tcmur_alua_implicit_transition(dev, cmd);
+		if (ret)
+			goto untrack;
+		break;
+	default:
+		break;
+	}
 
 	switch(cdb[0]) {
 	case READ_6:
