@@ -258,7 +258,7 @@ done:
 	 * cmdproc thread to reopen all these in parallel.
 	 */
 	list_for_each_safe(&tpg->devs, rdev, tmp_rdev, recovery_entry) {
-		ret = __tcmu_reopen_dev(rdev->dev);
+		ret = __tcmu_reopen_dev(rdev->dev, false);
 		if (ret) {
 			tcmu_dev_err(rdev->dev, "Could not reinitialize device. (err %d).\n",
 				     ret);

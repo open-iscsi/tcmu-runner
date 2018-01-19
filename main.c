@@ -799,6 +799,10 @@ static int dev_added(struct tcmu_device *dev)
 
 	rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
 
+	ret = pthread_cond_init(&rdev->lock_cond, NULL);
+	if (ret < 0)
+		goto cleanup_lock_cond;
+
 	/*
 	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
 	 * alignment starts at the begining of the device.
@@ -816,6 +820,8 @@ static int dev_added(struct tcmu_device *dev)
 
 close_dev:
 	rhandler->close(dev);
+cleanup_lock_cond:
+	pthread_cond_destroy(&rdev->lock_cond);
 cleanup_aio_tracking:
 	cleanup_aio_tracking(rdev);
 cleanup_io_work_queue:
@@ -880,6 +886,10 @@ static void dev_removed(struct tcmu_device *dev)
 
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(rdev);
+
+	ret = pthread_cond_destroy(&rdev->lock_cond);
+	if (ret != 0)
+		tcmu_err("could not cleanup lock cond %d\n", ret);
 
 	ret = pthread_mutex_destroy(&rdev->state_lock);
 	if (ret != 0)
