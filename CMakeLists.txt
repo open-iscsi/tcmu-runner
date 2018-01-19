@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
 project (tcmu-runner C)
-set(VERSION 1.3.0-rc4)
+set(VERSION 1.3.0)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement -std=c99")
 
 include(GNUInstallDirs)
