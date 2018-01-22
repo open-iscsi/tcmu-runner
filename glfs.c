@@ -699,22 +699,34 @@ out:
 	return SAM_STAT_TASK_SET_FULL;
 }
 
+/*
+ * For backstore creation
+ *
+ * Specify volume, hostname and filepath e.g,
+ *
+ * $ targetcli /backstores/user:glfs create $blockname $size \
+ *   $volume@$hostname/$filepath
+ *
+ * volume: must be the name of an existing Gluster volume.
+ * hostname: the hostname or the IP address
+ * filepath: is the path of the backing file in Gluster volume.
+ */
 static const char glfs_cfg_desc[] =
 	"glfs config string is of the form:\n"
-	"\"volume@hostname/filename\"\n"
+	"\"$volume@$hostname/$filepath\"\n"
 	"where:\n"
 	"  volume:    The volume on the Gluster server\n"
 	"  hostname:  The server's hostname\n"
-	"  filename:  The backing file";
+	"  filepath:  The path of the backing file";
 
 struct tcmur_handler glfs_handler = {
-	.name 		= "Gluster glfs handler",
-	.subtype 	= "glfs",
+	.name		= "Gluster glfs handler",
+	.subtype	= "glfs",
 	.cfg_desc	= glfs_cfg_desc,
 
-	.open 		= tcmu_glfs_open,
-	.close 		= tcmu_glfs_close,
-	.read 		= tcmu_glfs_read,
+	.open		= tcmu_glfs_open,
+	.close		= tcmu_glfs_close,
+	.read		= tcmu_glfs_read,
 	.write		= tcmu_glfs_write,
 	.reconfig       = tcmu_glfs_reconfig,
 	.flush		= tcmu_glfs_flush,
