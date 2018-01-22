@@ -127,6 +127,7 @@ int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
 long long tcmu_get_device_size(struct tcmu_device *dev);
 char *tcmu_get_wwn(struct tcmu_device *dev);
 int tcmu_get_cdb_length(uint8_t *cdb);
+int tcmu_get_cdb_length_by_opcode(uint8_t opcode);
 uint64_t tcmu_get_lba(uint8_t *cdb);
 uint32_t tcmu_get_xfer_length(uint8_t *cdb);
 off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size);
