@@ -627,6 +627,7 @@ static int zbc_format_meta(struct zbc_dev *zdev)
 	struct zbc_dev_config *cfg = &zdev->cfg;
 	struct zbc_meta *meta;
 	struct zbc_zone *zone;
+	unsigned int nr_seq_zones;
 	__u64 lba = 0;
 	unsigned int i;
 	int ret;
@@ -653,8 +654,12 @@ static int zbc_format_meta(struct zbc_dev *zdev)
 	}
 
 	zdev->nr_open_zones = cfg->open_num;
-	if (zdev->nr_open_zones >= zdev->nr_zones)
-		zdev->nr_open_zones = zdev->nr_zones;
+	nr_seq_zones = zdev->nr_zones - zdev->nr_conv_zones;
+	if (zdev->nr_open_zones >= nr_seq_zones / 2) {
+		zdev->nr_open_zones = nr_seq_zones / 2;
+		if (!zdev->nr_open_zones)
+			zdev->nr_open_zones = 1;
+	}
 
 	tcmu_dev_dbg(zdev->dev, "Formatting...\n");
 	tcmu_dev_dbg(zdev->dev, "  Model: %s\n",
