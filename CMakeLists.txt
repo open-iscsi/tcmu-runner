@@ -179,7 +179,7 @@ set_target_properties(handler_file_zbc
 target_include_directories(handler_file_zbc
   PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
-
+install(TARGETS handler_file_zbc DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 
 # The minimal library consumer
 add_executable(consumer
