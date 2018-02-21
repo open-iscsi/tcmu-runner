@@ -492,25 +492,25 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	config = tcmu_get_path(dev);
 	if (!config) {
-		goto fail;
+		goto free_glsp;
 	}
 
 	gfsp->fs = tcmu_create_glfs_object(dev, config, &gfsp->hosts);
 	if (!gfsp->fs) {
 		tcmu_dev_err(dev, "tcmu_create_glfs_object failed\n");
-		goto fail;
+		goto free_glsp;
 	}
 
 	gfsp->gfd = glfs_open(gfsp->fs, gfsp->hosts->path, ALLOWED_BSOFLAGS);
 	if (!gfsp->gfd) {
 		tcmu_dev_err(dev, "glfs_open failed: %m\n");
-		goto unref;
+		goto glfs_refresh;
 	}
 
 	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
 	if (ret) {
 		tcmu_dev_err(dev, "glfs_lstat failed: %m\n");
-		goto unref;
+		goto glfs_close;
 	}
 
 	if (st.st_size != tcmu_get_device_size(dev)) {
@@ -519,18 +519,18 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 		             "device %lld backing %lld\n",
 		             tcmu_get_device_size(dev),
 		             (long long) st.st_size);
-		goto unref;
+		goto glfs_close;
 	}
 
 	return 0;
 
-unref:
-	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
-
-fail:
+glfs_close:
 	if (gfsp->gfd)
 		glfs_close(gfsp->gfd);
+glfs_refresh:
+	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
 	gluster_free_server(&gfsp->hosts);
+free_glsp:
 	free(gfsp);
 
 	return -EIO;
