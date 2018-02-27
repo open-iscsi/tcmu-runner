@@ -479,9 +479,7 @@ static char* tcmu_get_path( struct tcmu_device *dev)
 static int tcmu_glfs_open(struct tcmu_device *dev)
 {
 	struct glfs_state *gfsp;
-	int ret = 0;
 	char *config;
-	struct stat st;
 
 	gfsp = calloc(1, sizeof(*gfsp));
 	if (!gfsp)
@@ -507,30 +505,12 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 		goto unref;
 	}
 
-	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
-	if (ret) {
-		tcmu_dev_err(dev, "glfs_lstat failed: %m\n");
-		goto unref;
-	}
-
-	if (st.st_size != tcmu_get_device_size(dev)) {
-		tcmu_dev_err(dev,
-		             "device size and backing size disagree: "
-		             "device %lld backing %lld\n",
-		             tcmu_get_device_size(dev),
-		             (long long) st.st_size);
-		goto unref;
-	}
-
 	return 0;
 
 unref:
 	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
-
-fail:
-	if (gfsp->gfd)
-		glfs_close(gfsp->gfd);
 	gluster_free_server(&gfsp->hosts);
+fail:
 	free(gfsp);
 
 	return -EIO;
@@ -636,34 +616,15 @@ out:
 	return SAM_STAT_TASK_SET_FULL;
 }
 
-static int tcmu_glfs_get_image_size(struct tcmu_device *dev,
-                                    uint64_t new_size)
-{
-	struct glfs_state *gfsp = tcmu_get_dev_private(dev);
-	struct stat st;
-	int ret;
-
-	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
-	if (ret) {
-		tcmu_dev_err(dev, "glfs_lstat failed: %m\n");
-		return ret;
-	}
-
-	if (st.st_size != new_size) {
-		tcmu_dev_err(dev, "Mismatched sizes. glfs image size %lld. Requested new size %" PRIu64 ".\n",
-		                  (long long) st.st_size, new_size);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 static int tcmu_glfs_reconfig(struct tcmu_device *dev,
                               struct tcmulib_cfg_info *cfg)
 {
 	switch (cfg->type) {
 	case TCMULIB_CFG_DEV_SIZE:
-		return tcmu_glfs_get_image_size(dev, cfg->data.dev_size);
+		/*
+		 * Let glusterfs tools handle size checks
+		 */
+		return 0;
 	case TCMULIB_CFG_DEV_CFGSTR:
 	case TCMULIB_CFG_WRITE_CACHE:
 	default:
@@ -720,16 +681,16 @@ static const char glfs_cfg_desc[] =
 	"  filepath:  The path of the backing file";
 
 struct tcmur_handler glfs_handler = {
-	.name		= "Gluster glfs handler",
-	.subtype	= "glfs",
-	.cfg_desc	= glfs_cfg_desc,
+	.name           = "Gluster glfs handler",
+	.subtype        = "glfs",
+	.cfg_desc       = glfs_cfg_desc,
 
-	.open		= tcmu_glfs_open,
-	.close		= tcmu_glfs_close,
-	.read		= tcmu_glfs_read,
-	.write		= tcmu_glfs_write,
+	.open           = tcmu_glfs_open,
+	.close          = tcmu_glfs_close,
+	.read           = tcmu_glfs_read,
+	.write          = tcmu_glfs_write,
 	.reconfig       = tcmu_glfs_reconfig,
-	.flush		= tcmu_glfs_flush,
+	.flush          = tcmu_glfs_flush,
 };
 
 /* Entry point must be named "handler_init". */
