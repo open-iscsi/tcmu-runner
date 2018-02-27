@@ -293,13 +293,14 @@ static int gluster_cache_query_or_add(struct tcmu_device *dev,
 
 	*fs = glfs_new(entry->volname);
 	if (!*fs) {
-		tcmu_dev_err(dev, "glfs_new failed: %m\n");
+		tcmu_dev_err(dev, "glfs_new(vol=%s) failed: %m\n", entry->volname);
 		goto out;
 	}
 
 	ret = gluster_cache_add(entry, *fs, config);
 	if (ret) {
-		tcmu_dev_err(dev, "gluster_cache_add failed: %m\n");
+		tcmu_dev_err(dev, "gluster_cache_add(vol=%s, config=%s) failed: %m\n",
+		             entry->volname, config);
 		glfs_fini(*fs);
 		*fs = NULL;
 		goto out;
@@ -409,14 +410,16 @@ static glfs_t* tcmu_create_glfs_object(struct tcmu_device *dev,
 	bool init = true;
 
 	if (parse_imagepath(config, hosts) == -1) {
-		tcmu_dev_err(dev, "hostaddr, volname, or path missing\n");
+		tcmu_dev_err(dev, "hostaddr, volname, or path missing in %s\n",
+		             config);
 		goto fail;
 	}
 	entry = *hosts;
 
 	ret = gluster_cache_query_or_add(dev, &fs, entry, config, &init);
 	if (ret) {
-		tcmu_dev_err(dev, "gluster_cache_query_or_add() failed\n");
+		tcmu_dev_err(dev, "gluster_cache_query_or_add(vol=%s, config=%s) failed\n",
+		             entry->volname, config);
 		goto fail;
 	}
 
@@ -429,26 +432,27 @@ static glfs_t* tcmu_create_glfs_object(struct tcmu_device *dev,
 				entry->server->u.inet.addr,
 				atoi(entry->server->u.inet.port));
 	if (ret) {
-		tcmu_dev_err(dev, "glfs_set_volfile_server failed: %m\n");
+		tcmu_dev_err(dev, "glfs_set_volfile_server(vol=%s, addr=%s) failed: %m\n",
+		             entry->volname, entry->server->u.inet.addr);
 		goto unref;
 	}
 
 	ret = tcmu_make_absolute_logfile(logfilepath, TCMU_GLFS_LOG_FILENAME);
 	if (ret < 0) {
-		tcmu_dev_err(dev, "tcmu_make_absolute_logfile failed: %d\n",
-			     ret);
+		tcmu_dev_err(dev, "tcmu_make_absolute_logfile failed: %d\n", ret);
 		goto unref;
 	}
 
 	ret = glfs_set_logging(fs, logfilepath, TCMU_GLFS_DEBUG_LEVEL);
 	if (ret < 0) {
-		tcmu_dev_err(dev, "glfs_set_logging failed: %m\n");
+		tcmu_dev_err(dev, "glfs_set_logging(vol=%s, path=%s) failed: %m\n",
+		             entry->volname, logfilepath);
 		goto unref;
 	}
 
 	ret = glfs_init(fs);
 	if (ret) {
-		tcmu_dev_err(dev, "glfs_init failed: %m\n");
+		tcmu_dev_err(dev, "glfs_init(vol=%s) failed: %m\n", entry->volname);
 		goto unref;
 	}
 
@@ -495,13 +499,14 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 
 	gfsp->fs = tcmu_create_glfs_object(dev, config, &gfsp->hosts);
 	if (!gfsp->fs) {
-		tcmu_dev_err(dev, "tcmu_create_glfs_object failed\n");
+		tcmu_dev_err(dev, "tcmu_create_glfs_object(config=%s) failed\n", config);
 		goto fail;
 	}
 
 	gfsp->gfd = glfs_open(gfsp->fs, gfsp->hosts->path, ALLOWED_BSOFLAGS);
 	if (!gfsp->gfd) {
-		tcmu_dev_err(dev, "glfs_open failed: %m\n");
+		tcmu_dev_err(dev, "glfs_open(vol=%s, file=%s) failed: %m\n",
+		             gfsp->hosts->volname, gfsp->hosts->path);
 		goto unref;
 	}
 
@@ -574,7 +579,8 @@ static int tcmu_glfs_read(struct tcmu_device *dev,
 
 	if (glfs_preadv_async(state->gfd, iov, iov_cnt, offset, SEEK_SET,
 	                      glfs_async_cbk, cookie) < 0) {
-		tcmu_dev_err(dev, "glfs_preadv_async failed: %m\n");
+		tcmu_dev_err(dev, "glfs_preadv_async(vol=%s, file=%s) failed: %m\n",
+		             state->hosts->volname, state->hosts->path);
 		goto out;
 	}
 
@@ -605,7 +611,8 @@ static int tcmu_glfs_write(struct tcmu_device *dev,
 
 	if (glfs_pwritev_async(state->gfd, iov, iov_cnt, offset,
 	                       ALLOWED_BSOFLAGS, glfs_async_cbk, cookie) < 0) {
-		tcmu_dev_err(dev, "glfs_pwritev_async failed: %m\n");
+		tcmu_dev_err(dev, "glfs_pwritev_async(vol=%s, file=%s) failed: %m\n",
+		             state->hosts->volname, state->hosts->path);
 		goto out;
 	}
 
@@ -649,7 +656,8 @@ static int tcmu_glfs_flush(struct tcmu_device *dev,
 	cookie->op = TCMU_GLFS_FLUSH;
 
 	if (glfs_fdatasync_async(state->gfd, glfs_async_cbk, cookie) < 0) {
-		tcmu_dev_err(dev, "glfs_fdatasync_async failed: %m\n");
+		tcmu_dev_err(dev, "glfs_fdatasync_async(vol=%s, file=%s) failed: %m\n",
+		             state->hosts->volname, state->hosts->path);
 		goto out;
 	}
 
