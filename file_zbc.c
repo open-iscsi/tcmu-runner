@@ -12,7 +12,7 @@
  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
  * License for the specific language governing permissions and limitations
  * under the License.
-*/
+ */
 
 /*
  * ZBC device emulation with a file backstore.
@@ -258,7 +258,7 @@ struct zbc_dev_config {
  */
 struct zbc_dev {
 
-	struct tcmu_device 	*dev;
+	struct tcmu_device	*dev;
 
 	struct zbc_dev_config	cfg;
 
@@ -352,7 +352,7 @@ static char *zbc_parse_open(char *val, struct zbc_dev_config *cfg, char **msg)
 #define ZBC_PARAMS	5
 
 struct zbc_dev_config_param {
-	char 	*name;
+	char	*name;
 	char	*(*parse)(char *, struct zbc_dev_config *, char **);
 } zbc_params[ZBC_PARAMS] = {
 	{ "model-",	zbc_parse_model	},
@@ -1332,7 +1332,7 @@ static int zbc_report_zones(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	len = tcmu_iovec_length(iovec, iov_cnt);
 	lba = tcmu_get_lba(cdb);
 	zone = zbc_get_zone(zdev, lba, false);
-	while (lba < zdev->capacity && len >=64) {
+	while (lba < zdev->capacity && len >= 64) {
 
 		if (zbc_should_report_zone(zone, ro)) {
 
@@ -1351,7 +1351,7 @@ static int zbc_report_zones(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 			memcpy(&data[24], &val64, 8);
 
 			tcmu_memcpy_into_iovec(iovec, iov_cnt, data, 64);
-			len -=64;
+			len -= 64;
 		}
 
 		lba = zone->start + zone->len;
@@ -1398,8 +1398,6 @@ static void __zbc_close_imp_open_zone(struct zbc_dev *zdev)
 			return;
 		}
 	}
-
-	return;
 }
 
 /*
@@ -1820,7 +1818,7 @@ static int zbc_mode_sense_control_page(uint8_t *buf, size_t buf_len)
 static struct {
 	uint8_t	page;
 	uint8_t	subpage;
-	int 	(*get)(uint8_t *buf, size_t buf_len);
+	int	(*get)(uint8_t *buf, size_t buf_len);
 } modesense_handlers[] = {
 	{0x01, 0, zbc_mode_sense_rwrecovery_page},
 	{0x08, 0, zbc_mode_sense_cache_page},
@@ -2066,8 +2064,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 		    (zbc_zone_seq_req(zone) &&
 		     lba + nr_lbas > zone->start + zone->len)) {
 			tcmu_dev_err(dev,
-				     "Write boundary violation lba %llu, "
-				     "xfer len %lu\n",
+				     "Write boundary violation lba %llu, xfer len %lu\n",
 				     lba, nr_lbas);
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
@@ -2083,6 +2080,16 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 		if (zbc_zone_seq_req(zone) && lba != zone->wp) {
 			tcmu_dev_err(dev, "Unaligned write lba %llu, wp %llu\n",
 				     lba, zone->wp);
+			if (zbc_zone_full(zone)) {
+				tcmu_dev_err(dev,
+					     "Write to FULL zone: start %llu, lba %llu\n",
+					     zone->start, lba);
+					return tcmu_set_sense_data(cmd->sense_buf,
+								   ILLEGAL_REQUEST,
+								   ASC_INVALID_FIELD_IN_CDB,
+								   NULL);
+			}
+
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
 						   ASC_UNALIGNED_WRITE_COMMAND,
@@ -2138,8 +2145,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		zone = zbc_get_zone(zdev, lba, false);
 		if (lba + nr_lbas > zone->start + zone->len) {
 			tcmu_dev_err(dev,
-				     "Write boundary violation lba %llu, "
-				     "xfer len %lu\n",
+				     "Write boundary violation lba %llu, xfer len %lu\n",
 				     lba, nr_lbas);
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
