@@ -247,6 +247,19 @@ int tcmu_set_cfgfs_ul(const char *path, unsigned long val)
 	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
 }
 
+bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name)
+{
+	char path[PATH_MAX];
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/%s",
+		 dev->tcm_hba_name, dev->tcm_dev_name, name);
+
+	if (access(path, F_OK) == -1)
+		return false;
+
+	return true;
+}
+
 int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
 			       unsigned long val)
 {

@@ -390,6 +390,11 @@ void tcmu_block_device(struct tcmu_device *dev)
 {
 	int rc;
 
+	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
+		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
+		return;
+	}
+
 	/*
 	 * Afer we set block_dev=1 the kernel will have freed
 	 * cmds in the qfull queue and no new commands will be sent to
@@ -397,10 +402,7 @@ void tcmu_block_device(struct tcmu_device *dev)
 	 */
 	tcmu_dev_dbg(dev, "blocking kernel device\n");
 	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 1);
-	if (rc == -ENOENT) {
-		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
-		return;
-	} else if (rc) {
+	if (rc) {
 		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
 		return;
 	}
@@ -411,12 +413,14 @@ void tcmu_unblock_device(struct tcmu_device *dev)
 {
 	int rc;
 
-	tcmu_dev_dbg(dev, "unblocking kernel device\n");
-	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 0);
-	if (rc == -ENOENT) {
+	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
 		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
 		return;
-	} else if (rc) {
+	}
+
+	tcmu_dev_dbg(dev, "unblocking kernel device\n");
+	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 0);
+	if (rc) {
 		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
 		return;
 	}
@@ -506,9 +510,11 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		/*
 		 * Force a retry of the outstanding commands.
 		 */
-		ret = tcmu_exec_cfgfs_dev_action(dev, "reset_ring", 1);
-		if (ret)
-			tcmu_dev_err(dev, "Could not reset ring %d.\n", ret);
+		if (tcmu_cfgfs_file_is_supported(dev, "action")) {
+			ret = tcmu_exec_cfgfs_dev_action(dev, "reset_ring", 1);
+			if (ret)
+				tcmu_dev_err(dev, "Could not reset ring %d.\n", ret);
+		}
 	}
 
 	snprintf(str_buf, sizeof(str_buf), "/dev/%s", dev_name);
