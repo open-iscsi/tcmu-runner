@@ -59,6 +59,7 @@ struct log_output {
 	char *name;
 	void *data;
 	tcmu_log_destination dest;
+	bool bypass;
 };
 
 static int tcmu_log_level = TCMU_LOG_INFO;
@@ -155,12 +156,29 @@ static inline void rb_update_head(struct log_buf *logbuf)
 	logbuf->head = (logbuf->head + 1) % LOG_ENTRYS;
 }
 
+static void log_output(int pri, const char *msg, bool bypass)
+{
+	struct log_output *output;
+	char timestamp[TCMU_TIME_STRING_BUFLEN] = {0, };
+	int ret;
+
+	ret = time_string_now(timestamp);
+	if (ret < 0)
+		return;
+
+	darray_foreach (output, logbuf->outputs) {
+		if (output->bypass == bypass && pri <= output->priority) {
+			output->output_fn(pri, timestamp, msg, output->data);
+		}
+	}
+}
+
 static void
 log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	     int linenr, const char *fmt, va_list args)
 {
 	unsigned int head;
-	char *msg;
+	char *msg, buf[LOG_MSG_LEN];
 	int n;
 	struct tcmur_handler *rhandler;
 
@@ -192,6 +210,9 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	}
 
 	vsnprintf(msg + n, LOG_MSG_LEN - n, fmt, args);
+
+	memcpy(buf, msg, LOG_MSG_LEN);
+	log_output(pri, buf, true);
 
 	rb_update_head(logbuf);
 
@@ -253,7 +274,7 @@ void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname,
 }
 
 static int append_output(log_output_fn_t output_fn, log_close_fn_t close_fn, void *data,
-                         int pri, int dest, const char *name)
+                         int pri, int dest, const char *name, bool bypass)
 {
 	char *ndup = NULL;
 	struct log_output output;
@@ -275,6 +296,7 @@ static int append_output(log_output_fn_t output_fn, log_close_fn_t close_fn, voi
 	output.priority = pri;
 	output.dest = dest;
 	output.name = ndup;
+	output.bypass = bypass;
 
 	darray_append(logbuf->outputs, output);
 
@@ -306,7 +328,7 @@ static int create_syslog_output(int pri, const char *ident)
 {
 	openlog(ident, 0 ,0);
 	if (append_output(output_to_syslog, close_syslog, NULL,
-			  pri, TCMU_LOG_TO_SYSLOG, ident) < 0) {
+			  pri, TCMU_LOG_TO_SYSLOG, ident, false) < 0) {
 		closelog();
 		return -1;
 	}
@@ -377,7 +399,7 @@ out:
 static int create_stdout_output(int pri)
 {
 	if (append_output(output_to_fd, close_fd, (void *)2L,
-			  pri, TCMU_LOG_TO_STDOUT, NULL) < 0)
+			  pri, TCMU_LOG_TO_STDOUT, NULL, true) < 0)
 		return -1;
 
 	return 0;
@@ -401,7 +423,7 @@ static int create_file_output(int pri, const char *filename)
 	}
 
 	ret = append_output(output_to_fd, close_fd, (void *)(intptr_t) fd,
-			    pri, TCMU_LOG_TO_FILE, filename);
+			    pri, TCMU_LOG_TO_FILE, filename, true);
 	if (ret < 0) {
 		close(fd);
 		tcmu_err("Failed to append output file: %s\n", log_file_path);
@@ -409,23 +431,6 @@ static int create_file_output(int pri, const char *filename)
 	}
 
         return 0;
-}
-
-static void log_output(int pri, const char *msg)
-{
-	struct log_output *output;
-	char timestamp[TCMU_TIME_STRING_BUFLEN] = {0, };
-	int ret;
-
-	ret = time_string_now(timestamp);
-	if (ret < 0)
-		return;
-
-	darray_foreach (output, logbuf->outputs) {
-		if (pri <= output->priority) {
-			output->output_fn(pri, timestamp, msg, output->data);
-		}
-	}
 }
 
 static bool log_buf_not_empty_output(struct log_buf *logbuf)
@@ -458,7 +463,7 @@ static bool log_buf_not_empty_output(struct log_buf *logbuf)
 	 * the ring buffer may lose some old log rbs if the
 	 * ring buffer is full.
 	 */
-	log_output(pri, buf);
+	log_output(pri, buf, false);
 
 	return true;
 }
