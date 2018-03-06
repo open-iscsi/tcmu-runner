@@ -440,6 +440,9 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		tcmu_err("calloc failed in add_device\n");
 		return -ENOMEM;
 	}
+	ret = pthread_spin_init(&dev->lock, 0);
+	if (ret != 0)
+		goto err_free;
 
 	snprintf(dev->dev_name, sizeof(dev->dev_name), "%s", dev_name);
 
@@ -447,12 +450,12 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
 		tcmu_err("invalid cfgstring\n");
-		goto err_free;
+		goto err_cleanup_lock;
 	}
 
 	if (strncmp(cfgstring, "tcm-user", ptr-oldptr)) {
 		tcmu_err("invalid cfgstring\n");
-		goto err_free;
+		goto err_cleanup_lock;
 	}
 
 	/* Get HBA name */
@@ -460,7 +463,7 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
 		tcmu_err("invalid cfgstring\n");
-		goto err_free;
+		goto err_cleanup_lock;
 	}
 	len = ptr-oldptr;
 	snprintf(dev->tcm_hba_name, sizeof(dev->tcm_hba_name), "user_%.*s", len, oldptr);
@@ -470,7 +473,7 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 	ptr = strchr(oldptr, '/');
 	if (!ptr) {
 		tcmu_err("invalid cfgstring\n");
-		goto err_free;
+		goto err_cleanup_lock;
 	}
 	len = ptr-oldptr;
 	snprintf(dev->tcm_dev_name, sizeof(dev->tcm_dev_name), "%.*s", len, oldptr);
@@ -483,7 +486,7 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 	dev->handler = find_handler(ctx, dev->cfgstring);
 	if (!dev->handler) {
 		tcmu_err("could not find handler for %s\n", dev->dev_name);
-		goto err_free;
+		goto err_cleanup_lock;
 	}
 
 	if (dev->handler->check_config &&
@@ -491,7 +494,7 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		/* It may be handled by other handlers */
 		tcmu_err("check_config failed for %s because of %s\n", dev->dev_name, reason);
 		free(reason);
-		goto err_free;
+		goto err_cleanup_lock;
 	}
 
 	if (reopen) {
@@ -576,6 +579,8 @@ err_fd_close:
 err_unblock:
 	if (reopen)
 		tcmu_unblock_device(dev);
+err_cleanup_lock:
+	pthread_spin_destroy(&dev->lock);
 err_free:
 	free(dev);
 
@@ -631,6 +636,10 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 
 	if (should_block)
 		tcmu_unblock_device(dev);
+
+	ret = pthread_spin_destroy(&dev->lock);
+	if (ret != 0)
+		tcmu_err("could not cleanup mailbox lock %d\n", ret);
 
 	tcmu_dev_dbg(dev, "removed from tcmulib.\n");
 	free(dev);
@@ -928,6 +937,52 @@ struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
 	return handler->hm_private;
 }
 
+/* update the ring buffer's tail */
+#define TCMU_UPDATE_RB_TAIL(mb, ent) \
+do { \
+	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
+} while (0);
+
+static void tcmulib_entry_complete(struct tcmu_device *dev, uint16_t cmd_id,
+				   uint8_t *sense_buf, int result)
+{
+	struct tcmu_mailbox *mb = dev->map;
+	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+
+	pthread_spin_lock(&dev->lock);
+	/* current command could be PAD in async case */
+	while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
+		if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
+			break;
+		TCMU_UPDATE_RB_TAIL(mb, ent);
+		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+	}
+
+	/* cmd_id could be different in async case */
+	if (cmd_id != ent->hdr.cmd_id) {
+		ent->hdr.cmd_id = cmd_id;
+	}
+
+	if (result == TCMU_NOT_HANDLED) {
+		/* Tell the kernel we didn't handle it */
+		char *buf = ent->rsp.sense_buffer;
+
+		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
+
+		buf[0] = 0x70;	/* fixed, current */
+		buf[2] = 0x5;	/* illegal request */
+		buf[7] = 0xa;
+		buf[12] = 0x20; /* ASC: invalid command operation code */
+		buf[13] = 0x0;	/* ASCQ: (none) */
+	} else if (result == SAM_STAT_CHECK_CONDITION) {
+		memcpy(ent->rsp.sense_buffer, sense_buf, TCMU_SENSE_BUFFERSIZE);
+		ent->rsp.scsi_status = result;
+	}
+
+	TCMU_UPDATE_RB_TAIL(mb, ent);
+	pthread_spin_unlock(&dev->lock);
+}
+
 static inline struct tcmu_cmd_entry *
 device_cmd_head(struct tcmu_device *dev)
 {
@@ -954,6 +1009,7 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 {
 	struct tcmu_mailbox *mb = dev->map;
 	struct tcmu_cmd_entry *ent;
+	bool completed = false;
 
 	while ((ent = device_cmd_tail(dev)) != device_cmd_head(dev)) {
 
@@ -966,20 +1022,23 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			struct tcmulib_cmd *cmd;
 			uint8_t *cdb = (uint8_t *) mb + ent->req.cdb_off;
 			int cdb_len = tcmu_get_cdb_length(cdb);
+			uint16_t cmd_id = ent->hdr.cmd_id;
 
 			if (cdb_len < 0) {
-				/*
-				 * This should never happen so just drop cmd
-				 * for now instead of adding a lock in the
-				 * main IO path.
-				 */
+				tcmulib_entry_complete(dev, cmd_id, NULL,
+						       TCMU_NOT_HANDLED);
+				completed = true;
 				break;
 			}
 
 			/* Alloc memory for cmd itself, iovec and cdb */
 			cmd = malloc(sizeof(*cmd) + sizeof(*cmd->iovec) * ent->req.iov_cnt + cdb_len);
-			if (!cmd)
-				return NULL;
+			if (!cmd) {
+				tcmulib_entry_complete(dev, cmd_id, NULL,
+						       TCMU_NOT_HANDLED);
+				completed = true;
+				break;
+			}
 			cmd->cmd_id = ent->hdr.cmd_id;
 
 			/* Convert iovec addrs in-place to not be offsets */
@@ -1006,56 +1065,15 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 		TCMU_UPDATE_DEV_TAIL(dev, mb, ent);
 	}
 
+	if (completed)
+		tcmulib_processing_complete(dev);
 	return NULL;
 }
 
-/* update the ring buffer's tail */
-#define TCMU_UPDATE_RB_TAIL(mb, ent) \
-do { \
-	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
-} while (0);
-
-void tcmulib_command_complete(
-	struct tcmu_device *dev,
-	struct tcmulib_cmd *cmd,
-	int result)
+void tcmulib_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			      int result)
 {
-	struct tcmu_mailbox *mb = dev->map;
-	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
-
-	/* current command could be PAD in async case */
-	while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
-		if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
-			break;
-		TCMU_UPDATE_RB_TAIL(mb, ent);
-		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
-	}
-
-	/* cmd_id could be different in async case */
-	if (cmd->cmd_id != ent->hdr.cmd_id) {
-		ent->hdr.cmd_id = cmd->cmd_id;
-	}
-
-	if (result == TCMU_NOT_HANDLED) {
-		/* Tell the kernel we didn't handle it */
-		char *buf = ent->rsp.sense_buffer;
-
-		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
-
-		buf[0] = 0x70;	/* fixed, current */
-		buf[2] = 0x5;	/* illegal request */
-		buf[7] = 0xa;
-		buf[12] = 0x20; /* ASC: invalid command operation code */
-		buf[13] = 0x0;	/* ASCQ: (none) */
-	} else {
-		if (result != SAM_STAT_GOOD) {
-			memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
-			       TCMU_SENSE_BUFFERSIZE);
-		}
-		ent->rsp.scsi_status = result;
-	}
-
-	TCMU_UPDATE_RB_TAIL(mb, ent);
+	tcmulib_entry_complete(dev, cmd->cmd_id, cmd->sense_buf, result);
 	free(cmd);
 }
 

@@ -124,7 +124,7 @@ int tcmu_set_cfgfs_ul(const char *path, unsigned long val);
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
 int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
 			       unsigned long val);
-long long tcmu_get_device_size(struct tcmu_device *dev);
+uint64_t tcmu_get_device_size(struct tcmu_device *dev, int *err);
 char *tcmu_get_wwn(struct tcmu_device *dev);
 int tcmu_get_cdb_length(uint8_t *cdb);
 uint64_t tcmu_get_lba(uint8_t *cdb);
