@@ -51,6 +51,7 @@ struct tcmulib_context {
 struct tcmu_device {
 	int fd;
 
+	pthread_spinlock_t lock; /* protects concurrent updates to mailbox */
 	struct tcmu_mailbox *map;
 	size_t map_len;
 
