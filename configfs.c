@@ -162,7 +162,7 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 
 char *tcmu_get_cfgfs_str(const char *path)
 {
-	int fd;
+	int fd, n;
 	char buf[CFGFS_BUF_SIZE];
 	ssize_t ret;
 	char *val;
@@ -185,6 +185,18 @@ char *tcmu_get_cfgfs_str(const char *path)
 
 	if (ret == 0)
 		return NULL;
+
+	/*
+	 * Some files like members will terminate each member/line with a null
+	 * char. Except for the last one, replace it with '\n' so parsers will
+	 * just see an empty member.
+	 */
+	if (ret != strlen(buf)) {
+		do {
+			n = strlen(buf);
+			buf[n] = '\n';
+		} while (n < ret);
+	}
 
 	/*
 	 * Some files like members ends with a null char, but other files like
