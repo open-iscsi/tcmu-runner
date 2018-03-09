@@ -12,7 +12,7 @@
  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
  * License for the specific language governing permissions and limitations
  * under the License.
-*/
+ */
 
 /*
  * ZBC device emulation with a file backstore.
@@ -258,7 +258,7 @@ struct zbc_dev_config {
  */
 struct zbc_dev {
 
-	struct tcmu_device 	*dev;
+	struct tcmu_device	*dev;
 
 	struct zbc_dev_config	cfg;
 
@@ -352,7 +352,7 @@ static char *zbc_parse_open(char *val, struct zbc_dev_config *cfg, char **msg)
 #define ZBC_PARAMS	5
 
 struct zbc_dev_config_param {
-	char 	*name;
+	char	*name;
 	char	*(*parse)(char *, struct zbc_dev_config *, char **);
 } zbc_params[ZBC_PARAMS] = {
 	{ "model-",	zbc_parse_model	},
@@ -627,6 +627,7 @@ static int zbc_format_meta(struct zbc_dev *zdev)
 	struct zbc_dev_config *cfg = &zdev->cfg;
 	struct zbc_meta *meta;
 	struct zbc_zone *zone;
+	unsigned int nr_seq_zones;
 	__u64 lba = 0;
 	unsigned int i;
 	int ret;
@@ -653,8 +654,12 @@ static int zbc_format_meta(struct zbc_dev *zdev)
 	}
 
 	zdev->nr_open_zones = cfg->open_num;
-	if (zdev->nr_open_zones >= zdev->nr_zones)
-		zdev->nr_open_zones = zdev->nr_zones;
+	nr_seq_zones = zdev->nr_zones - zdev->nr_conv_zones;
+	if (zdev->nr_open_zones >= nr_seq_zones / 2) {
+		zdev->nr_open_zones = nr_seq_zones / 2;
+		if (!zdev->nr_open_zones)
+			zdev->nr_open_zones = 1;
+	}
 
 	tcmu_dev_dbg(zdev->dev, "Formatting...\n");
 	tcmu_dev_dbg(zdev->dev, "  Model: %s\n",
@@ -1327,7 +1332,7 @@ static int zbc_report_zones(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	len = tcmu_iovec_length(iovec, iov_cnt);
 	lba = tcmu_get_lba(cdb);
 	zone = zbc_get_zone(zdev, lba, false);
-	while (lba < zdev->capacity && len >=64) {
+	while (lba < zdev->capacity && len >= 64) {
 
 		if (zbc_should_report_zone(zone, ro)) {
 
@@ -1346,7 +1351,7 @@ static int zbc_report_zones(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 			memcpy(&data[24], &val64, 8);
 
 			tcmu_memcpy_into_iovec(iovec, iov_cnt, data, 64);
-			len -=64;
+			len -= 64;
 		}
 
 		lba = zone->start + zone->len;
@@ -1393,8 +1398,6 @@ static void __zbc_close_imp_open_zone(struct zbc_dev *zdev)
 			return;
 		}
 	}
-
-	return;
 }
 
 /*
@@ -1815,7 +1818,7 @@ static int zbc_mode_sense_control_page(uint8_t *buf, size_t buf_len)
 static struct {
 	uint8_t	page;
 	uint8_t	subpage;
-	int 	(*get)(uint8_t *buf, size_t buf_len);
+	int	(*get)(uint8_t *buf, size_t buf_len);
 } modesense_handlers[] = {
 	{0x01, 0, zbc_mode_sense_rwrecovery_page},
 	{0x08, 0, zbc_mode_sense_cache_page},
@@ -2028,6 +2031,85 @@ static int zbc_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 }
 
 /*
+ * Check conv to seq and seq to seq zone boundary crossings.
+ * and write pointer alignment in sequential write required zones.
+ */
+static int zbc_write_check_zones(struct tcmu_device *dev,
+				 struct tcmulib_cmd *cmd,
+				 size_t nr_lbas, uint64_t lba)
+{
+	struct zbc_dev *zdev = tcmu_get_dev_private(dev);
+	struct zbc_zone *zone;
+	int zone_type = 0;
+	size_t count;
+
+	while (nr_lbas) {
+
+		/* Get the zone of the current LBA */
+		zone = zbc_get_zone(zdev, lba, false);
+		if (!zone) {
+			tcmu_dev_err(zdev->dev,
+				     "Get zone at LBA %llu failed\n",
+				     lba);
+			return tcmu_set_sense_data(cmd->sense_buf,
+						   HARDWARE_ERROR,
+						   ASC_INTERNAL_TARGET_FAILURE,
+						   NULL);
+		}
+
+		/* Check conv -> seq and seq -> seq zone boundary crossing */
+		if (zone_type == 0)
+			zone_type = zone->type;
+		if (zone->type != zone_type ||
+		    (zbc_zone_seq_req(zone) &&
+		     lba + nr_lbas > zone->start + zone->len)) {
+			tcmu_dev_err(dev,
+				     "Write boundary violation lba %llu, xfer len %lu\n",
+				     lba, nr_lbas);
+			return tcmu_set_sense_data(cmd->sense_buf,
+						   ILLEGAL_REQUEST,
+						   ASC_WRITE_BOUNDARY_VIOLATION,
+						   NULL);
+		}
+
+		/*
+		 * For sequential write required zones, enforce write pointer
+		 * position. Same for conventional zones with conv_check_wp
+		 * enabled.
+		 */
+		if (zbc_zone_seq_req(zone) && lba != zone->wp) {
+			tcmu_dev_err(dev, "Unaligned write lba %llu, wp %llu\n",
+				     lba, zone->wp);
+			if (zbc_zone_full(zone)) {
+				tcmu_dev_err(dev,
+					     "Write to FULL zone: start %llu, lba %llu\n",
+					     zone->start, lba);
+					return tcmu_set_sense_data(cmd->sense_buf,
+								   ILLEGAL_REQUEST,
+								   ASC_INVALID_FIELD_IN_CDB,
+								   NULL);
+			}
+
+			return tcmu_set_sense_data(cmd->sense_buf,
+						   ILLEGAL_REQUEST,
+						   ASC_UNALIGNED_WRITE_COMMAND,
+						   NULL);
+		}
+
+		if (lba + nr_lbas > zone->start + zone->len)
+			count = zone->start + zone->len - lba;
+		else
+			count = nr_lbas;
+
+		lba += count;
+		nr_lbas -= count;
+
+	}
+
+	return SAM_STAT_GOOD;
+}
+
+/*
  * Write command emulation.
  */
 static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -2036,11 +2118,10 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint8_t *cdb = cmd->cdb;
 	uint64_t lba = tcmu_get_lba(cdb);
 	size_t nr_lbas = tcmu_get_xfer_length(cdb);
+	size_t count, lba_count;
 	size_t iov_cnt = cmd->iov_cnt;
 	struct iovec *iovec = cmd->iovec;
-	size_t remaining = tcmu_iovec_length(iovec, iov_cnt);
 	struct zbc_zone *zone;
-	off_t offset;
 	ssize_t ret;
 
 	tcmu_dev_dbg(dev, "Write LBA %llu+%u, %zu vectors\n",
@@ -2052,45 +2133,48 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (ret != SAM_STAT_GOOD)
 		return ret;
 
-	/* For writes, check zone boundary crossing */
-	zone = zbc_get_zone(zdev, lba, false);
-	if (lba + nr_lbas > zone->start + zone->len) {
-		tcmu_dev_err(dev, "Write boundary violation lba %llu, xfer len %lu\n",
-			     lba, nr_lbas);
-		return tcmu_set_sense_data(cmd->sense_buf,
-					   ILLEGAL_REQUEST,
-					   ASC_WRITE_BOUNDARY_VIOLATION,
-					   NULL);
-	}
+	/* Check zone boundary crossing */
+	ret = zbc_write_check_zones(dev, cmd, nr_lbas, lba);
+	if (ret != SAM_STAT_GOOD)
+		return ret;
 
-	/* For sequential write required zones, check write pointer position */
-	if (zbc_zone_seq_req(zone) && lba != zone->wp) {
-		tcmu_dev_err(dev, "Unaligned write lba %llu, wp %llu\n",
-			     lba, zone->wp);
-		return tcmu_set_sense_data(cmd->sense_buf,
-					   ILLEGAL_REQUEST,
-					   ASC_UNALIGNED_WRITE_COMMAND,
-					   NULL);
-	}
+	/* Do write */
+	while (nr_lbas) {
 
-	/* If the zone is not open, implicitly open it */
-	if (zbc_zone_seq(zone) && !zbc_zone_is_open(zone)) {
-
-		/* Too many explicit open ? */
-		if (zdev->nr_exp_open >= zdev->nr_open_zones)
+		/* Get the zone of the current LBA */
+		zone = zbc_get_zone(zdev, lba, false);
+		if (lba + nr_lbas > zone->start + zone->len) {
+			tcmu_dev_err(dev,
+				     "Write boundary violation lba %llu, xfer len %lu\n",
+				     lba, nr_lbas);
 			return tcmu_set_sense_data(cmd->sense_buf,
-						   DATA_PROTECT,
-						   ASC_INSUFFICIENT_ZONE_RESOURCES,
+						   ILLEGAL_REQUEST,
+						   ASC_WRITE_BOUNDARY_VIOLATION,
 						   NULL);
+		}
 
-		__zbc_open_zone(zdev, zone, false);
+		/* If the zone is not open, implicitly open it */
+		if (zbc_zone_seq(zone) && !zbc_zone_is_open(zone)) {
+			/* Too many explicit open ? */
+			if (zdev->nr_exp_open >= zdev->nr_open_zones)
+				return tcmu_set_sense_data(cmd->sense_buf,
+							   DATA_PROTECT,
+							   ASC_INSUFFICIENT_ZONE_RESOURCES,
+							   NULL);
+			__zbc_open_zone(zdev, zone, false);
+		}
 
-	}
+		/* Do write */
+		if (lba + nr_lbas > zone->start + zone->len)
+			count = zone->start + zone->len - lba;
+		else
+			count = nr_lbas;
+		lba_count = iovec->iov_len / zdev->lba_size;
+		if (lba_count < count)
+			count = lba_count;
 
-	offset = zdev->meta_size + lba * zdev->lba_size;
-	while (remaining) {
-
-		ret = pwritev(zdev->fd, iovec, iov_cnt, offset);
+		ret = pwrite(zdev->fd, iovec->iov_base, count * zdev->lba_size,
+			     zdev->meta_size + lba * zdev->lba_size);
 		if (ret <= 0) {
 			tcmu_dev_err(dev, "Write failed: %m\n");
 			return tcmu_set_sense_data(cmd->sense_buf,
@@ -2100,24 +2184,27 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		}
 
 		tcmu_seek_in_iovec(iovec, ret);
-		offset += ret;
-		remaining -= ret;
+		count = ret / zdev->lba_size;
 
-	}
-
-	if (zbc_zone_seq(zone)) {
 		/* Adjust write pointer */
 		if (zbc_zone_seq_req(zone)) {
-			zone->wp += nr_lbas;
+			zone->wp += count;
 		} else if (zbc_zone_seq_pref(zone)) {
-			if (lba + nr_lbas >= zone->wp)
-				zone->wp = lba + nr_lbas;
+			if (lba + count >= zone->wp)
+				zone->wp = lba + count;
 		}
-		if (zone->wp >= zone->start + zone->len) {
+
+		if (zbc_zone_seq(zone) &&
+		    zone->wp >= zone->start + zone->len) {
 			if (zbc_zone_is_open(zone))
 				__zbc_close_zone(zdev, zone);
+			zone->wp = zone->start + zone->len;
 			zone->cond = ZBC_ZONE_COND_FULL;
 		}
+
+		lba += count;
+		nr_lbas -= count;
+
 	}
 
 	return SAM_STAT_GOOD;
