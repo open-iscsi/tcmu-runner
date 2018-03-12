@@ -86,26 +86,26 @@ struct tcmu_rbd_state {
 };
 
 enum rbd_aio_type {
-        RBD_AIO_TYPE_WRITE = 0,
-        RBD_AIO_TYPE_READ,
-        RBD_AIO_TYPE_CAW
+	RBD_AIO_TYPE_WRITE = 0,
+	RBD_AIO_TYPE_READ,
+	RBD_AIO_TYPE_CAW
 };
 
 struct rbd_aio_cb {
-        struct tcmu_device *dev;
-        struct tcmulib_cmd *tcmulib_cmd;
+	struct tcmu_device *dev;
+	struct tcmulib_cmd *tcmulib_cmd;
 
-        enum rbd_aio_type type;
-        union {
-                struct {
-                        int64_t length;
-                } read;
-                struct {
-                        uint64_t offset;
-                        uint64_t miscompare_offset;
-                } caw;
-        };
-        char *bounce_buffer;
+	enum rbd_aio_type type;
+	union {
+		struct {
+			int64_t length;
+		} read;
+		struct {
+			uint64_t offset;
+			uint64_t miscompare_offset;
+		} caw;
+	};
+	char *bounce_buffer;
 	struct iovec *iov;
 	size_t iov_cnt;
 };
@@ -951,8 +951,6 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	uint16_t asc_ascq;
 	int64_t ret;
 	int tcmu_r;
-	struct iovec *iovec;
-	size_t iov_cnt;
 
 	ret = rbd_aio_get_return_value(completion);
 	rbd_aio_release(completion);
