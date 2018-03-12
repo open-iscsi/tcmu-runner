@@ -145,19 +145,33 @@ off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size)
 /*
  * Consume an iovec. Count must not exceed the total iovec[] size.
  */
-void tcmu_seek_in_iovec(struct iovec *iovec, size_t count)
+size_t tcmu_seek_in_iovec(struct iovec *iovec, size_t count)
 {
+	size_t consumed = 0;
+
 	while (count) {
 		if (count >= iovec->iov_len) {
 			count -= iovec->iov_len;
 			iovec->iov_len = 0;
 			iovec++;
+			consumed++;
 		} else {
 			iovec->iov_base += count;
 			iovec->iov_len -= count;
 			count = 0;
 		}
 	}
+
+	return consumed;
+}
+
+/*
+ * Consume an iovec. Count must not exceed the total iovec[] size.
+ * iove count should be updated.
+ */
+void tcmu_seek_in_cmd_iovec(struct tcmulib_cmd *cmd, size_t count)
+{
+	cmd->iov_cnt -= tcmu_seek_in_iovec(cmd->iovec, count);
 }
 
 size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)

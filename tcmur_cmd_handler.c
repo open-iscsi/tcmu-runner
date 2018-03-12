@@ -1802,7 +1802,7 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 	}
 
 	/* perform write */
-	tcmu_seek_in_iovec(origcmd->iovec, state->requested);
+	tcmu_seek_in_cmd_iovec(origcmd, state->requested);
 	origcmd->done = handle_caw_write_cbk;
 
 	ret = async_handle_cmd(dev, origcmd, write_work_fn);
