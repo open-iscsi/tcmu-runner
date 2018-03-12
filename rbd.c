@@ -106,6 +106,8 @@ struct rbd_aio_cb {
                 } caw;
         };
         char *bounce_buffer;
+	struct iovec *iov;
+	size_t iov_cnt;
 };
 
 #ifdef LIBRADOS_SUPPORTS_SERVICES
@@ -943,12 +945,14 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 {
 	struct tcmu_device *dev = aio_cb->dev;
 	struct tcmulib_cmd *tcmulib_cmd = aio_cb->tcmulib_cmd;
-	struct iovec *iovec = tcmulib_cmd->iovec;
-	size_t iov_cnt = tcmulib_cmd->iov_cnt;
+	struct iovec *iov = aio_cb->iov;
+	size_t iov_cnt = aio_cb->iov_cnt;
 	uint32_t cmp_offset;
 	uint16_t asc_ascq;
 	int64_t ret;
 	int tcmu_r;
+	struct iovec *iovec;
+	size_t iov_cnt;
 
 	ret = rbd_aio_get_return_value(completion);
 	rbd_aio_release(completion);
@@ -983,7 +987,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		tcmu_r = SAM_STAT_GOOD;
 		if (aio_cb->type == RBD_AIO_TYPE_READ &&
 		    aio_cb->bounce_buffer) {
-			tcmu_memcpy_into_iovec(iovec, iov_cnt,
+			tcmu_memcpy_into_iovec(iov, iov_cnt,
 					       aio_cb->bounce_buffer,
 					       aio_cb->read.length);
 		}
@@ -1014,6 +1018,8 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	aio_cb->type = RBD_AIO_TYPE_READ;
 	aio_cb->read.length = length;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->iov = iov;
+	aio_cb->iov_cnt = iov_cnt;
 
 	ret = rbd_aio_create_completion
 		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
