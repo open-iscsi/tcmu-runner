@@ -502,7 +502,7 @@ static void tcmu_cancel_config_thread(struct tcmu_config *cfg)
 		return;
 	}
 
-	pthread_join(thread_id, &join_retval);
+	ret = pthread_join(thread_id, &join_retval);
 	if (ret) {
 		tcmu_err("pthread_join failed with value %d\n", ret);
 		return;
