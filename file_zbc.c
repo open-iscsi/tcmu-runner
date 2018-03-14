@@ -235,7 +235,7 @@ struct zbc_dev_config {
 	char			*path;
 
 	/* Device size in bytes */
-	long long		dev_size;
+	uint64_t		dev_size;
 
 	/* Configuration options */
 	bool			need_format;
@@ -885,8 +885,8 @@ static int zbc_open(struct tcmu_device *dev)
 	}
 
 	/* Get device capacity */
-	zdev->cfg.dev_size = tcmu_get_device_size(dev);
-	if (zdev->cfg.dev_size == -1) {
+	zdev->cfg.dev_size = tcmu_get_device_size(dev, &ret);
+	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get device size\n");
 		ret = -ENODEV;
 		goto err;

@@ -35,32 +35,13 @@
 #include "tcmu-runner.h"
 #include "alua.h"
 
-static void _cleanup_spin_lock(void *arg)
-{
-	pthread_spin_unlock(arg);
-}
-
-void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			    int rc)
-{
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-
-	pthread_cleanup_push(_cleanup_spin_lock, (void *)&rdev->lock);
-	pthread_spin_lock(&rdev->lock);
-
-	tcmulib_command_complete(dev, cmd, rc);
-
-	pthread_spin_unlock(&rdev->lock);
-	pthread_cleanup_pop(0);
-}
-
 static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			       int rc)
 {
 	int wakeup;
 
 	track_aio_request_finish(tcmu_get_daemon_dev_private(dev), &wakeup);
-	tcmur_command_complete(dev, cmd, rc);
+	tcmulib_command_complete(dev, cmd, rc);
 	if (wakeup)
 		tcmulib_processing_complete(dev);
 }

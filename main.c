@@ -639,7 +639,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			 */
 			if (ret != TCMU_ASYNC_HANDLED) {
 				completed = 1;
-				tcmur_command_complete(dev, cmd, ret);
+				tcmulib_command_complete(dev, cmd, ret);
 			}
 		}
 
@@ -729,7 +729,7 @@ static int dev_added(struct tcmu_device *dev)
 	struct tcmur_device *rdev;
 	int32_t block_size, max_sectors;
 	uint32_t max_xfer_length;
-	int64_t dev_size;
+	uint64_t dev_size;
 	int ret;
 
 	rdev = calloc(1, sizeof(*rdev));
@@ -747,8 +747,8 @@ static int dev_added(struct tcmu_device *dev)
 	}
 	tcmu_set_dev_block_size(dev, block_size);
 
-	dev_size = tcmu_get_device_size(dev);
-	if (dev_size < 0) {
+	dev_size = tcmu_get_device_size(dev, &ret);
+	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get device size\n");
 		goto free_rdev;
 	}
@@ -759,16 +759,12 @@ static int dev_added(struct tcmu_device *dev)
 		goto free_rdev;
 	tcmu_set_dev_max_xfer_len(dev, max_sectors);
 
-	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld\n",
+	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %llu\n",
 		     block_size, dev_size);
-
-	ret = pthread_spin_init(&rdev->lock, 0);
-	if (ret != 0)
-		goto free_rdev;
 
 	ret = pthread_mutex_init(&rdev->caw_lock, NULL);
 	if (ret != 0)
-		goto cleanup_dev_lock;
+		goto free_rdev;
 
 	ret = pthread_mutex_init(&rdev->format_lock, NULL);
 	if (ret != 0)
@@ -832,8 +828,6 @@ cleanup_format_lock:
 	pthread_mutex_destroy(&rdev->format_lock);
 cleanup_caw_lock:
 	pthread_mutex_destroy(&rdev->caw_lock);
-cleanup_dev_lock:
-	pthread_spin_destroy(&rdev->lock);
 free_rdev:
 	free(rdev);
 	return ret;
@@ -902,10 +896,6 @@ static void dev_removed(struct tcmu_device *dev)
 	ret = pthread_mutex_destroy(&rdev->caw_lock);
 	if (ret != 0)
 		tcmu_err("could not cleanup caw lock %d\n", ret);
-
-	ret = pthread_spin_destroy(&rdev->lock);
-	if (ret != 0)
-		tcmu_err("could not cleanup mailbox lock %d\n", ret);
 
 	free(rdev);
 

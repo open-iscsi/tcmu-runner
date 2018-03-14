@@ -115,14 +115,16 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 	return ret_buf;
 }
 
-long long tcmu_get_device_size(struct tcmu_device *dev)
+uint64_t tcmu_get_device_size(struct tcmu_device *dev, int *err)
 {
 	int fd;
 	char path[PATH_MAX];
 	char buf[CFGFS_BUF_SIZE];
-	ssize_t ret;
 	char *rover;
-	unsigned long long size;
+	uint64_t size;
+	int ret;
+
+	*err = 0;
 
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/info",
 		 dev->tcm_hba_name, dev->tcm_dev_name);
@@ -131,7 +133,8 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 	if (fd == -1) {
 		tcmu_err("Could not open configfs to read dev info: %s\n",
 			 strerror(errno));
-		return -EINVAL;
+		*err = -EINVAL;
+		return 0;
 	}
 
 	ret = read(fd, buf, sizeof(buf));
@@ -139,7 +142,8 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 	if (ret == -1) {
 		tcmu_err("Could not read configfs to read dev info: %s\n",
 			 strerror(errno));
-		return -EINVAL;
+		*err = -EINVAL;
+		return 0;
 	}
 	buf[sizeof(buf)-1] = '\0'; /* paranoid? Ensure null terminated */
 
@@ -147,14 +151,17 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 	if (!rover) {
 		tcmu_err("Could not find \" Size: \" in %s: %s\n", path,
 			 strerror(errno));
-		return -EINVAL;
+		*err = -EINVAL;
+		return 0;
 	}
 	rover += 7; /* get to the value */
 
 	size = strtoull(rover, NULL, 0);
-	if (size == ULLONG_MAX) {
-		tcmu_err("Could not get size: %s\n", strerror(errno));
-		return -EINVAL;
+	if (size == ULLONG_MAX && errno == ERANGE) {
+		tcmu_err("Could not convert size %s: %s\n", rover,
+			 strerror(errno));
+		*err = -ERANGE;
+		return 0;
 	}
 
 	return size;

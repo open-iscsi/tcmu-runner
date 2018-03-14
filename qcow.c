@@ -87,7 +87,7 @@ struct bdev {
 	struct bdev_ops *ops;
 
 	/* from TCMU configfs configuration */
-	int64_t size;
+	uint64_t size;
 	uint32_t block_size;
 
 	int fd;		/* image file descriptor */
@@ -471,8 +471,8 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 		goto fail;
 
 	if (bdev->size != header.size) {
-		tcmu_err("size misconfigured, TCMU says %" PRId64
-				" but image says %" PRId64 "\n",
+		tcmu_err("size misconfigured, TCMU says %" PRIu64
+				" but image says %" PRIu64 "\n",
 				bdev->size, header.size);
 		goto fail;
 	}
@@ -587,8 +587,8 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 		goto fail;
 
 	if (bdev->size != header.size) {
-		tcmu_err("size misconfigured, TCMU says %" PRId64
-				" but image says %" PRId64 "\n",
+		tcmu_err("size misconfigured, TCMU says %" PRIu64
+				" but image says %" PRIu64 "\n",
 				bdev->size, header.size);
 		goto fail;
 	}
@@ -1394,6 +1394,7 @@ static int qcow_open(struct tcmu_device *dev)
 {
 	struct bdev *bdev;
 	char *config;
+	int ret;
 
 	bdev = calloc(1, sizeof(*bdev));
 	if (!bdev)
@@ -1402,9 +1403,9 @@ static int qcow_open(struct tcmu_device *dev)
 	tcmu_set_dev_private(dev, bdev);
 
 	bdev->block_size = tcmu_get_dev_block_size(dev);
-	bdev->size = tcmu_get_device_size(dev);
-	if (bdev->size < 0) {
-		tcmu_err("Could not get device size\n");
+	bdev->size = tcmu_get_device_size(dev, &ret);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not get device size. Error %d\n", ret);
 		goto err;
 	}
 
