@@ -47,6 +47,7 @@ enum {
 	TCMUR_LOCK_SUCCESS,
 	TCMUR_LOCK_FAILED,
 	TCMUR_LOCK_NOTCONN,
+	TCMUR_LOCK_BLACKLISTED,
 };
 
 struct tcmur_handler {

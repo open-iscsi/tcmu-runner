@@ -641,12 +641,19 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	if (orig_owner)
 		free(orig_owner);
 
-	if (ret == -ETIMEDOUT || ret == -ESHUTDOWN)
-		ret = TCMUR_LOCK_NOTCONN;
-	else if (ret)
-		ret = TCMUR_LOCK_FAILED;
-	else
+	switch (ret) {
+	case 0:
 		ret = TCMUR_LOCK_SUCCESS;
+		break;
+	case -ETIMEDOUT:
+		ret = TCMUR_LOCK_NOTCONN;
+		break;
+	case -ESHUTDOWN:
+		ret = TCMUR_LOCK_BLACKLISTED;
+		break;
+	default:
+		ret = TCMUR_LOCK_FAILED;
+	}
 
 	tcmu_rbd_service_status_update(dev, ret == TCMUR_LOCK_SUCCESS ?
 				       true : false);
