@@ -40,6 +40,7 @@
 #include "tcmur_aio.h"
 #include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 
 #define TCMU_NL_VERSION 2
 

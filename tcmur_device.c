@@ -26,6 +26,7 @@
 #include "libtcmu_common.h"
 #include "tcmu-runner.h"
 #include "tcmur_device.h"
+#include "tcmur_cmd_handler.h"
 #include "target.h"
 
 bool tcmu_dev_in_recovery(struct tcmu_device *dev)
@@ -90,7 +91,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread)
 		pthread_mutex_unlock(&rdev->state_lock);
 
 		tcmu_dev_dbg(dev, "Opening device.\n");
-		ret = rhandler->open(dev);
+		ret = rhandler->open(dev, true);
 
 		pthread_mutex_lock(&rdev->state_lock);
 		if (!ret) {

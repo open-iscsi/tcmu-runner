@@ -1390,7 +1390,7 @@ static struct bdev_ops raw_ops = {
 
 /* TCMU QCOW Handler */
 
-static int qcow_open(struct tcmu_device *dev)
+static int qcow_open(struct tcmu_device *dev, bool reopen)
 {
 	struct bdev *bdev;
 	char *config;
@@ -1402,7 +1402,7 @@ static int qcow_open(struct tcmu_device *dev)
 	tcmu_set_dev_private(dev, bdev);
 
 	bdev->block_size = tcmu_get_dev_block_size(dev);
-	bdev->size = tcmu_get_device_size(dev);
+	bdev->size = tcmu_get_dev_size(dev);
 	if (bdev->size < 0) {
 		tcmu_err("Could not get device size\n");
 		goto err;
