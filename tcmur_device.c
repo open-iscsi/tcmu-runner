@@ -299,7 +299,8 @@ retry:
 			retries++;
 			goto retry;
 		}
-
+		/* fall through */
+	case TCMUR_LOCK_BLACKLISTED:
 		tcmu_dev_dbg(dev, "Fail handler device connection.\n");
 		tcmu_notify_conn_lost(dev);
 		new_state = TCMUR_DEV_LOCK_UNLOCKED;
