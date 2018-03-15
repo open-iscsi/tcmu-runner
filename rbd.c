@@ -784,7 +784,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 				tcmu_dev_err(dev, "Could not copy osd op timeout.\n");
 				goto free_config;
 			}
-		} else if (strncmp(next_opt, "conf=", 5)) {
+		} else if (!strncmp(next_opt, "conf=", 5)) {
 			state->conf_path = strdup(next_opt + 5);
 			if (!state->conf_path || !strlen(state->conf_path)) {
 				ret = -ENOMEM;
