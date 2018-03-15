@@ -273,7 +273,7 @@ struct dbus_info {
 	GDBusConnection *connection;
 };
 
-static int dbus_handler_open(struct tcmu_device *dev)
+static int dbus_handler_open(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	return -1;
 }
@@ -707,9 +707,26 @@ static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 	return ret;
 }
 
+static int dev_update_cfgstring(struct tcmu_device *dev,
+                                struct tcmulib_cfg_info *cfg,
+				char *cfgstring)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	int ret = 0;
+
+	ret = rhandler->reconfig(dev, cfg);
+	if (!ret) {
+		tcmur_set_pending_ua(dev, TCMUR_UA_DEV_MEDIUM_CHANGED);
+	}
+
+	return ret;
+}
+
 static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	char *ptr, *opts, *tokens, *token_ptr;
+	char cfgstring[PATH_MAX];
 
 	if (!rhandler->reconfig)
 		return -EOPNOTSUPP;
@@ -717,6 +734,31 @@ static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 	switch (cfg->type) {
 	case TCMULIB_CFG_DEV_SIZE:
 		return dev_resize(dev, cfg);
+	case TCMULIB_CFG_DEV_RECFG:
+		opts = cfg->data.dev_recfg;
+		if (!opts)
+			return -EOPNOTSUPP;
+
+		while ((ptr = strsep(&opts, ": \n")) != NULL) {
+			if (!*ptr)
+				continue;
+			tokens = ptr;
+			while ((token_ptr = strsep(&tokens, "= \n")) != NULL) {
+				if (!*token_ptr)
+					continue;
+				if (!strcmp(token_ptr, "dev_config")) {
+					if (strcmp(tcmu_get_dev_cfgstring(dev), tokens) == 0)
+						return 0;
+					tcmu_set_dev_cfgstring(dev, tokens);
+					break;
+				}
+				if (!strcmp(token_ptr, "dev_size")) {
+					cfg->data.dev_size = strtoull(tokens, NULL, 0);
+					break;
+				}
+			}
+		}
+		return dev_update_cfgstring(dev, cfg, cfgstring);
 	default:
 		return rhandler->reconfig(dev, cfg);
 	}
@@ -786,7 +828,7 @@ static int dev_added(struct tcmu_device *dev)
 	if (ret < 0)
 		goto cleanup_io_work_queue;
 
-	ret = rhandler->open(dev);
+	ret = rhandler->open(dev, NULL);
 	if (ret)
 		goto cleanup_aio_tracking;
 	/*

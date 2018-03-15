@@ -59,8 +59,10 @@
 #include <signal.h>
 
 #include "be_byteshift.h"
-#include "tcmu-runner.h"
 #include "libtcmu.h"
+#include "tcmu-runner.h"
+#include "tcmur_device.h"
+#include "tcmur_cmd_handler.h"
 
 struct fbo_state {
 	int fd;
@@ -74,6 +76,7 @@ struct fbo_state {
 #define FBO_BUSY_EVENT		0x08
 #define FBO_FORMATTING		0x10
 #define FBO_FORMAT_IMMED	0x20
+#define FBO_MEDIUM_CHANGING	0x40
 	uint32_t flags;
 	uint32_t format_progress;
 	uint8_t event_op_ch_code;
@@ -95,7 +98,7 @@ static void fbo_report_op_change(struct tcmu_device *dev, uint8_t code)
 }
 
 /* Note: this is called per lun, not per mapping */
-static int fbo_open(struct tcmu_device *dev)
+static int fbo_open(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	struct fbo_state *state;
 	int64_t size;
@@ -124,10 +127,14 @@ static int fbo_open(struct tcmu_device *dev)
 	tcmu_set_dev_block_size(dev, state->block_size);
 #endif
 
-	size = tcmu_get_device_size(dev);
-	if (size == -1) {
-		tcmu_err("Could not get device size\n");
-		goto err;
+	if (cfg == NULL) {
+		size = tcmu_get_device_size(dev);
+		if (size == -1) {
+			tcmu_err("Could not get device size\n");
+			goto err;
+		}
+	} else {
+		size = cfg->data.dev_size;
 	}
 
 	tcmu_set_dev_num_lbas(dev, size / state->block_size);
@@ -135,6 +142,7 @@ static int fbo_open(struct tcmu_device *dev)
 
 	tcmu_dbg("open: cfgstring %s\n", tcmu_get_dev_cfgstring(dev));
 	options = strchr(tcmu_get_dev_cfgstring(dev), '/');
+
 	if (!options) {
 		tcmu_err("invalid cfgstring\n");
 		goto err;
@@ -1618,6 +1626,35 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return 0;
 }
 
+static int fbo_update_cfgstring(struct tcmu_device *dev,
+				struct tcmulib_cfg_info *cfg)
+{
+	int ret = 0;
+
+	fbo_close(dev);
+
+	ret = fbo_open(dev, cfg);
+	if (ret != 0) {
+		tcmu_dev_err(dev, "Failed opening of new media\n");
+	}
+
+	return ret;
+}
+
+static int fbo_reconfig(struct tcmu_device *dev,
+			struct tcmulib_cfg_info *cfg)
+{
+	switch (cfg->type) {
+	case TCMULIB_CFG_DEV_RECFG:
+		return fbo_update_cfgstring(dev, cfg);
+	case TCMULIB_CFG_WRITE_CACHE:
+	case TCMULIB_CFG_DEV_CFGSTR:
+	case TCMULIB_CFG_DEV_SIZE:
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 static const char fbo_cfg_desc[] =
 	"The path to the file to use as a backstore.";
 
@@ -1630,6 +1667,7 @@ static struct tcmur_handler fbo_handler = {
 	.subtype = "fbo",
 	.handle_cmd = fbo_handle_cmd,
 	.nr_threads = 1,
+	.reconfig = fbo_reconfig,
 };
 
 /* Entry point must be named "handler_init". */

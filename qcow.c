@@ -1390,7 +1390,7 @@ static struct bdev_ops raw_ops = {
 
 /* TCMU QCOW Handler */
 
-static int qcow_open(struct tcmu_device *dev)
+static int qcow_open(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	struct bdev *bdev;
 	char *config;

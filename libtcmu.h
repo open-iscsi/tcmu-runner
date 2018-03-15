@@ -35,6 +35,7 @@ enum tcmulib_cfg_type {
 	TCMULIB_CFG_DEV_CFGSTR,
 	TCMULIB_CFG_DEV_SIZE,
 	TCMULIB_CFG_WRITE_CACHE,
+	TCMULIB_CFG_DEV_RECFG,
 };
 
 struct tcmulib_cfg_info {
@@ -44,6 +45,7 @@ struct tcmulib_cfg_info {
 		uint64_t dev_size;
 		char *dev_cfgstring;
 		bool write_cache;
+		char *dev_recfg;
 	} data;
 };
 

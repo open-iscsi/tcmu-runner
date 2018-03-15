@@ -480,7 +480,7 @@ static char* tcmu_get_path( struct tcmu_device *dev)
 	return config;
 }
 
-static int tcmu_glfs_open(struct tcmu_device *dev)
+static int tcmu_glfs_open(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	struct glfs_state *gfsp;
 	char *config;

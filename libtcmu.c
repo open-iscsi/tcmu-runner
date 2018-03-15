@@ -52,6 +52,7 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_DEV_SIZE]	= { .type = NLA_U64 },
 	[TCMU_ATTR_WRITECACHE]	= { .type = NLA_U8 },
 	[TCMU_ATTR_SUPP_KERN_CMD_REPLY] = { .type = NLA_U8 },
+	[TCMU_ATTR_DEV_RECFG]	= { .type = NLA_STRING },
 };
 
 static int add_device(struct tcmulib_context *ctx, char *dev_name,
@@ -152,10 +153,13 @@ static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 			   struct genl_info *info)
 {
 	struct tcmu_device *dev;
-	struct tcmulib_cfg_info cfg;
 	int i, ret;
+	struct tcmulib_cfg_info *cfg_ptr, cfg = {0};
 
-	memset(&cfg, 0, sizeof(cfg));
+	cfg_ptr = malloc(sizeof *cfg_ptr);
+	*cfg_ptr = cfg;
+
+	tcmu_err("Enter reconfig device\n");
 
 	dev = lookup_dev_by_name(ctx, dev_name, &i);
 	if (!dev) {
@@ -170,29 +174,33 @@ static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 	}
 
 	if (info->attrs[TCMU_ATTR_DEV_CFG]) {
-		cfg.type = TCMULIB_CFG_DEV_CFGSTR;
-		cfg.data.dev_cfgstring =
+		cfg_ptr->type = TCMULIB_CFG_DEV_CFGSTR;
+		cfg_ptr->data.dev_cfgstring =
 				nla_get_string(info->attrs[TCMU_ATTR_DEV_CFG]);
 	} else if (info->attrs[TCMU_ATTR_DEV_SIZE]) {
-		cfg.type = TCMULIB_CFG_DEV_SIZE;
-		cfg.data.dev_size = nla_get_u64(info->attrs[TCMU_ATTR_DEV_SIZE]);
+		cfg_ptr->type = TCMULIB_CFG_DEV_SIZE;
+		cfg_ptr->data.dev_size = nla_get_u64(info->attrs[TCMU_ATTR_DEV_SIZE]);
 	} else if (info->attrs[TCMU_ATTR_WRITECACHE]) {
-		cfg.type = TCMULIB_CFG_WRITE_CACHE;
-		cfg.data.write_cache =
+		cfg_ptr->type = TCMULIB_CFG_WRITE_CACHE;
+		cfg_ptr->data.write_cache =
 				nla_get_u8(info->attrs[TCMU_ATTR_WRITECACHE]);
+	} else if (info->attrs[TCMU_ATTR_DEV_RECFG]) {
+		cfg_ptr->type = TCMULIB_CFG_DEV_RECFG;
+		cfg_ptr->data.dev_recfg = nla_get_string(info->attrs[TCMU_ATTR_DEV_RECFG]);
 	} else {
 		tcmu_dev_err(dev,
 			     "Unknown reconfig attr. Try updating libtcmu.\n");
 		return -EOPNOTSUPP;
 	}
 
-	ret = dev->handler->reconfig(dev, &cfg);
+	ret = dev->handler->reconfig(dev, cfg_ptr);
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Handler reconfig failed with error %d.\n",
 			     ret);
+		free(cfg_ptr);
 		return ret;
 	}
-
+	free(cfg_ptr);
 	return 0;
 }
 
@@ -234,7 +242,8 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 		break;
 	case TCMU_CMD_RECONFIG_DEVICE:
 		reply_cmd = TCMU_CMD_RECONFIG_DEVICE_DONE;
-		ret = reconfig_device(ctx, buf, info);
+		reconfig_device(ctx, buf, info);
+		ret = 0;
 		break;
 	default:
 		tcmu_err("Unknown netlink command %d. Netlink header received version %d. libtcmu supports %d\n",
@@ -920,6 +929,11 @@ int tcmu_get_dev_fd(struct tcmu_device *dev)
 char *tcmu_get_dev_cfgstring(struct tcmu_device *dev)
 {
 	return dev->cfgstring;
+}
+
+void tcmu_set_dev_cfgstring(struct tcmu_device *dev, char *cfgstring)
+{
+	snprintf(dev->cfgstring, sizeof(dev->cfgstring), "%s", cfgstring);
 }
 
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)

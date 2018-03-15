@@ -858,7 +858,7 @@ err:
 /*
  * Ready the emulated device.
  */
-static int zbc_open(struct tcmu_device *dev)
+static int zbc_open(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	struct zbc_dev *zdev;
 	char *err = NULL;

@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 struct tcmu_device;
+struct tcmur_handler;
 struct tcmulib_cmd;
 
 void tcmur_set_pending_ua(struct tcmu_device *dev, int ua);
