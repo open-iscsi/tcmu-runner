@@ -801,7 +801,7 @@ static int dev_added(struct tcmu_device *dev)
 
 	ret = pthread_cond_init(&rdev->lock_cond, NULL);
 	if (ret < 0)
-		goto cleanup_lock_cond;
+		goto close_dev;
 
 	/*
 	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
@@ -814,14 +814,14 @@ static int dev_added(struct tcmu_device *dev)
 	ret = pthread_create(&rdev->cmdproc_thread, NULL, tcmur_cmdproc_thread,
 			     dev);
 	if (ret < 0)
-		goto close_dev;
+		goto cleanup_lock_cond;
 
 	return 0;
 
-close_dev:
-	rhandler->close(dev);
 cleanup_lock_cond:
 	pthread_cond_destroy(&rdev->lock_cond);
+close_dev:
+	rhandler->close(dev);
 cleanup_aio_tracking:
 	cleanup_aio_tracking(rdev);
 cleanup_io_work_queue:
