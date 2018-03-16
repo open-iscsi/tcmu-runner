@@ -190,6 +190,8 @@ static int open_handlers(void)
 
 static gboolean sighandler(gpointer user_data)
 {
+	tcmu_dbg("Have received signal!\n");
+
 	g_main_loop_quit((GMainLoop*)user_data);
 
 	return G_SOURCE_CONTINUE;
@@ -1126,7 +1128,7 @@ int main(int argc, char **argv)
 
 	g_main_loop_run(loop);
 
-	tcmu_dbg("Exiting...\n");
+	tcmu_info("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
 	g_io_channel_shutdown(libtcmu_gio, TRUE, NULL);
