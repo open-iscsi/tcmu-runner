@@ -2479,6 +2479,24 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 	return ret;
 }
 
+int tcmur_dev_update_size(struct tcmu_device *dev, unsigned long new_size)
+{
+	unsigned long old_size;
+	int ret;
+
+	old_size = tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev);
+
+	if (tcmu_update_num_lbas(dev, new_size)) {
+		ret = tcmu_set_dev_size(dev);
+		if (ret)
+			tcmu_update_num_lbas(dev, old_size); /* Rolling back */
+		else
+			tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+	}
+
+	return ret;
+}
+
 void tcmur_set_pending_ua(struct tcmu_device *dev, int ua)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);

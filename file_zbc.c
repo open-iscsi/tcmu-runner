@@ -858,7 +858,7 @@ err:
 /*
  * Ready the emulated device.
  */
-static int zbc_open(struct tcmu_device *dev)
+static int zbc_open(struct tcmu_device *dev, bool reopen)
 {
 	struct zbc_dev *zdev;
 	char *err = NULL;
@@ -885,7 +885,7 @@ static int zbc_open(struct tcmu_device *dev)
 	}
 
 	/* Get device capacity */
-	zdev->cfg.dev_size = tcmu_get_device_size(dev);
+	zdev->cfg.dev_size = tcmu_get_dev_size(dev);
 	if (zdev->cfg.dev_size == -1) {
 		tcmu_dev_err(dev, "Could not get device size\n");
 		ret = -ENODEV;

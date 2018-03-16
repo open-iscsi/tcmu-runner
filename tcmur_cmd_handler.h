@@ -22,6 +22,7 @@
 struct tcmu_device;
 struct tcmulib_cmd;
 
+int tcmur_dev_update_size(struct tcmu_device *dev, unsigned long new_size);
 void tcmur_set_pending_ua(struct tcmu_device *dev, int ua);
 int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 int tcmur_cmd_passthrough_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd);

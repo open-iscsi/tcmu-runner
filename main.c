@@ -273,7 +273,7 @@ struct dbus_info {
 	GDBusConnection *connection;
 };
 
-static int dbus_handler_open(struct tcmu_device *dev)
+static int dbus_handler_open(struct tcmu_device *dev, bool reopen)
 {
 	return -1;
 }
@@ -747,7 +747,7 @@ static int dev_added(struct tcmu_device *dev)
 	}
 	tcmu_set_dev_block_size(dev, block_size);
 
-	dev_size = tcmu_get_device_size(dev);
+	dev_size = tcmu_get_dev_size(dev);
 	if (dev_size < 0) {
 		tcmu_dev_err(dev, "Could not get device size\n");
 		goto free_rdev;
@@ -786,7 +786,7 @@ static int dev_added(struct tcmu_device *dev)
 	if (ret < 0)
 		goto cleanup_io_work_queue;
 
-	ret = rhandler->open(dev);
+	ret = rhandler->open(dev, false);
 	if (ret)
 		goto cleanup_aio_tracking;
 	/*

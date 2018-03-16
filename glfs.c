@@ -32,6 +32,8 @@
 
 #include "tcmu-runner.h"
 #include "libtcmu.h"
+#include "tcmur_device.h"
+#include "tcmur_cmd_handler.h"
 
 #define ALLOWED_BSOFLAGS (O_DIRECT | O_RDWR | O_LARGEFILE)
 
@@ -480,10 +482,13 @@ static char* tcmu_get_path( struct tcmu_device *dev)
 	return config;
 }
 
-static int tcmu_glfs_open(struct tcmu_device *dev)
+static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 {
 	struct glfs_state *gfsp;
 	char *config;
+	struct stat st;
+	int ret = -EIO;
+	long long dev_size;
 
 	gfsp = calloc(1, sizeof(*gfsp));
 	if (!gfsp)
@@ -510,15 +515,43 @@ static int tcmu_glfs_open(struct tcmu_device *dev)
 		goto unref;
 	}
 
-	return 0;
+	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
+	if (ret) {
+		tcmu_dev_warn(dev, "glfs_lstat failed: %m\n");
+		goto close;
+	}
 
+	dev_size = tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev);
+	if (st.st_size != dev_size) {
+		if (!reopen) {
+			ret = -EINVAL;
+			goto close;
+		}
+
+		/*
+		 * If we are here this should be in reopen path,
+		 * then we should also update the device size in
+		 * kernel.
+		 */
+		tcmu_dev_info(dev,
+			      "device size and backing size disagree:device %lld backing %lld\n",
+			      dev_size, (long long) st.st_size);
+
+		ret = tcmur_dev_update_size(dev, st.st_size);
+		if (ret)
+			goto close;
+	}
+
+	return 0;
+close:
+	glfs_close(gfsp->gfd);
 unref:
 	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
 	gluster_free_server(&gfsp->hosts);
 fail:
 	free(gfsp);
 
-	return -EIO;
+	return ret;
 }
 
 static void tcmu_glfs_close(struct tcmu_device *dev)
@@ -626,12 +659,26 @@ out:
 static int tcmu_glfs_reconfig(struct tcmu_device *dev,
                               struct tcmulib_cfg_info *cfg)
 {
+	struct glfs_state *gfsp = tcmu_get_dev_private(dev);
+	struct stat st;
+	int ret = -EIO;
+
 	switch (cfg->type) {
 	case TCMULIB_CFG_DEV_SIZE:
-		/*
-		 * Let glusterfs tools handle size checks
-		 */
-		return 0;
+		ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
+		if (ret) {
+			tcmu_dev_warn(dev, "glfs_lstat failed: %m\n");
+			tcmu_notify_conn_lost(dev);
+
+			/* Let the targetcli command return success */
+			ret = 0;
+		} else if (st.st_size != cfg->data.dev_size) {
+			tcmu_dev_err(dev,
+				     "device size and backing size disagree: device %lld backing %lld\n",
+				     cfg->data.dev_size, (long long) st.st_size);
+			ret = -EINVAL;
+		}
+		return ret;
 	case TCMULIB_CFG_DEV_CFGSTR:
 	case TCMULIB_CFG_WRITE_CACHE:
 	default:

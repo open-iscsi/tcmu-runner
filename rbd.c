@@ -714,7 +714,7 @@ static int tcmu_rbd_check_image_size(struct tcmu_device *dev, uint64_t new_size)
 	return 0;
 }
 
-static int tcmu_rbd_open(struct tcmu_device *dev)
+static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 {
 	rbd_image_info_t image_info;
 	char *pool, *name, *next_opt;
