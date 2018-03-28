@@ -56,6 +56,17 @@ static int tcmu_get_alua_int_setting(struct alua_grp *group,
 	return tcmu_get_cfgfs_int(path);
 }
 
+static int tcmu_set_alua_int_setting(struct alua_grp *group,
+				     const char *setting, int val)
+{
+	char path[PATH_MAX];
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/alua/%s/%s",
+		 group->dev->tcm_hba_name, group->dev->tcm_dev_name,
+		 group->name, setting);
+	return tcmu_set_cfgfs_ul(path, val);
+}
+
 static void tcmu_release_tgt_ports(struct alua_grp *group)
 {
 	struct tgt_port *port, *port_next;
