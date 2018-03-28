@@ -244,14 +244,14 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev)
  * lock. Update lock state now to avoid firing the error
  * handler later.
  */
-void tcmu_update_dev_lock_state(struct tcmu_device *dev)
+int tcmu_update_dev_lock_state(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int state;
 
 	if (!rhandler->get_lock_state)
-		return;
+		return -1;
 
 	state = rhandler->get_lock_state(dev);
 	pthread_mutex_lock(&rdev->state_lock);
@@ -261,6 +261,7 @@ void tcmu_update_dev_lock_state(struct tcmu_device *dev)
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
+	return state;
 }
 
 int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync)

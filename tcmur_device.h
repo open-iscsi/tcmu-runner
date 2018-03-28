@@ -107,6 +107,6 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries);
 
 int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync);
-void tcmu_update_dev_lock_state(struct tcmu_device *dev);
+int tcmu_update_dev_lock_state(struct tcmu_device *dev);
 
 #endif
