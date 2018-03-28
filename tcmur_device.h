@@ -40,6 +40,24 @@ enum {
 	TCMUR_DEV_LOCK_UNLOCKED,
 	TCMUR_DEV_LOCK_LOCKED,
 	TCMUR_DEV_LOCK_LOCKING,
+	/*
+	 * Lock is not held by local or remote nodes.
+	 */
+	TCMUR_DEV_LOCK_NO_HOLDERS,
+	/*
+	 * Handler is not able to connect to its backend to check
+	 * the lock status because it has been fenced off from the
+	 * the cluster. The lock is not held by the local node, and
+	 * the handler needs to be reopened so it can be reinitialized
+	 * and grab the lock later.
+	 */
+	TCMUR_DEV_LOCK_FENCED,
+	/*
+	 * Handler is not able to connect to its backend to check the
+	 * lock status due to a transport issue like the network
+	 * is not reachable or due to a IO failure. Lock may or may not be
+	 * held by the local node at this time.
+	 */
 	TCMUR_DEV_LOCK_UNKNOWN,
 };
 
