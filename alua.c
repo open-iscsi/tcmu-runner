@@ -433,7 +433,7 @@ bool failover_is_supported(struct tcmu_device *dev)
 static void *alua_lock_thread_fn(void *arg)
 {
 	/* TODO: set UA based on bgly's patches */
-	tcmu_acquire_dev_lock(arg);
+	tcmu_acquire_dev_lock(arg, false);
 	return NULL;
 }
 
