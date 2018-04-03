@@ -444,14 +444,18 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	int ret = SAM_STAT_GOOD;
 
 	pthread_mutex_lock(&rdev->state_lock);
-	tcmu_dev_dbg(dev, "lock state %d\n", rdev->lock_state);
 	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED) {
 		goto done;
 	} else if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKING) {
+		tcmu_dev_info(dev, "lock is already in locking state(%d)\n",
+			      TCMUR_DEV_LOCK_LOCKING);
 		ret = tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
 					  ASC_STATE_TRANSITION, NULL);
 		goto done;
 	}
+
+	tcmu_dev_info(dev, "lock is in unlocked state(%d) and changing to locking(%d)\n",
+		      TCMUR_DEV_LOCK_UNLOCKED, TCMUR_DEV_LOCK_LOCKING);
 
 	rdev->lock_state = TCMUR_DEV_LOCK_LOCKING;
 
