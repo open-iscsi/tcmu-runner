@@ -57,12 +57,15 @@ void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			       int rc)
 {
-	int wakeup;
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	int wake_up;
 
-	track_aio_request_finish(tcmu_get_daemon_dev_private(dev), &wakeup);
 	tcmur_command_complete(dev, cmd, rc);
-	if (wakeup)
+	track_aio_request_finish(rdev, &wake_up);
+	while (wake_up) {
 		tcmulib_processing_complete(dev);
+		track_aio_wakeup_finish(rdev, &wake_up);
+	}
 }
 
 static int alloc_iovec(struct tcmulib_cmd *cmd, size_t length)
