@@ -99,12 +99,18 @@ static struct tcmu_conf_option * tcmu_get_option(const char *key)
 	return NULL;
 }
 
-#define TCMU_PARSE_CFG_INT(cfg, key) \
+/* The default value should be specified here,
+ * so the next time when users comment out an
+ * option in config file, here it will set the
+ * default value back.
+ */
+#define TCMU_PARSE_CFG_INT(cfg, key, def) \
 do { \
 	struct tcmu_conf_option *option; \
 	option = tcmu_get_option(#key); \
 	if (option) { \
 		cfg->key = option->opt_int; \
+		option->opt_int = def; \
 	} \
 } while (0)
 
@@ -133,7 +139,7 @@ do { \
 static void tcmu_conf_set_options(struct tcmu_config *cfg, bool reloading)
 {
 	/* set log_level option */
-	TCMU_PARSE_CFG_INT(cfg, log_level);
+	TCMU_PARSE_CFG_INT(cfg, log_level, TCMU_CONF_LOG_INFO);
 	if (cfg->log_level) {
 		tcmu_set_log_level(cfg->log_level);
 	}
