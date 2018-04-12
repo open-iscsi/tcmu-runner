@@ -92,7 +92,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread)
 
 		tcmu_dev_dbg(dev, "Opening device.\n");
 		ret = rhandler->open(dev, true);
-		if (!ret) {
+		if (ret) {
 			/* Avoid busy loop ? */
 			sleep(1);
 		}
