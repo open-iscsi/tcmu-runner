@@ -2489,7 +2489,8 @@ int tcmur_dev_update_size(struct tcmu_device *dev, unsigned long new_size)
 
 	old_size = tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev);
 
-	if (tcmu_update_num_lbas(dev, new_size)) {
+	ret = tcmu_update_num_lbas(dev, new_size);
+	if (!ret) {
 		ret = tcmu_set_dev_size(dev);
 		if (ret)
 			tcmu_update_num_lbas(dev, old_size); /* Rolling back */
