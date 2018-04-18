@@ -47,10 +47,14 @@ struct alua_grp {
 int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 				      struct list_head *group_list,
 				      struct tcmulib_cmd *cmd);
+int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
+				   struct list_head *group_list,
+				   struct tcmulib_cmd *cmd);
 struct tgt_port *tcmu_get_enabled_port(struct list_head *);
 int tcmu_get_alua_grps(struct tcmu_device *, struct list_head *);
 void tcmu_release_alua_grps(struct list_head *);
 int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 bool failover_is_supported(struct tcmu_device *dev);
+int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
 #endif

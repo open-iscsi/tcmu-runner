@@ -216,10 +216,28 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 		rdev->failover_type = TMCUR_DEV_FAILOVER_IMPLICIT;
 
 		group->tpgs = TPGS_ALUA_IMPLICIT;
-	} else if (!strcmp(str_val, "Explicit") ||
-		   !strcmp(str_val, "Implicit and Explicit")) {
-		tcmu_dev_warn(dev, "Unsupported alua_access_type: Explicit failover not supported.\n");
+	} else if (!strcmp(str_val, "Explicit")) {
+		/*
+		 * kernel requires both implicit and explicit so we can
+		 * update the state via configfs.
+		 */
+		tcmu_dev_warn(dev, "Unsupported alua_access_type: Explicit only failover not supported.\n");
+
 		goto free_str_val;
+	} else if (!strcmp(str_val, "Implicit and Explicit")) {
+		if (!failover_is_supported(dev)) {
+			tcmu_dev_err(dev, "device failover is not supported with the alua access type: Implicit and Explicit\n");
+			goto free_str_val;
+		}
+
+		/*
+		 * Only report explicit so initiator always sends STPG.
+		 * We only need implicit enabled in the kernel so we can
+		 * interact with the alua configfs interface.
+		 */
+		rdev->failover_type = TMCUR_DEV_FAILOVER_EXPLICIT;
+
+		group->tpgs = TPGS_ALUA_EXPLICIT;
 	} else {
 		tcmu_dev_err(dev, "Invalid ALUA type %s", str_val);
 		goto free_str_val;
@@ -355,21 +373,150 @@ struct tgt_port *tcmu_get_enabled_port(struct list_head *group_list)
 	return NULL;
 }
 
+/*
+ * alua_update_alua_state - update alua state based on lock state
+ * @dev: tcmu_device to check
+ * @group: ALUA group to check for
+ * @enabled_port: port that is enabled on the local node.
+ *
+ * Some handlers are not able to do an async update state during STPG
+ * handling so update it now. Returns -EAGAIN if the handler was not
+ * able to check the state due to transport/device issue.
+ */
+static int alua_update_alua_state(struct tcmu_device *dev,
+				  struct alua_grp *group,
+				  struct tgt_port *enabled_port)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	uint8_t alua_state;
+	int retry = 0, ret, lock_state;
+
+	if (rdev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT)
+		return 0;
+
+	lock_state = tcmu_update_dev_lock_state(dev);
+	if (lock_state < 0)
+		return 0;
+retry:
+	/* we only support standby and AO for now */
+	switch (lock_state) {
+	case TCMUR_DEV_LOCK_NO_HOLDERS:
+		alua_state = ALUA_ACCESS_STATE_STANDBY;
+		break;
+	case TCMUR_DEV_LOCK_LOCKED:
+		if (enabled_port->grp == group)
+			alua_state =  ALUA_ACCESS_STATE_OPTIMIZED;
+		else
+			alua_state = ALUA_ACCESS_STATE_STANDBY;
+		break;
+	case TCMUR_DEV_LOCK_UNLOCKED:
+		if (enabled_port->grp == group)
+			alua_state = ALUA_ACCESS_STATE_STANDBY;
+		else
+			/*
+			 * This only works for 2 nodes:
+			 * Someone has the lock. It is not the local node and the group
+			 * is for the remote node, so it must be AO.
+			 *
+			 * TODO:
+			 * Next patch adds a callout so we can match remote
+			 * groups to their state, support more than 2 nodes
+			 * and we will not have to call this every loop.
+			 */
+			alua_state = ALUA_ACCESS_STATE_OPTIMIZED;
+		break;
+	case TCMUR_DEV_LOCK_FENCED:
+		if (enabled_port->grp != group) {
+			/* same as above */
+			alua_state = ALUA_ACCESS_STATE_OPTIMIZED;
+			break;
+		}
+
+		/*
+		 * We do not need to reopen now, but will try to
+		 * speed up the STPG handling later.
+		 */
+		alua_state = ALUA_ACCESS_STATE_STANDBY;
+		/*
+		 * This is safe without blocking/flushing because it
+		 * is called from the main IO thread and will wait for
+		 * commands started before it via the aio wait call.
+		 */
+		tcmu_dev_dbg(dev, "Reopen. Old ALUA state %u\n", group->state);
+		ret = tcmu_reopen_dev(dev, false, 0);
+		if (!ret && retry < 1) {
+			retry++;
+			goto retry;
+		}
+		/*
+		 * If we cannot reopen the device to clear the fencing we
+		 * will not be able to execute requests like RW and lock.
+		 * Just drop the session until we can reopen.
+		 */
+
+		/* fallthrough */
+	case TCMUR_DEV_LOCK_UNKNOWN:
+	default:
+		/*
+		 * In spc4r37 and newer
+		 * "5.15.2.7 Target port asymmetric access state reporting"
+		 * states that the initiator should consider the info
+		 * returned through our enabled port current for that
+		 * enabled port. If a RTPG sent through another port
+		 * returns different info, then the info for the enabled
+		 * port returned through the enabled port should be
+		 * considered current.
+		 *
+		 * ESX though assumes the all port info in a RTPG to be
+		 * current so we drop the session here to prevent sending
+		 * inconsistent info. We probably want to do this regardless
+		 * of ESX, because that value is returned when the handler
+		 * cannot connect to the cluster so all requests are
+		 * going to fail.
+		 */
+		tcmu_notify_conn_lost(dev);
+		/*
+		 * To try and not return inconsistent info and not look
+		 * like a hard device error, fail the command so it is
+		 * retried and the retry will be handled like other commands
+		 * during session level recovery.
+		 */
+		return -EAGAIN;
+	}
+
+	if (alua_state == group->state)
+		return 0;
+
+	group->state = alua_state;
+	if (tcmu_set_alua_int_setting(group, "alua_access_state", alua_state)) {
+		/*
+		 * this should never happen so just log it.
+		 * If it does we catch it in check state's lock state check
+		 * or the blacklisting
+		 */
+		tcmu_dev_err(dev, "Could not change kernel state to %u\n",
+			     alua_state);
+	}
+
+	return 0;
+}
+
 int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 				      struct list_head *group_list,
 				      struct tcmulib_cmd *cmd)
 {
 	struct alua_grp *group;
-	struct tgt_port *port;
+	struct tgt_port *port, *enabled_port;
 	int ext_hdr = cmd->cdb[1] & 0x20;
 	uint32_t off = 4, ret_data_len = 0, ret32;
 	uint32_t alloc_len = tcmu_get_xfer_length(cmd->cdb);
 	uint8_t *buf;
+	int ret;
 
-	if (!tcmu_get_enabled_port(group_list))
+	enabled_port = tcmu_get_enabled_port(group_list);
+	if (!enabled_port)
+		/* unsupported config */
 		return TCMU_NOT_HANDLED;
-
-	tcmu_update_dev_lock_state(dev);
 
 	if (alloc_len < 4)
 		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
@@ -403,6 +550,11 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 		if (group->pref)
 			buf[off] = 0x80;
 
+		if (alua_update_alua_state(dev, group, enabled_port) < 0) {
+			ret = SAM_STAT_BUSY;
+			goto free_buf;
+		}
+
 		buf[off++] |= group->state;
 		buf[off++] |= group->supported_states;
 		buf[off++] = (group->id >> 8) & 0xff;
@@ -430,8 +582,10 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	memcpy(&buf[0], &ret32, 4);
 
 	tcmu_memcpy_into_iovec(cmd->iovec, cmd->iov_cnt, buf, alloc_len);
+	ret = SAM_STAT_GOOD;
+free_buf:
 	free(buf);
-	return SAM_STAT_GOOD;
+	return ret;
 }
 
 bool failover_is_supported(struct tcmu_device *dev)
@@ -491,4 +645,196 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 done:
 	pthread_mutex_unlock(&rdev->state_lock);
 	return ret;
+}
+
+static bool alua_check_sup_state(uint8_t state, uint8_t sup)
+{
+	switch (state) {
+	case ALUA_ACCESS_STATE_OPTIMIZED:
+		if (sup & ALUA_SUP_OPTIMIZED)
+			return true;
+		return false;
+	case ALUA_ACCESS_STATE_NON_OPTIMIZED:
+		if (sup & ALUA_SUP_NON_OPTIMIZED)
+			return true;
+		return false;
+	case ALUA_ACCESS_STATE_STANDBY:
+		if (sup & ALUA_SUP_STANDBY)
+			return true;
+		return false;
+	case ALUA_ACCESS_STATE_UNAVAILABLE:
+		if (sup & ALUA_SUP_UNAVAILABLE)
+			return true;
+		return false;
+	case ALUA_ACCESS_STATE_OFFLINE:
+		/*
+		 * TODO: support secondary states
+		 */
+		return false;
+	}
+
+	return false;
+}
+
+static int tcmu_explicit_transition(struct alua_grp *group,
+				    uint8_t new_state, uint8_t alua_status,
+				    uint8_t *sense)
+{
+	struct tcmu_device *dev = group->dev;
+	int ret;
+
+	tcmu_dev_dbg(dev, "transition group %u new state %u old state %u sup 0x%x\n",
+		     group->id, new_state, group->state, group->supported_states);
+
+	if (!alua_check_sup_state(new_state, group->supported_states))
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
+					   NULL);
+
+	switch (new_state) {
+	case ALUA_ACCESS_STATE_OPTIMIZED:
+		if (failover_is_supported(dev) &&
+		    tcmu_acquire_dev_lock(dev, true)) {
+			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+						   ASC_STPG_CMD_FAILED, NULL);
+		}
+		break;
+	case ALUA_ACCESS_STATE_NON_OPTIMIZED:
+	case ALUA_ACCESS_STATE_UNAVAILABLE:
+	case ALUA_ACCESS_STATE_OFFLINE:
+		/* TODO we only support standby and AO */
+		tcmu_dev_err(dev, "Igoring AO/unavail/offline\n");
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
+					   NULL);
+	case ALUA_ACCESS_STATE_STANDBY:
+		/*
+		 * TODO: we only see this in verification tests.
+		 * Add back unlock in final commit.
+		 */
+		tcmu_dev_err(dev, "Igoring standby\n");
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
+					   NULL);
+	default:
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
+					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
+					   NULL);
+	}
+
+	ret = tcmu_set_alua_int_setting(group, "alua_access_state", new_state);
+	if (ret) {
+		tcmu_dev_err(dev, "Could not change kernel state to %u\n",
+			     new_state);
+		/*
+		 * TODO drop the lock
+		 */
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
+					   ASC_STPG_CMD_FAILED, NULL);
+	}
+
+	ret = tcmu_set_alua_int_setting(group, "alua_access_status", alua_status);
+	if (ret)
+		/* Ignore. The RTPG status info will be off, but its not used */
+		tcmu_dev_err(dev, "Could not set alua_access_status for group %s:%d\n",
+			     group->name, group->id);
+
+	group->state = new_state;
+	group->status = alua_status;
+	return SAM_STAT_GOOD;
+}
+
+int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
+				   struct list_head *group_list,
+				   struct tcmulib_cmd *cmd)
+{
+	struct alua_grp *group;
+	uint32_t off = 4, param_list_len = tcmu_get_xfer_length(cmd->cdb);
+	uint16_t id, tmp_id;
+	char *buf, new_state;
+	int found, ret = SAM_STAT_GOOD;
+
+	if (!tcmu_get_enabled_port(group_list))
+		return TCMU_NOT_HANDLED;
+
+	if (!param_list_len)
+		return SAM_STAT_GOOD;
+
+	buf = calloc(1, param_list_len);
+	if (!buf)
+		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	if (tcmu_memcpy_from_iovec(buf, param_list_len, cmd->iovec,
+				   cmd->iov_cnt) != param_list_len) {
+		ret = tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+					  ASC_PARAMETER_LIST_LENGTH_ERROR,
+					  NULL);
+		goto free_buf;
+	}
+
+	while (off < param_list_len) {
+		new_state = buf[off++] & 0x0f;
+		/* reserved */
+		off++;
+		memcpy(&tmp_id, &buf[off], sizeof(tmp_id));
+		id = be16toh(tmp_id);
+		off += 2;
+
+		found = 0;
+		list_for_each(group_list, group, entry) {
+			if (group->id != id)
+				continue;
+
+			tcmu_dev_dbg(dev, "Got STPG for group %u\n", id);
+			ret = tcmu_explicit_transition(group, new_state,
+					ALUA_STAT_ALTERED_BY_EXPLICIT_STPG,
+					cmd->sense_buf);
+			if (ret != SAM_STAT_GOOD) {
+				tcmu_dev_err(dev, "Failing STPG for group %d\n",
+					      id);
+				goto free_buf;
+			}
+			found = 1;
+			break;
+		}
+
+		if (!found) {
+			/*
+			 * Could not find what error code to return in SCSI
+			 * spec.
+			 */
+			tcmu_dev_err(dev, "Could not find group for %u for STPG\n",
+				      id);
+			ret = tcmu_set_sense_data(cmd->sense_buf,
+						  HARDWARE_ERROR,
+						  ASC_STPG_CMD_FAILED, NULL);
+			break;
+		}
+	}
+
+free_buf:
+	free(buf);
+	return ret;
+}
+
+int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+	if (!failover_is_supported(dev))
+		return 0;
+
+        if (rdev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
+		if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
+			tcmu_dev_dbg(dev, "device lock not held.\n");
+			return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
+						   ASC_PORT_IN_STANDBY,
+						   NULL);
+		}
+	} else if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
+		return alua_implicit_transition(dev, cmd);
+	}
+
+	return 0;
 }
