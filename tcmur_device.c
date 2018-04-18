@@ -44,11 +44,11 @@ bool tcmu_dev_in_recovery(struct tcmu_device *dev)
 /*
  * TCMUR_DEV_FLAG_IN_RECOVERY must be set before calling
  */
-int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread)
+int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	int ret;
+	int ret, attempt = 0;
 
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	ret = aio_wait_for_empty_queue(rdev);
@@ -87,10 +87,11 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread)
 	pthread_mutex_lock(&rdev->state_lock);
 	rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
 	ret = -EIO;
-	while (ret != 0 && !(rdev->flags & TCMUR_DEV_FLAG_STOPPING)) {
+	while (ret != 0 && !(rdev->flags & TCMUR_DEV_FLAG_STOPPING) &&
+	       (retries < 0 || attempt <= retries)) {
 		pthread_mutex_unlock(&rdev->state_lock);
 
-		tcmu_dev_dbg(dev, "Opening device.\n");
+		tcmu_dev_dbg(dev, "Opening device. Attempt %d\n", attempt);
 		ret = rhandler->open(dev, true);
 		if (ret) {
 			/* Avoid busy loop ? */
@@ -101,6 +102,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread)
 		if (!ret) {
 			rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
 		}
+		attempt++;
 	}
 
 done:
@@ -113,8 +115,10 @@ done:
 /*
  * tcmu_reopen_dev - close and open device.
  * @dev: device to reopen
+ * @in_lock_thread: true if called from locking thread.
+ * @retries: number of times to retry open() call. -1 indicates infinite.
  */
-int tcmu_reopen_dev(struct tcmu_device *dev)
+int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 
@@ -126,7 +130,7 @@ int tcmu_reopen_dev(struct tcmu_device *dev)
 	rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	return __tcmu_reopen_dev(dev, true);
+	return __tcmu_reopen_dev(dev, in_lock_thread, retries);
 }
 
 void tcmu_cancel_recovery(struct tcmu_device *dev)
@@ -300,7 +304,7 @@ retry:
 		 * can drop down to another path.
 		 */
 		tcmu_dev_dbg(dev, "Try to reopen device.\n");
-		if (retries < 1 && !tcmu_reopen_dev(dev)) {
+		if (retries < 1 && !tcmu_reopen_dev(dev, true, 0)) {
 			retries++;
 			goto retry;
 		}
