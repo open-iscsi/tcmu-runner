@@ -657,14 +657,16 @@ static int tcmu_rbd_lock(struct tcmu_device *dev)
 	if (orig_owner)
 		free(orig_owner);
 
-	if (ret == -ETIMEDOUT || ret == -ESHUTDOWN)
-		ret = TCMUR_LOCK_NOTCONN;
+	if (ret == -ETIMEDOUT)
+		ret = TCMUR_DEV_LOCK_UNKNOWN;
+	else if (ret == -ESHUTDOWN)
+		ret = TCMUR_DEV_LOCK_FENCED;
 	else if (ret)
-		ret = TCMUR_LOCK_FAILED;
+		ret = TCMUR_DEV_LOCK_UNLOCKED;
 	else
-		ret = TCMUR_LOCK_SUCCESS;
+		ret = TCMUR_DEV_LOCK_LOCKED;
 
-	tcmu_rbd_service_status_update(dev, ret == TCMUR_LOCK_SUCCESS ?
+	tcmu_rbd_service_status_update(dev, ret == TCMUR_DEV_LOCK_LOCKED ?
 				       true : false);
 	return ret;
 }

@@ -268,7 +268,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	int ret, retries = 0, new_state = TCMUR_DEV_LOCK_UNLOCKED;
+	int retries = 0, new_state = TCMUR_DEV_LOCK_UNLOCKED;
 
 	/* Block the kernel device. */
 	tcmu_block_device(dev);
@@ -276,7 +276,6 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync)
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	if (aio_wait_for_empty_queue(rdev)) {
 		tcmu_dev_err(dev, "Not able to flush queue before taking lock.\n");
-		ret = TCMUR_LOCK_FAILED;
 		goto done;
 	}
 
@@ -293,30 +292,29 @@ retry:
 	tcmu_dev_dbg(dev, "lock call state %d retries %d\n",
 		     rdev->lock_state, retries);
 
-	ret = rhandler->lock(dev);
-	switch (ret) {
-	case TCMUR_LOCK_FAILED:
-		new_state = TCMUR_DEV_LOCK_UNLOCKED;
-		break;
-	case TCMUR_LOCK_SUCCESS:
-		new_state = TCMUR_DEV_LOCK_LOCKED;
-		break;
-	case TCMUR_LOCK_NOTCONN:
+	new_state = rhandler->lock(dev);
+	switch (new_state) {
+	case TCMUR_DEV_LOCK_FENCED:
 		/*
-		 * Try to reconnect to the backend device. If this
+		 * Try to reopen the backend device. If this
 		 * fails then go into recovery, so the initaitor
 		 * can drop down to another path.
 		 */
-		tcmu_dev_dbg(dev, "Try to reopen device.\n");
+		tcmu_dev_dbg(dev, "Try to reopen device. %d\n", retries);
 		if (retries < 1 && !tcmu_reopen_dev(dev, true, 0)) {
 			retries++;
 			goto retry;
 		}
-
+		/* fallthrough */
+	case TCMUR_DEV_LOCK_UNKNOWN:
 		tcmu_dev_dbg(dev, "Fail handler device connection.\n");
 		tcmu_notify_conn_lost(dev);
 		new_state = TCMUR_DEV_LOCK_UNLOCKED;
 		break;
+	case TCMUR_DEV_LOCK_LOCKED:
+		break;
+	default:
+		new_state = TCMUR_DEV_LOCK_UNLOCKED;
 	}
 
 done:
@@ -329,5 +327,8 @@ done:
 
 	tcmu_unblock_device(dev);
 
-	return ret;
+	if (new_state == TCMUR_DEV_LOCK_LOCKED)
+		return 0;
+	else
+		return -1;
 }

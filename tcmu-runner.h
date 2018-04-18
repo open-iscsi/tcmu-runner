@@ -43,12 +43,6 @@ typedef int (*unmap_fn_t)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 struct tcmulib_cfg_info;
 
-enum {
-	TCMUR_LOCK_SUCCESS,
-	TCMUR_LOCK_FAILED,
-	TCMUR_LOCK_NOTCONN,
-};
-
 struct tcmur_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */
@@ -123,7 +117,7 @@ struct tcmur_handler {
 	unmap_fn_t unmap;
 
 	/*
-	 * Must return a TCMUR_LOCK return value.
+	 * Must return the new lock state as a TCMUR_DEV_LOCK value.
 	 */
 	int (*lock)(struct tcmu_device *dev);
 	/*
