@@ -1078,6 +1078,10 @@ int main(int argc, char **argv)
 	}
 
 	tcmu_dbg("handler path: %s\n", handler_path);
+
+	tcmu_block_netlink();
+	tcmu_reset_netlink();
+
 	ret = open_handlers();
 	if (ret < 0) {
 		tcmu_err("couldn't open handlers\n");
@@ -1141,6 +1145,7 @@ int main(int argc, char **argv)
 				NULL  // user date free func
 		);
 
+	tcmu_unblock_netlink();
 	g_main_loop_run(loop);
 
 	tcmu_info("Exiting...\n");
@@ -1167,6 +1172,7 @@ err_tcmulib_close:
 err_free_handlers:
 	darray_free(handlers);
 close_fd:
+	tcmu_unblock_netlink();
 	lock_fd.l_type = F_UNLCK;
 	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
 		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",
