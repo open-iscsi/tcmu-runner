@@ -624,7 +624,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 		while (!dev_stopping && (cmd = tcmulib_get_next_command(dev)) != NULL) {
 
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
-				tcmu_cdb_debug_info(dev, cmd);
+				tcmu_print_cdb_info(dev, cmd, NULL);
 
 			if (tcmur_handler_is_passthrough_only(rhandler))
 				ret = tcmur_cmd_passthrough_handler(dev, cmd);
@@ -632,7 +632,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 				ret = tcmur_generic_handle_cmd(dev, cmd);
 
 			if (ret == TCMU_STS_NOT_HANDLED)
-				tcmu_dev_warn(dev, "Command 0x%x not supported\n", cmd->cdb[0]);
+				tcmu_print_cdb_info(dev, cmd, "is not supported");
 
 			/*
 			 * command (processing) completion is called in the following
