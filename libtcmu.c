@@ -955,7 +955,7 @@ device_cmd_tail(struct tcmu_device *dev)
 #define TCMU_UPDATE_DEV_TAIL(dev, mb, ent) \
 do { \
 	dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
-} while (0);
+} while (0)
 
 struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 {
@@ -1020,7 +1020,7 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 #define TCMU_UPDATE_RB_TAIL(mb, ent) \
 do { \
 	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
-} while (0);
+} while (0)
 
 void tcmulib_command_complete(
 	struct tcmu_device *dev,
