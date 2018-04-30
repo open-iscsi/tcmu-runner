@@ -517,35 +517,6 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	return 0;
 }
 
-static int tcmu_rbd_get_lock_state(struct tcmu_device *dev)
-{
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	rbd_lock_mode_t lock_mode;
-	char *owners[1];
-	size_t num_owners = 1;
-	int ret;
-
-	ret = rbd_lock_get_owners(state->image, &lock_mode, owners,
-				  &num_owners);
-	if (ret == -ENOENT || (!ret && !num_owners)) {
-		tcmu_dev_dbg(dev, "no holders %d\n", ret);
-		return TCMUR_DEV_LOCK_NO_HOLDERS;
-	}
-	if (!ret && num_owners)
-		rbd_lock_get_owners_cleanup(owners, num_owners);
-
-	ret = tcmu_rbd_has_lock(dev);
-	if (ret == 1) {
-		return TCMUR_DEV_LOCK_LOCKED;
-	} else if (ret == -ESHUTDOWN) {
-		return TCMUR_DEV_LOCK_FENCED;
-	} else if (!ret) {
-		return TCMUR_DEV_LOCK_UNLOCKED;
-	} else {
-		return TCMUR_DEV_LOCK_UNKNOWN;
-	}
-}
-
 /**
  * tcmu_rbd_lock_break - break rbd exclusive lock if needed
  * @dev: device to break the lock for.
@@ -1549,8 +1520,7 @@ struct tcmur_handler tcmu_rbd_handler = {
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
 	.lock          = tcmu_rbd_lock,
 	.unlock        = tcmu_rbd_unlock,
-	.get_lock_state = tcmu_rbd_get_lock_state,
-	.get_lock_tag   = tcmu_rbd_get_lock_tag,
+	.get_lock_tag  = tcmu_rbd_get_lock_tag,
 #endif
 };
 

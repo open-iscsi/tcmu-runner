@@ -127,10 +127,6 @@ struct tcmur_handler {
 	int (*unlock)(struct tcmu_device *dev);
 
 	/*
-	 * Must return TCMUR_DEV_LOCK state value.
-	 */
-	int (*get_lock_state)(struct tcmu_device *dev);
-	/*
 	 * Return tag set in lock call in tag buffer.
 	 * Returns:
 	 * 0 success.
