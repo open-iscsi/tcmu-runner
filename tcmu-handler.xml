@@ -16,6 +16,13 @@ that the configstring is valid before the device has been created.
       <arg type="b" name="is_valid" direction="out"/>
       <arg type="s" name="message" direction="out"/>
     </method>
+    <method name="MediaChange">
+      <arg type="s" name="name" direction="in"/>
+      <arg type="t" name="size" direction="in"/>
+      <arg type="s" name="configstr" direction="in"/>
+      <arg type="i" name="ret" direction="out"/>
+      <arg type="s" name="message" direction="out"/>
+    </method>
   </interface>
   <interface name="org.kernel.TCMUService1.HandlerManager1">
     <method name="RegisterHandler">

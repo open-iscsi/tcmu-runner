@@ -126,6 +126,7 @@ bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name);
 int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
 			       unsigned long val);
 int tcmu_set_dev_size(struct tcmu_device *dev);
+int tcmu_set_dev_cfgstring(struct tcmu_device *dev, char *cfgstring);
 long long tcmu_get_dev_size(struct tcmu_device *dev);
 char *tcmu_get_wwn(struct tcmu_device *dev);
 int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val);

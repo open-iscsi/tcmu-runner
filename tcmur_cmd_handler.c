@@ -2257,6 +2257,54 @@ bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler)
 	return true;
 }
 
+void tcmur_set_pending_ua(struct tcmu_device *dev, int ua)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+	pthread_mutex_lock(&rdev->state_lock);
+	rdev->pending_uas |= (1 << ua);
+	pthread_mutex_unlock(&rdev->state_lock);
+}
+
+/*
+ * TODO - coordinate with the kernel.
+ */
+static int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
+{
+	uint8_t *cdb = cmd->cdb;
+	int ret = TCMU_NOT_HANDLED, ua;
+
+	switch (cdb[0]) {
+	case INQUIRY:
+	case REQUEST_SENSE:
+		/* The kernel will handle REPORT_LUNS */
+		return TCMU_NOT_HANDLED;
+	}
+	pthread_mutex_lock(&rdev->state_lock);
+
+	if (!rdev->pending_uas) {
+		ret = TCMU_NOT_HANDLED;
+		goto unlock;
+	}
+
+	ua = ffs(rdev->pending_uas) - 1;
+	switch (ua) {
+	case TCMUR_UA_DEV_SIZE_CHANGED:
+		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
+					  ASC_CAPACITY_HAS_CHANGED, NULL);
+		break;
+	case TCMUR_UA_DEV_MEDIUM_CHANGED:
+		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
+					  ASC_MEDIUM_CHANGED, NULL);
+		break;
+	}
+	rdev->pending_uas &= ~(1 << ua);
+
+unlock:
+	pthread_mutex_unlock(&rdev->state_lock);
+	return ret;
+}
+
 int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 				  struct tcmulib_cmd *cmd)
 {
@@ -2266,6 +2314,10 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 
 	if (!rhandler->handle_cmd)
 		return TCMU_NOT_HANDLED;
+
+	ret = handle_pending_ua(rdev, cmd);
+	if (ret == SAM_STAT_CHECK_CONDITION)
+		return ret;
 
 	/*
 	 * Support handlers that implement their own threading/AIO
@@ -2498,50 +2550,6 @@ int tcmur_dev_update_size(struct tcmu_device *dev, unsigned long new_size)
 			tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
 	}
 
-	return ret;
-}
-
-void tcmur_set_pending_ua(struct tcmu_device *dev, int ua)
-{
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-
-	pthread_mutex_lock(&rdev->state_lock);
-	rdev->pending_uas |= (1 << ua);
-	pthread_mutex_unlock(&rdev->state_lock);
-}
-
-/*
- * TODO - coordinate with the kernel.
- */
-static int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
-{
-	uint8_t *cdb = cmd->cdb;
-	int ret = TCMU_NOT_HANDLED, ua;
-
-	switch (cdb[0]) {
-	case INQUIRY:
-	case REQUEST_SENSE:
-		/* The kernel will handle REPORT_LUNS */
-		return TCMU_NOT_HANDLED;
-	}
-	pthread_mutex_lock(&rdev->state_lock);
-
-	if (!rdev->pending_uas) {
-		ret = TCMU_NOT_HANDLED;
-		goto unlock;
-	}
-
-	ua = ffs(rdev->pending_uas) - 1;
-	switch (ua) {
-	case TCMUR_UA_DEV_SIZE_CHANGED:
-		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
-					  ASC_CAPACITY_HAS_CHANGED, NULL);
-		break;
-	}
-	rdev->pending_uas &= ~(1 << ua);
-
-unlock:
-	pthread_mutex_unlock(&rdev->state_lock);
 	return ret;
 }
 

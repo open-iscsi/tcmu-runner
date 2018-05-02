@@ -33,6 +33,7 @@ extern "C" {
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "alua.h"
+#include "darray.h"
 
 typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
 		       struct iovec *, size_t, size_t, off_t);
@@ -56,6 +57,7 @@ struct tcmur_handler {
 
 	void *opaque;		/* Handler private data. */
 
+	darray(struct tcmu_device*) devices;
 	/*
 	 * As much as possible, check that the cfgstring will result
 	 * in a working device when given to us as dev->cfgstring in
