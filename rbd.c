@@ -271,7 +271,7 @@ static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 	rados_buffer_free(mon_status_buf);
 
 	/* expected JSON output: "{..."crush_rule":"<rule name>"...}" */
-	mon_buf[mon_buf_len] = '\0';
+	mon_buf[mon_buf_len - 1] = '\0';
 	crush_rule = strstr(mon_buf, "\"crush_rule\":\"");
 	if (!crush_rule) {
 		tcmu_dev_warn(dev, "Could not locate crush rule key\n");
@@ -318,7 +318,7 @@ static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 	rados_buffer_free(mon_status_buf);
 
 	/* expected JSON output: ["<rule name>",["<rule name>"...]] */
-	mon_buf[mon_buf_len] = '\0';
+	mon_buf[mon_buf_len - 1] = '\0';
 	if (strstr(mon_buf, crush_rule)) {
 		tcmu_dev_dbg(dev, "Pool %s associated to SSD device class.\n",
 			     state->pool_name);
