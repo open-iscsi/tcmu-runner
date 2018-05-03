@@ -55,6 +55,7 @@
 #include "version.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+#include "libtcmu_priv.h"
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
 
@@ -62,10 +63,28 @@ static struct tcmu_config *tcmu_cfg;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
+static struct tcmu_device *find_device(struct tcmur_handler *handler,
+				       char *name)
+{
+	struct tcmu_device *dev;
+	struct tcmu_device **dev_ptr;
+
+	darray_foreach(dev_ptr, handler->devices) {
+		dev = *dev_ptr;
+		if (!strcmp(name, dev->tcm_dev_name)) {
+			return dev;
+		}
+	}
+
+	return NULL;
+}
+
 int tcmur_register_handler(struct tcmur_handler *handler)
 {
 	struct tcmur_handler *h;
 	int i;
+
+	darray_init(handler->devices);
 
 	for (i = 0; i < darray_size(g_runner_handlers); i++) {
 		h = darray_item(g_runner_handlers, i);
@@ -89,6 +108,9 @@ static int tcmur_register_dbus_handler(struct tcmur_handler *handler)
 bool tcmur_unregister_handler(struct tcmur_handler *handler)
 {
 	int i;
+
+	darray_free(handler->devices);
+
 	for (i = 0; i < darray_size(g_runner_handlers); i++) {
 		if (darray_item(g_runner_handlers, i) == handler) {
 			darray_remove(g_runner_handlers, i);
@@ -235,8 +257,47 @@ on_check_config(TCMUService1 *interface,
 	return TRUE;
 }
 
+static gboolean
+on_mediachange(TCMUService1 *interface,
+	       GDBusMethodInvocation *invocation,
+	       gchar *name,
+	       guint64 size,
+	       gchar *cfgstring,
+	       gpointer user_data)
+{
+	struct tcmur_handler *handler = user_data;
+	struct tcmu_device *dev = NULL;
+	char *reason = NULL;
+	int ret = 0;
+
+	dev = find_device(handler, name);
+	if (!dev) {
+		reason = "failure no device";
+		goto exit;
+	}
+
+	tcmu_set_dev_cfgstring(dev, cfgstring);
+	tcmu_update_num_lbas(dev, size);
+	tcmu_set_dev_size(dev);
+
+	tcmu_block_device(dev);
+	tcmu_flush_device(dev);
+	ret = tcmu_reopen_dev(dev);
+	if (ret == 0)
+		reason = "success";
+
+	tcmu_unblock_device(dev);
+	tcmur_set_pending_ua(dev, TCMUR_UA_DEV_MEDIUM_CHANGED);
+
+exit:
+	g_dbus_method_invocation_return_value(invocation,
+		g_variant_new("(is)", ret, reason ? : "unknown"));
+
+	return TRUE;
+}
+
 static void
-dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
+dbus_export_handler(struct tcmur_handler *handler, GCallback check_config, GCallback mediachange)
 {
 	GDBusObjectSkeleton *object;
 	char obj_name[128];
@@ -251,6 +312,10 @@ dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
 			 "handle-check-config",
 			 check_config,
 			 handler); /* user_data */
+	g_signal_connect(interface,
+			 "handle-media-change",
+			 mediachange,
+			 handler);
 	tcmuservice1_set_config_desc(interface, handler->cfg_desc);
 	g_dbus_object_manager_server_export(manager, G_DBUS_OBJECT_SKELETON(object));
 	g_object_unref(object);
@@ -326,6 +391,43 @@ on_dbus_check_config(TCMUService1 *interface,
 	return TRUE;
 }
 
+static gboolean
+on_dbus_mediachange(TCMUService1 *interface,
+		    GDBusMethodInvocation *invocation,
+		    gchar *name,
+		    guint64 size,
+		    gchar *cfgstring,
+		    gpointer user_data)
+{
+	char *bus_name, *obj_name;
+	struct tcmur_handler *handler = user_data;
+	GDBusConnection *connection;
+	GError *error = NULL;
+	GVariant *result;
+
+	bus_name = g_strdup_printf("org.kernel.TCMUService1.HandlerManager1.%s",
+				   handler->subtype);
+	obj_name = g_strdup_printf("/org/kernel/TCMUService1/HandlerManager1/%s",
+				   handler->subtype);
+	connection = g_dbus_method_invocation_get_connection(invocation);
+	result = g_dbus_connection_call_sync(connection,
+					     bus_name,
+					     obj_name,
+					     "org.kernel.TCMUService1",
+					     "MediaChange",
+					     g_variant_new("(sts)", name, size, cfgstring),
+					     NULL, G_DBUS_CALL_FLAGS_NONE, -1,
+					     NULL, &error);
+	if (result)
+		g_dbus_method_invocation_return_value(invocation, result);
+	else
+		g_dbus_method_invocation_return_value(invocation,
+			g_variant_new("(bs)", FALSE, error->message));
+	g_free(bus_name);
+	g_free(obj_name);
+	return TRUE;
+}
+
 static void
 on_handler_appeared(GDBusConnection *connection,
 		    const gchar     *name,
@@ -338,7 +440,8 @@ on_handler_appeared(GDBusConnection *connection,
 	if (info->register_invocation) {
 		info->connection = connection;
 		tcmur_register_dbus_handler(handler);
-		dbus_export_handler(handler, G_CALLBACK(on_dbus_check_config));
+		dbus_export_handler(handler, G_CALLBACK(on_dbus_check_config),
+				    G_CALLBACK(on_dbus_mediachange));
 		g_dbus_method_invocation_return_value(info->register_invocation,
 			    g_variant_new("(bs)", TRUE, "succeeded"));
 		info->register_invocation = NULL;
@@ -445,7 +548,7 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
 	darray_foreach(handler, g_runner_handlers) {
-		dbus_export_handler(*handler, G_CALLBACK(on_check_config));
+		dbus_export_handler(*handler, G_CALLBACK(on_check_config), G_CALLBACK(on_mediachange));
 	}
 
 	dbus_handler_manager1_init(connection);
@@ -791,6 +894,8 @@ static int dev_added(struct tcmu_device *dev)
 	ret = rhandler->open(dev, false);
 	if (ret)
 		goto cleanup_aio_tracking;
+
+	darray_append(rhandler->devices, dev);
 	/*
 	 * On the initial creation ALUA will probably not yet have been setup,
 	 * but for reopens it will be so we need to sync our failover state.
@@ -865,11 +970,25 @@ void tcmu_cancel_thread(pthread_t thread)
 static void dev_removed(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmu_device **temp_dev_ptr;
+	struct tcmu_device *temp_dev;
 	int ret;
+	int i = 0;
 
 	pthread_mutex_lock(&rdev->state_lock);
 	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
 	pthread_mutex_unlock(&rdev->state_lock);
+
+	darray_foreach(temp_dev_ptr, rhandler->devices) {
+		temp_dev = *temp_dev_ptr;
+
+		if (dev == temp_dev)
+			break;
+		i++;
+	}
+
+	darray_remove(rhandler->devices, i);
 
 	/*
 	 * The order of cleaning up worker threads and calling ->removed()

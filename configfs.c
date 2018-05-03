@@ -180,6 +180,18 @@ long long tcmu_get_dev_size(struct tcmu_device *dev)
 	return size;
 }
 
+int tcmu_set_dev_cfgstring(struct tcmu_device *dev, char *cfgstring)
+{
+	char path[PATH_MAX];
+	char buf[CFGFS_BUF_SIZE];
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/control",
+		 dev->tcm_hba_name, dev->tcm_dev_name);
+	snprintf(buf, sizeof(buf), "%s=%s", "dev_config", cfgstring);
+	snprintf(dev->cfgstring, sizeof(dev->cfgstring), "%s", cfgstring);
+	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
+}
+
 char *tcmu_get_cfgfs_str(const char *path)
 {
 	int fd, n;
