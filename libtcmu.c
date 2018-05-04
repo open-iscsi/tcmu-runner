@@ -1055,7 +1055,7 @@ void tcmulib_command_complete(
 		buf[12] = 0x20; /* ASC: invalid command operation code */
 		buf[13] = 0x0;	/* ASCQ: (none) */
 	} else {
-		if (result != SAM_STAT_GOOD) {
+		if (result != TCMU_STS_OK) {
 			memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
 			       TCMU_SENSE_BUFFERSIZE);
 		}

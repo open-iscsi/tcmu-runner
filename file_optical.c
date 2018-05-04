@@ -225,7 +225,7 @@ static int fbo_emulate_inquiry(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt
 	/* TBD: Resid data? */
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_request_sense(struct tcmu_device *dev, uint8_t *cdb,
@@ -259,7 +259,7 @@ static int fbo_emulate_request_sense(struct tcmu_device *dev, uint8_t *cdb,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_handle_rwerp_page(uint8_t *buf, size_t buf_len,
@@ -397,7 +397,7 @@ static int fbo_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_mode_select(uint8_t *cdb, struct iovec *iovec,
@@ -473,7 +473,7 @@ static int fbo_emulate_mode_select(uint8_t *cdb, struct iovec *iovec,
 		used_len += ret;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_allow_medium_removal(struct tcmu_device *dev,
@@ -489,7 +489,7 @@ static int fbo_emulate_allow_medium_removal(struct tcmu_device *dev,
 		state->flags &= ~FBO_PREV_EJECT;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_read_toc(struct tcmu_device *dev, uint8_t *cdb,
@@ -559,7 +559,7 @@ static int fbo_emulate_read_toc(struct tcmu_device *dev, uint8_t *cdb,
 					   ASC_INVALID_FIELD_IN_CDB, NULL);
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_get_configuration(struct tcmu_device *dev, uint8_t *cdb,
@@ -799,7 +799,7 @@ static int fbo_emulate_get_configuration(struct tcmu_device *dev, uint8_t *cdb,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_get_event_status_notification(struct tcmu_device *dev,
@@ -878,7 +878,7 @@ done:
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_read_disc_information(struct tcmu_device *dev,
@@ -903,7 +903,7 @@ static int fbo_emulate_read_disc_information(struct tcmu_device *dev,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, 34);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_read_dvd_structure(struct tcmu_device *dev, uint8_t *cdb,
@@ -1000,7 +1000,7 @@ static int fbo_emulate_read_dvd_structure(struct tcmu_device *dev, uint8_t *cdb,
 					   ASC_INVALID_FIELD_IN_CDB, NULL);
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_mechanism_status(struct tcmu_device *dev, uint8_t *cdb,
@@ -1020,7 +1020,7 @@ static int fbo_emulate_mechanism_status(struct tcmu_device *dev, uint8_t *cdb,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, 8);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_do_sync(struct fbo_state *state, uint8_t *sense)
@@ -1033,7 +1033,7 @@ static int fbo_do_sync(struct fbo_state *state, uint8_t *sense)
 		return set_medium_error(sense, ASC_WRITE_ERROR);
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static void *fbo_async_sync_cache(void *arg)
@@ -1075,7 +1075,7 @@ static int fbo_synchronize_cache(struct tcmu_device *dev, uint8_t *cdb,
 		/* Immediate Bit set */
 		pthread_create(&thr, NULL, fbo_async_sync_cache, dev);
 
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 
 	return fbo_do_sync(state, sense);
@@ -1097,7 +1097,7 @@ static int fbo_check_lba_and_length(struct fbo_state *state, uint8_t *cdb,
 	*plba = lba;
 	*plen = num_blocks * state->block_size;
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
@@ -1155,7 +1155,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	state->flags &= ~FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static void fbo_cleanup_buffer(void *buf)
@@ -1170,7 +1170,7 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 	ssize_t ret;
 	uint32_t cmp_offset;
 	void *buf;
-	int rc = SAM_STAT_GOOD;
+	int rc = TCMU_STS_OK;
 	int remaining;
 
 	buf = malloc(length);
@@ -1230,7 +1230,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	int length = 0;
 	int remaining;
 	ssize_t ret;
-	int rc = SAM_STAT_GOOD;
+	int rc = TCMU_STS_OK;
 	int rc1;
 
 	// TBD: If we simulate start/stop, then fail if stopped
@@ -1240,7 +1240,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 					   NULL);
 
 	rc = fbo_check_lba_and_length(state, cdb, sense, &cur_lba, &length);
-	if (rc != SAM_STAT_GOOD)
+	if (rc != TCMU_STS_OK)
 		return rc;
 
 	offset = state->block_size * cur_lba;
@@ -1266,7 +1266,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		remaining -= ret;
 	}
 
-	if (rc == SAM_STAT_GOOD && (do_verify || fua)) {
+	if (rc == TCMU_STS_OK && (do_verify || fua)) {
 		rc1 = fsync(state->fd);
 		if (rc1) {
 			tcmu_err("sync failed: %m\n");
@@ -1278,7 +1278,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	state->flags &= ~FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	if (!do_verify || rc != SAM_STAT_GOOD)
+	if (!do_verify || rc != TCMU_STS_OK)
 		return rc;
 
 	offset = state->block_size * cur_lba;
@@ -1322,7 +1322,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	uint8_t *buf;
 	unsigned int length = 1024 * 1024;
 	ssize_t ret;
-	int rc = SAM_STAT_GOOD;
+	int rc = TCMU_STS_OK;
 
 	buf = malloc(length);
 	if (!buf) {
@@ -1463,7 +1463,7 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 		/* Immediate Bit set */
 		pthread_create(&thr, NULL, fbo_async_format, dev);
 
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 
 	return fbo_do_format(dev, sense);
@@ -1495,7 +1495,7 @@ static int fbo_emulate_read_format_capacities(struct tcmu_device *dev,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 /*

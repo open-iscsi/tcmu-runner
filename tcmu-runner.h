@@ -95,7 +95,7 @@ struct tcmur_handler {
 	 *   resources for the command.
 	 *
 	 * If 0 is returned the handler must call the tcmulib_cmd->done
-	 * function with SAM_STAT_GOOD or a SAM status code and set the
+	 * function with TCMU_STS_OK or a SAM status code and set the
 	 * the sense asc/ascq if needed.
 	 */
 	handle_cmd_fn_t handle_cmd;
@@ -108,7 +108,7 @@ struct tcmur_handler {
 	 *   resources for the command.
 	 *
 	 * If 0 is returned the handler must call the tcmulib_cmd->done
-	 * function with SAM_STAT_GOOD or a SAM status code and set the
+	 * function with TCMU_STS_OK or a SAM status code and set the
 	 * the sense asc/ascq if needed.
 	 */
 	rw_fn_t write;

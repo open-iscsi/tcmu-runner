@@ -74,13 +74,13 @@ static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
 	case READ_10:
 	case READ_12:
 	case READ_16:
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
 	case WRITE_16:
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	default:
 		tcmu_dbg("unknown command %x\n", cdb[0]);

@@ -335,7 +335,7 @@ int tcmu_emulate_std_inquiry(
 	buf[4] = 31; /* Set additional length to 31 */
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 /* This func from CCAN str/hex/hex.c. Public Domain */
@@ -389,7 +389,7 @@ int tcmu_emulate_evpd_inquiry(
 		data[3] = 6;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0x80: /* Unit Serial Number */
@@ -420,7 +420,7 @@ int tcmu_emulate_evpd_inquiry(
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 
 		free(wwn);
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0x83: /* Device identification */
@@ -592,7 +592,7 @@ finish_page83:
 		free(wwn);
 		wwn = NULL;
 
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0xb0: /* Block Limits */
@@ -672,7 +672,7 @@ finish_page83:
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0xb1: /* Block Device Characteristics VPD page */
@@ -701,7 +701,7 @@ finish_page83:
 		}
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0xb2: /* Logical Block Provisioning VPD page */
@@ -744,7 +744,7 @@ finish_page83:
 			data[5] |= 0xe0;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	default:
@@ -785,7 +785,7 @@ int tcmu_emulate_test_unit_ready(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 int tcmu_emulate_read_capacity_10(
@@ -819,7 +819,7 @@ int tcmu_emulate_read_capacity_10(
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 int tcmu_emulate_read_capacity_16(
@@ -863,7 +863,7 @@ int tcmu_emulate_read_capacity_16(
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static void copy_to_response_buf(uint8_t *to_buf, size_t to_len,
@@ -1042,7 +1042,7 @@ int tcmu_emulate_mode_sense(
 	uint8_t *orig_buf = NULL;
 
 	if (!alloc_len)
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	/* Mode parameter header. Mode data length filled in at the end. */
 	used_len = sense_ten ? 8 : 4;
@@ -1097,7 +1097,7 @@ int tcmu_emulate_mode_sense(
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, orig_buf, alloc_len);
 	free(orig_buf);
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 
 free_buf:
 	free(orig_buf);
@@ -1130,7 +1130,7 @@ int tcmu_emulate_mode_select(
 	bool got_sense = false;
 
 	if (!alloc_len)
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	if (tcmu_memcpy_from_iovec(in_buf, sizeof(in_buf), iovec, iov_cnt) >= sizeof(in_buf))
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
@@ -1174,7 +1174,7 @@ int tcmu_emulate_mode_select(
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_PARAMETER_LIST, NULL);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
@@ -1194,7 +1194,7 @@ int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB, NULL);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 #define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)

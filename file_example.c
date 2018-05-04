@@ -118,7 +118,7 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
 	return 0;
@@ -144,7 +144,7 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
 	return 0;
@@ -161,7 +161,7 @@ static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 					  ASC_WRITE_ERROR, NULL);
 		goto done;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
 	return 0;

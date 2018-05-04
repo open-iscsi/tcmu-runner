@@ -400,7 +400,7 @@ static int alua_set_state(struct tcmu_device *dev, struct alua_grp *group,
 
 	group->state = new_state;
 	group->status = alua_status;
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 /*
@@ -548,7 +548,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	memcpy(&buf[0], &ret32, 4);
 
 	tcmu_memcpy_into_iovec(cmd->iovec, cmd->iov_cnt, buf, alloc_len);
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 free_buf:
 	free(buf);
 	return ret;
@@ -572,7 +572,7 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	pthread_attr_t attr;
-	int ret = SAM_STAT_GOOD;
+	int ret = TCMU_STS_OK;
 
 	pthread_mutex_lock(&rdev->state_lock);
 	tcmu_dev_dbg(dev, "lock state %d\n", rdev->lock_state);
@@ -715,14 +715,14 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 	uint32_t off = 4, param_list_len = tcmu_get_xfer_length(cmd->cdb);
 	uint16_t id, tmp_id;
 	char *buf, new_state;
-	int found, ret = SAM_STAT_GOOD;
+	int found, ret = TCMU_STS_OK;
 
 	port = tcmu_get_enabled_port(group_list);
 	if (!port)
 		return TCMU_STS_INVALID_CMD;
 
 	if (!param_list_len)
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	buf = calloc(1, param_list_len);
 	if (!buf)
@@ -765,7 +765,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 					new_state,
 					ALUA_STAT_ALTERED_BY_EXPLICIT_STPG,
 					cmd->sense_buf);
-			if (ret != SAM_STAT_GOOD) {
+			if (ret != TCMU_STS_OK) {
 				tcmu_dev_err(dev, "Failing STPG for group %d\n",
 					      id);
 				goto free_buf;

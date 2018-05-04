@@ -131,7 +131,7 @@ static inline int check_lbas(struct tcmu_device *dev,
 		return -1;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int check_lba_and_length(struct tcmu_device *dev,
@@ -388,7 +388,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 	struct unmap_state *state = origcmd->cmdstate;
 	uint8_t *sense = origcmd->sense_buf;
 	uint16_t offset = 0;
-	int ret = SAM_STAT_GOOD, i = 0, refcount;
+	int ret = TCMU_STS_OK, i = 0, refcount;
 
 	/* The first descriptor list offset is 8 in Data-Out buffer */
 	par += 8;
@@ -496,7 +496,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	 */
 	if (!data_length) {
 		tcmu_dev_dbg(dev, "Data-Out Buffer length is zero, just return okay\n");
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 
 	/*
@@ -556,7 +556,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	 * list.
 	 */
 	if (!bddl) {
-		ret = SAM_STAT_GOOD;
+		ret = TCMU_STS_OK;
 		goto out_free_par;
 	}
 
@@ -625,7 +625,7 @@ static void handle_writesame_cbk(struct tcmu_device *dev,
 	int rc;
 
 	/* write failed - bail out */
-	if (ret != SAM_STAT_GOOD)
+	if (ret != TCMU_STS_OK)
 		goto finish_err;
 
 	write_same->cur_lba += write_lbas;
@@ -929,13 +929,13 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 	uint8_t *sense = writecmd->sense_buf;
 
 	/* failed read - bail out */
-	if (ret != SAM_STAT_GOOD) {
+	if (ret != TCMU_STS_OK) {
 		memcpy(writecmd->sense_buf, readcmd->sense_buf,
 		       sizeof(writecmd->sense_buf));
 		goto done;
 	}
 
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 	cmp_offset = tcmu_compare_with_iovec(state->read_buf, state->w_iovec,
 					     state->requested);
 	if (cmp_offset != -1) {
@@ -957,7 +957,7 @@ static void handle_write_verify_write_cbk(struct tcmu_device *dev,
 	struct write_verify_state *state = writecmd->cmdstate;
 
 	/* write error - bail out */
-	if (ret != SAM_STAT_GOOD)
+	if (ret != TCMU_STS_OK)
 		goto finish_err;
 
 	state->readcmd->done = handle_write_verify_read_cbk;
@@ -1098,7 +1098,7 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 	tcmu_dbg("Segment descriptor: lba_cnt: %hu src_lba: %llu dst_lba: %llu\n",
 		 xcopy->lba_cnt, xcopy->src_lba, xcopy->dst_lba);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int xcopy_gen_naa_ieee(struct tcmu_device *udev, uint8_t *wwn)
@@ -1143,7 +1143,7 @@ static int xcopy_gen_naa_ieee(struct tcmu_device *udev, uint8_t *wwn)
 	}
 
 	free(buf);
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int xcopy_locate_udev(struct tcmulib_context *ctx,
@@ -1270,7 +1270,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 			xcopy->dst_dev = udev;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int xcopy_parse_target_descs(struct tcmu_device *udev,
@@ -1296,7 +1296,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 		 */
 		if (tgt_desc[0] == XCOPY_TARGET_DESC_TYPE_CODE_ID) {
 			ret = xcopy_parse_target_id(udev, xcopy, tgt_desc, i, sense);
-			if (ret != SAM_STAT_GOOD)
+			if (ret != TCMU_STS_OK)
 				return ret;
 
 			tgt_desc += XCOPY_TARGET_DESC_LEN;
@@ -1329,7 +1329,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 	tcmu_dev_dbg(xcopy->dst_dev, "Destination device NAA IEEE WWN: 0x%16phN\n",
 		     xcopy->dst_tid_wwn);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int xcopy_parse_parameter_list(struct tcmu_device *dev,
@@ -1467,7 +1467,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	 */
 	seg_desc = par + XCOPY_HDR_LEN + tdll;
 	ret = xcopy_parse_segment_descs(seg_desc, xcopy, sdll, sense);
-	if (ret != SAM_STAT_GOOD)
+	if (ret != TCMU_STS_OK)
 		goto err;
 
 	/*
@@ -1477,7 +1477,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	 */
 	tgt_desc = par + XCOPY_HDR_LEN;
 	ret = xcopy_parse_target_descs(dev, xcopy, tgt_desc, tdll, sense);
-	if (ret != SAM_STAT_GOOD)
+	if (ret != TCMU_STS_OK)
 		goto err;
 
 	if (tcmu_get_dev_block_size(xcopy->src_dev) !=
@@ -1509,7 +1509,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 					   ASC_LBA_OUT_OF_RANGE, NULL);
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 
 err:
 	free(par);
@@ -1530,7 +1530,7 @@ static void handle_xcopy_write_cbk(struct tcmu_device *dst_dev,
 	struct tcmu_device *src_dev = xcopy->src_dev;
 
 	/* write failed - bail out */
-	if (ret != SAM_STAT_GOOD) {
+	if (ret != TCMU_STS_OK) {
 		tcmu_dev_err(src_dev, "Failed to write to dst device!\n");
 		goto out;
 	}
@@ -1579,7 +1579,7 @@ static void handle_xcopy_read_cbk(struct tcmu_device *src_dev,
 	struct xcopy *xcopy = cmd->cmdstate;
 
 	/* read failed - bail out */
-	if (ret != SAM_STAT_GOOD) {
+	if (ret != TCMU_STS_OK) {
 		tcmu_dev_err(src_dev, "Failed to read from src device!\n");
 		goto err;
 	}
@@ -1634,7 +1634,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	 * shall not transfer any data or alter any internal state.
 	 */
 	if (data_length == 0)
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	/*
 	 * The EXTENDED COPY parameter list begins with a 16 byte header
@@ -1663,7 +1663,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	/* Nothing to do with BLOCK DEVICE NUMBER OF BLOCKS set to zero */
 	if (!xcopy->lba_cnt) {
-		ret = SAM_STAT_GOOD;
+		ret = TCMU_STS_OK;
 		goto finish_err;
 	}
 
@@ -1770,7 +1770,7 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 	uint8_t *sense = origcmd->sense_buf;
 
 	/* read failed - bail out */
-	if (ret != SAM_STAT_GOOD) {
+	if (ret != TCMU_STS_OK) {
 		memcpy(origcmd->sense_buf, readcmd->sense_buf,
 		       sizeof(origcmd->sense_buf));
 		goto finish_err;
@@ -2010,7 +2010,7 @@ static int handle_recv_copy_result(struct tcmu_device *dev, struct tcmulib_cmd *
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 /* async write */

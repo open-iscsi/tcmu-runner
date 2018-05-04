@@ -585,7 +585,7 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 			break;
 		}
 	} else {
-		ret = SAM_STAT_GOOD;
+		ret = TCMU_STS_OK;
 	}
 
 	cmd->done(dev, cmd, ret);

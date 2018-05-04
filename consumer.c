@@ -122,7 +122,7 @@ static int foo_handle_cmd(
 	case WRITE_12:
 	case WRITE_16:
 		// A real "write" implemention goes here!
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	default:
 		tcmu_err("unknown command %x\n", cdb[0]);

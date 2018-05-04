@@ -1141,7 +1141,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
 					     MEDIUM_ERROR, asc_ascq, NULL);
 	} else {
-		tcmu_r = SAM_STAT_GOOD;
+		tcmu_r = TCMU_STS_OK;
 		if (aio_cb->type == RBD_AIO_TYPE_READ &&
 		    aio_cb->bounce_buffer) {
 			tcmu_memcpy_into_iovec(iov, iov_cnt,
