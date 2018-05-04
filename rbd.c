@@ -74,6 +74,10 @@
 #endif
 #endif
 
+#define TCMU_RBD_LOCKER_TAG_KEY "tcmu_rbd_locker_tag"
+#define TCMU_RBD_LOCKER_TAG_FMT "tcmu_tag=%hu,rbd_client=%s"
+#define TCMU_RBD_LOCKER_BUF_LEN 256
+
 struct tcmu_rbd_state {
 	rados_t cluster;
 	rados_ioctx_t io_ctx;
@@ -612,6 +616,170 @@ free_owners:
 	return ret;
 }
 
+static int tcmu_rbd_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	char *metadata_owner, *owners[1];
+	size_t num_owners = 1;
+	rbd_lock_mode_t lock_mode;
+	char buf[TCMU_RBD_LOCKER_BUF_LEN];
+	size_t buf_len = TCMU_RBD_LOCKER_BUF_LEN;
+	int ret;
+
+	memset(buf, 0, buf_len);
+
+	ret = rbd_metadata_get(state->image, TCMU_RBD_LOCKER_TAG_KEY,
+			      buf, &buf_len);
+	tcmu_dev_dbg(dev, "get meta got %d %s\n", ret, buf);
+	if (ret)
+		goto done;
+
+	ret = rbd_lock_get_owners(state->image, &lock_mode, owners,
+				  &num_owners);
+	tcmu_dev_dbg(dev, "get lockowner got %d\n", ret);
+	if (ret)
+		goto done;
+	if (!num_owners) {
+		/* there would be stale metadata due to a crash */
+		ret = -ENOENT;
+		goto done;
+	}
+
+	metadata_owner = strstr(buf, "rbd_client=");
+	if (!metadata_owner) {
+		tcmu_dev_err(dev, "Invalid lock tag %s.\n", buf);
+		/* Force initiator to retry STPG */
+		ret = -ENOENT;
+		goto free_owners;
+	}
+
+	metadata_owner += 11;
+	if (strcmp(metadata_owner, owners[0])) {
+		tcmu_dev_dbg(dev, "owner mismatch %s %s\n", metadata_owner,
+			     owners[0]);
+		/*
+		 * A node could be in the middle of grabbing the lock or it
+		 * failed midway. Force tcmu to report all standby so the
+		 * initiator retries the STPG for the failure case.
+		 */
+		ret = -ENOENT;
+		goto free_owners;
+	}
+
+	ret = sscanf(buf, "tcmu_tag=%hu,%*s", tag);
+	if (ret != 1) {
+		tcmu_dev_err(dev, "Invalid lock tag %s.\n", buf);
+		/* Force initiator to retry STPG */
+		ret = -ENOENT;
+		goto free_owners;
+	}
+	ret = 0;
+
+free_owners:
+	if (num_owners)
+		rbd_lock_get_owners_cleanup(owners, num_owners);
+
+done:
+	switch (ret) {
+	case 0:
+	case -ENOENT:
+	case -ESHUTDOWN:
+	case -ETIMEDOUT:
+		break;
+	default:
+		ret = -EIO;
+		break;
+	}
+
+	return ret;
+}
+
+static int tcmu_rbd_set_lock_tag(struct tcmu_device *dev, uint16_t tcmu_tag)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	rbd_lock_mode_t lock_mode;
+	char *owners[1];
+	size_t num_owners = 1;
+	char *tcmu_rbd_tag;
+	int ret;
+
+	/*
+	 * We cannot take the lock and set the tag atomically. In case
+	 * we fail here and are in an inconsistent state, we attach the rbd
+	 * client lock info along with the tcmu locker tag so remote nodes
+	 * can check the rbd info against rbd_lock_get_owners to determine if
+	 * the tcmu locker tag is current/valid.
+	 */
+	ret = rbd_lock_get_owners(state->image, &lock_mode, owners,
+				  &num_owners);
+	tcmu_dev_dbg(dev, "set tag get lockowner got %d %d\n", ret, num_owners);
+	if (ret)
+		goto done;
+
+	if (!num_owners) {
+		ret = -ENOENT;
+		goto done;
+	}
+
+	ret = asprintf(&tcmu_rbd_tag, TCMU_RBD_LOCKER_TAG_FMT, tcmu_tag,
+		       owners[0]);
+	if (ret < 0) {
+		ret = -EIO;
+		goto free_owners;
+	}
+
+	ret = rbd_metadata_set(state->image, TCMU_RBD_LOCKER_TAG_KEY,
+			       tcmu_rbd_tag);
+	free(tcmu_rbd_tag);
+	if (ret)
+		tcmu_dev_err(dev, "Could not store lock tag. Err %d.\n", ret);
+
+free_owners:
+	if (num_owners)
+		rbd_lock_get_owners_cleanup(owners, num_owners);
+
+done:
+	switch (ret) {
+	case 0:
+	case -ENOENT:
+	case -ESHUTDOWN:
+	case -ETIMEDOUT:
+		break;
+	default:
+		ret = -EIO;
+		break;
+	}
+
+	return ret;
+}
+
+static int tcmu_rbd_rc_to_lock_state(int rc)
+{
+	switch (rc) {
+	case -ESHUTDOWN:
+		return TCMUR_DEV_LOCK_FENCED;
+	case -ETIMEDOUT:
+	default:
+		return TCMUR_DEV_LOCK_UNKNOWN;
+	}
+}
+
+static int tcmu_rbd_unlock(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	int ret;
+
+	if (tcmu_rbd_has_lock(dev) != 1)
+		return TCMUR_DEV_LOCK_UNLOCKED;
+
+	ret = rbd_lock_release(state->image);
+	if (!ret)
+		return TCMUR_DEV_LOCK_UNLOCKED;
+
+	tcmu_dev_err(dev, "Could not release lock. Err %d.\n", ret);
+	return tcmu_rbd_rc_to_lock_state(ret);
+}
+
 static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
@@ -626,7 +794,11 @@ static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 		ret = tcmu_rbd_has_lock(dev);
 		if (ret == 1) {
 			ret = 0;
-			break;
+			/*
+			 * We might have failed after getting the lock, but
+			 * before we set the meta data.
+			 */
+			goto set_lock_tag;
 		} else if (ret == -ETIMEDOUT ||  ret == -ESHUTDOWN) {
 			break;
 		} else if (ret < 0) {
@@ -645,6 +817,8 @@ static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 		ret = rbd_lock_acquire(state->image, RBD_LOCK_MODE_EXCLUSIVE);
 		if (!ret) {
 			tcmu_dev_warn(dev, "Acquired exclusive lock.\n");
+set_lock_tag:
+			ret = tcmu_rbd_set_lock_tag(dev, tag);
 			break;
 		} else if (ret == -ETIMEDOUT) {
 			break;
@@ -657,15 +831,10 @@ static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 	if (orig_owner)
 		free(orig_owner);
 
-	if (ret == -ETIMEDOUT)
-		ret = TCMUR_DEV_LOCK_UNKNOWN;
-	else if (ret == -ESHUTDOWN)
-		ret = TCMUR_DEV_LOCK_FENCED;
-	else if (ret)
-		ret = TCMUR_DEV_LOCK_UNLOCKED;
-	else
+	if (!ret)
 		ret = TCMUR_DEV_LOCK_LOCKED;
-
+	else
+		ret = tcmu_rbd_rc_to_lock_state(ret);
 	tcmu_rbd_service_status_update(dev, ret == TCMUR_DEV_LOCK_LOCKED ?
 				       true : false);
 	return ret;
@@ -1379,7 +1548,9 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.handle_cmd    = tcmu_rbd_handle_cmd,
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
 	.lock          = tcmu_rbd_lock,
+	.unlock        = tcmu_rbd_unlock,
 	.get_lock_state = tcmu_rbd_get_lock_state,
+	.get_lock_tag   = tcmu_rbd_get_lock_tag,
 #endif
 };
 
