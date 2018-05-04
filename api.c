@@ -67,6 +67,30 @@ cdb_not_supp:
 	return -EINVAL;
 }
 
+int tcmu_get_cdb_length_by_opcode(uint8_t opcode)
+{
+	int8_t group_code = opcode >> 5;
+
+	switch (group_code) {
+	case 0: /*000b for 6 bytes commands */
+		return 6;
+	case 1: /*001b for 10 bytes commands */
+	case 2: /*010b for 10 bytes commands */
+		return 10;
+	case 3: /*011b Reserved ? */
+		return -EINVAL;
+	case 4: /*100b for 16 bytes commands */
+		return 16;
+	case 5: /*101b for 12 bytes commands */
+		return 12;
+	case 6: /*110b Vendor Specific */
+	case 7: /*111b Vendor Specific */
+	default:
+		/* TODO: */
+		return -EINVAL;
+	}
+}
+
 uint64_t tcmu_get_lba(uint8_t *cdb)
 {
 	uint16_t val;

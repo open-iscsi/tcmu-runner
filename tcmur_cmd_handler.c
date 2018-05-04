@@ -24,21 +24,32 @@
 
 #include "ccan/list/list.h"
 
+#include "be_byteshift.h"
 #include "darray.h"
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
 #include "libtcmu_common.h"
+#include "scsi_defs.h"
 #include "tcmur_aio.h"
 #include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
 #include "alua.h"
 
+#define CONTROL_BYTE 0x07
+
 static void _cleanup_spin_lock(void *arg)
 {
 	pthread_spin_unlock(arg);
 }
+
+typedef struct {
+	uint8_t opcode;
+	uint8_t service_action;
+	int cdb_length;
+	uint8_t cdb_usage[16];
+} cdb_info;
 
 void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			    int rc)
@@ -2404,6 +2415,321 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return ret;
 }
 
+static const uint8_t *get_cdb_usage_data(uint8_t op, uint8_t sa)
+{
+	static uint8_t usage[16];
+	uint8_t *buf = usage;
+
+	static cdb_info opcode_inquiry = {
+		.opcode = INQUIRY,
+		.cdb_length = 6,
+		.cdb_usage = {INQUIRY, 0x01, 0xff, 0xff, 0xff, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_test_unit_ready = {
+		.opcode = TEST_UNIT_READY,
+		.cdb_length = 6,
+		.cdb_usage = {TEST_UNIT_READY, 0xff, 0x00, 0x00, 0x00, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_service_action_in_16 = {
+		.opcode = SERVICE_ACTION_IN_16,
+		.cdb_length = 16,
+		.cdb_usage = {SERVICE_ACTION_IN_16, 0xff, 0xff, 0xff, 0xff, 0xff,
+			      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			      CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_read_capacity = {
+		.opcode = READ_CAPACITY,
+		.cdb_length = 10,
+		.cdb_usage = {READ_CAPACITY, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		              0x00, 0x00, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_mode_sense = {
+		.opcode = MODE_SENSE,
+		.cdb_length = 6,
+		.cdb_usage = {MODE_SENSE, 0x08, 0xff, 0xff, 0xff, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_mode_sense_10 = {
+		.opcode = MODE_SENSE_10,
+		.cdb_length = 10,
+		.cdb_usage = {MODE_SENSE_10, 0x18, 0xff, 0xff, 0x00, 0x00, 0x00,
+		              0xff, 0xff, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_start_stop = {
+		.opcode = START_STOP,
+		.cdb_length = 6,
+		.cdb_usage = {START_STOP, 0x01, 0x00, 0x0f, 0xf7, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_mode_select = {
+		.opcode = MODE_SELECT,
+		.cdb_length = 6,
+		.cdb_usage = {MODE_SELECT, 0x11, 0x00, 0x00, 0xff, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_mode_select_10 = {
+		.opcode = MODE_SELECT_10,
+		.cdb_length = 10,
+		.cdb_usage = {MODE_SELECT_10, 0x11, 0x00, 0x00, 0x00, 0x00,
+		              0x00, 0xff, 0xff, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_receive_copy_results = {
+		.opcode = RECEIVE_COPY_RESULTS,
+		.cdb_length = 16,
+		.cdb_usage = {RECEIVE_COPY_RESULTS, 0x05, 0xff, 0xff, 0xff, 0xff,
+		              0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff,
+			      0x00, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_mi_report_target_pgs = {
+		.opcode = MAINTENANCE_IN,
+		.service_action = MI_REPORT_TARGET_PGS,
+		.cdb_length = 12,
+		.cdb_usage = {MAINTENANCE_IN, MI_REPORT_TARGET_PGS, 0x00, 0x00,
+			      0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x00,
+			      CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_mi_supported_operation_codes = {
+		.opcode = MAINTENANCE_IN,
+		.service_action = MI_REPORT_SUPPORTED_OPERATION_CODES,
+		.cdb_length = 12,
+		.cdb_usage = {MAINTENANCE_IN, MI_REPORT_SUPPORTED_OPERATION_CODES,
+			      0x87, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00,
+			      CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_unmap = {
+		.opcode = UNMAP,
+		.cdb_length = 10,
+		.cdb_usage = {UNMAP, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
+		              0xff, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_extended_copy = {
+		.opcode = EXTENDED_COPY,
+		.cdb_length = 16,
+		.cdb_usage = {EXTENDED_COPY, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x00, CONTROL_BYTE},
+	};
+	static cdb_info opcode_read_16 = {
+		.opcode = READ_16,
+		.cdb_length = 16,
+		.cdb_usage = {READ_16, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			0xff, 0xff, 0xff, 0xff, 0xff, 0x00, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_write_16 = {
+		.opcode = WRITE_16,
+		.cdb_length = 16,
+		.cdb_usage = {WRITE_16, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		              0x00, 0x00, 0xff, 0xff, 0xff, 0xff, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_write_same_16 = {
+		.opcode = WRITE_SAME_16,
+		.cdb_length = 16,
+		.cdb_usage = {WRITE_SAME_16, 0xf8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_write_same = {
+		.opcode = WRITE_SAME,
+		.cdb_length = 10,
+		.cdb_usage = {WRITE_SAME, 0xf8, 0xff, 0xff, 0xff, 0xff, 0x00, 0xff,
+		              0xff, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_write_verify_16 = {
+		.opcode = WRITE_VERIFY_16,
+		.cdb_length = 16,
+		.cdb_usage = {WRITE_VERIFY, 0xf2, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, CONTROL_BYTE},
+	};
+
+	static cdb_info opcode_format_unit = {
+		.opcode = FORMAT_UNIT,
+		.cdb_length = 6,
+		.cdb_usage = {FORMAT_UNIT, 0x00, 0xff, 0xff, 0xff, CONTROL_BYTE},
+	};
+
+	switch (op) {
+	case INQUIRY:
+		buf = opcode_inquiry.cdb_usage;
+		break;
+	case TEST_UNIT_READY:
+		buf = opcode_test_unit_ready.cdb_usage;
+		break;
+	case SERVICE_ACTION_IN_16:
+		buf = opcode_service_action_in_16.cdb_usage;
+		break;
+	case READ_CAPACITY:
+		buf = opcode_read_capacity.cdb_usage;
+		break;
+	case MODE_SENSE:
+		buf = opcode_mode_sense.cdb_usage;
+		break;
+	case MODE_SENSE_10:
+		buf = opcode_mode_sense_10.cdb_usage;
+		break;
+	case START_STOP:
+		buf = opcode_start_stop.cdb_usage;
+		break;
+	case MODE_SELECT:
+		buf = opcode_mode_select.cdb_usage;
+		break;
+	case MODE_SELECT_10:
+		buf = opcode_mode_select_10.cdb_usage;
+		break;
+	case RECEIVE_COPY_RESULTS:
+		buf = opcode_receive_copy_results.cdb_usage;
+		break;
+	case MAINTENANCE_IN:
+		switch (sa) {
+		case MI_REPORT_TARGET_PGS:
+			buf = opcode_mi_report_target_pgs.cdb_usage;
+			break;
+		case MI_REPORT_SUPPORTED_OPERATION_CODES:
+			buf = opcode_mi_supported_operation_codes.cdb_usage;
+			break;
+		default:
+			break;
+		}
+		break;
+	case UNMAP:
+		buf = opcode_unmap.cdb_usage;
+		break;
+	case EXTENDED_COPY:
+		buf = opcode_extended_copy.cdb_usage;
+		break;
+	case READ_16:
+		buf = opcode_read_16.cdb_usage;
+		break;
+	case WRITE_16:
+		buf = opcode_write_16.cdb_usage;
+		break;
+	case WRITE_SAME:
+		buf = opcode_write_same.cdb_usage;
+		break;
+	case WRITE_SAME_16:
+		buf = opcode_write_same_16.cdb_usage;
+		break;
+	case WRITE_VERIFY_16:
+		buf = opcode_write_verify_16.cdb_usage;
+		break;
+	case FORMAT_UNIT:
+		buf = opcode_format_unit.cdb_usage;
+		break;
+	default:
+		break;
+	}
+
+	return buf;
+}
+
+static int is_supported_opcode(int opcode)
+{
+	switch (opcode) {
+	case INQUIRY:
+	case TEST_UNIT_READY:
+	case SERVICE_ACTION_IN_16:
+	case READ_CAPACITY:
+	case MODE_SENSE:
+	case MODE_SENSE_10:
+	case START_STOP:
+	case MODE_SELECT:
+	case MODE_SELECT_10:
+	case RECEIVE_COPY_RESULTS:
+	case MAINTENANCE_IN:
+	case UNMAP:
+	case EXTENDED_COPY:
+	case READ_16:
+	case WRITE_16:
+	case WRITE_SAME:
+	case WRITE_SAME_16:
+	case WRITE_VERIFY_16:
+	case FORMAT_UNIT:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static int report_opcode_one(struct tcmulib_cmd *cmd, int rctd, uint8_t opcode,
+			     uint16_t service_action, int is_service_action)
+{
+	struct iovec *iovec = cmd->iovec;
+	size_t iov_cnt = cmd->iov_cnt;
+	int avail_len, cdb_len = tcmu_get_cdb_length_by_opcode(opcode);
+	uint8_t buf[256], *ptr;
+	const uint8_t *usage_data;
+
+	if (!is_supported_opcode(opcode) || (is_service_action && !service_action) ||
+           (!is_service_action && service_action))
+		return TCMU_NOT_HANDLED;
+
+	memset(buf, 0, sizeof(buf));
+	ptr = &buf[0];
+	/* reserved */
+	ptr++;
+	/* ctdp and support */
+	*ptr++ = rctd ? 0x83 : 0x03;
+	/* cdb size */
+	*ptr++ = (cdb_len >> 8) & 0xff;
+	*ptr++ = cdb_len & 0xff;
+	/* cdb usage data */
+	usage_data = get_cdb_usage_data(opcode, service_action);
+	memcpy(ptr, usage_data, cdb_len);
+	ptr += cdb_len;
+	/* command timeouts descriptor */
+	if (rctd) {
+		ptr[1] = 0x0a;
+		ptr += 12;
+	}
+
+	avail_len = ptr - &buf[0];
+	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, avail_len);
+
+	return SAM_STAT_GOOD;
+}
+
+static int report_supported_opcodes(struct tcmulib_cmd *cmd)
+{
+	uint8_t reporting_options;
+	uint8_t opcode;
+	uint16_t requested_service_action;
+	uint32_t alloc_len;
+	int rctd;
+
+	rctd = cmd->cdb[2] & 0x80;
+	reporting_options = cmd->cdb[2] & 0x07;
+	opcode = cmd->cdb[3];
+	requested_service_action = get_unaligned_be16(&cmd->cdb[4]);
+
+	alloc_len = tcmu_get_xfer_length(cmd->cdb);
+	if (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt) < alloc_len)
+		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+					   ASC_PARAMETER_LIST_LENGTH_ERROR,
+					   NULL);
+
+	switch (reporting_options) {
+	case 0x01:
+		return report_opcode_one(cmd, rctd, opcode,
+					 requested_service_action, 0);
+	case 0x02:
+		return report_opcode_one(cmd, rctd, opcode,
+					 requested_service_action, 1);
+	default:
+		return TCMU_NOT_HANDLED;
+	}
+}
+
 static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
@@ -2450,9 +2776,14 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 			return handle_recv_copy_result(dev, cmd);
 		return TCMU_NOT_HANDLED;
 	case MAINTENANCE_IN:
-		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
+		switch(cdb[1] & 0x1f) {
+		case MI_REPORT_TARGET_PGS:
 			return handle_rtpg(dev, cmd);
-		return TCMU_NOT_HANDLED;
+	        case MI_REPORT_SUPPORTED_OPERATION_CODES:
+			return report_supported_opcodes(cmd);
+		default:
+			return TCMU_NOT_HANDLED;
+                }
 	default:
 		return TCMU_NOT_HANDLED;
 	}
