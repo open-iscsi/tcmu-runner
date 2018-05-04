@@ -238,33 +238,100 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev)
 	return ret;
 }
 
-/*
- * The initiator could have done FO/FB while no IO was
- * in flight so we did not get notified about losing the
- * lock. Update lock state now to avoid firing the error
- * handler later.
- */
-int tcmu_update_dev_lock_state(struct tcmu_device *dev)
+void tcmu_release_dev_lock(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	int state;
+	int new_state = TCMUR_DEV_LOCK_LOCKED;
 
-	if (!rhandler->get_lock_state)
-		return -1;
-
-	state = rhandler->get_lock_state(dev);
 	pthread_mutex_lock(&rdev->state_lock);
-	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED &&
-	    state != TCMUR_DEV_LOCK_LOCKED) {
-		tcmu_dev_dbg(dev, "Updated out of sync lock state.\n");
-		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+	if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
+		pthread_mutex_unlock(&rdev->state_lock);
+		return;
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
-	return state;
+
+	new_state = rhandler->unlock(dev);
+	if (new_state != TCMUR_DEV_LOCK_UNLOCKED)
+		tcmu_dev_warn(dev, "Lock not cleanly released. State %d.\n",
+			      new_state);
+	/*
+	 * If we don't have a clean unlock we still report success and set
+	 * to unlocked to prevent new IO from executing in case the lock
+	 * is in a state where it cannot be fenced.
+	 */
+	pthread_mutex_lock(&rdev->state_lock);
+	rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+	pthread_mutex_unlock(&rdev->state_lock);
 }
 
-int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync)
+int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	int retry = 0, ret;
+
+	if (rdev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT)
+		return 0;
+
+retry:
+	ret = rhandler->get_lock_tag(dev, tag);
+	tcmu_dev_dbg(dev, "Got rc %d tag %hu\n", ret, *tag);
+
+	switch (ret) {
+	case 0:
+		break;
+	case -ENOENT:
+		/* No lock holder yet */
+		break;
+	case -ESHUTDOWN:
+		/*
+		 * This is safe without blocking/flushing because it
+		 * is called from the main IO thread and will wait for
+		 * commands started before it via the aio wait call.
+		 */
+		tcmu_dev_dbg(dev, "Could not access dev. Try reopen.");
+		ret = tcmu_reopen_dev(dev, false, 0);
+		if (!ret && retry < 1) {
+			retry++;
+			goto retry;
+		}
+		/* fallthrough */
+	case -ETIMEDOUT:
+	default:
+		tcmu_dev_dbg(dev, "Could not reach device to get locker id\n");
+		/*
+		 * In spc4r37 and newer
+		 * "5.15.2.7 Target port asymmetric access state reporting"
+		 * states that the initiator should consider the info
+		 * returned through our enabled port current for that
+		 * enabled port. If a RTPG sent through another port
+		 * returns different info, then the info for the enabled
+		 * port returned through the enabled port should be
+		 * considered current.
+		 *
+		 * ESX though assumes the all port info in a RTPG to be
+		 * current so we drop the session here to prevent sending
+		 * inconsistent info. We probably want to do this regardless
+		 * of ESX, because that value is returned when the handler
+		 * cannot connect to the cluster so all requests are
+		 * going to fail.
+		 */
+		tcmu_notify_conn_lost(dev);
+		/*
+		 * To try and not return inconsistent info and not look
+		 * like a hard device error, fail the command so it is
+		 * retried and the retry will be handled like other commands
+		 * during session level recovery.
+		 */
+		return -EAGAIN;
+	}
+
+	return ret;
+}
+
+int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
+			  uint16_t tag)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
@@ -289,10 +356,10 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync)
 		tcmu_flush_device(dev);
 
 retry:
-	tcmu_dev_dbg(dev, "lock call state %d retries %d\n",
-		     rdev->lock_state, retries);
+	tcmu_dev_dbg(dev, "lock call state %d retries %d. tag %hu\n",
+		     rdev->lock_state, retries, tag);
 
-	new_state = rhandler->lock(dev);
+	new_state = rhandler->lock(dev, tag);
 	switch (new_state) {
 	case TCMUR_DEV_LOCK_FENCED:
 		/*

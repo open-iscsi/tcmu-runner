@@ -612,7 +612,7 @@ free_owners:
 	return ret;
 }
 
-static int tcmu_rbd_lock(struct tcmu_device *dev)
+static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	int ret = 0, attempts = 0;
