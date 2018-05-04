@@ -83,14 +83,14 @@ struct tcmur_handler {
 	 * Async handle_cmd only handlers return:
 	 *
 	 * - SCSI status if handled (either good/bad)
-	 * - TCMU_NOT_HANDLED if opcode is not handled
+	 * - TCMU_STS_NOT_HANDLED if opcode is not handled
 	 * - TCMU_ASYNC_HANDLED if opcode is handled asynchronously
 	 *
 	 * Handlers that set nr_threads > 0 and async handlers
 	 * that implement handle_cmd and the IO callouts below return:
 	 *
 	 * 0 if the handler has queued the command.
-	 * - TCMU_NOT_HANDLED if the command is not supported.
+	 * - TCMU_STS_NOT_HANDLED if the command is not supported.
 	 * - SAM_STAT_TASK_SET_FULL if the handler was not able to allocate
 	 *   resources for the command.
 	 *

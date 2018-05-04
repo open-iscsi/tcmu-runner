@@ -1043,7 +1043,7 @@ void tcmulib_command_complete(
 		ent->hdr.cmd_id = cmd->cmd_id;
 	}
 
-	if (result == TCMU_NOT_HANDLED) {
+	if (result == TCMU_STS_NOT_HANDLED || result == TCMU_STS_INVALID_CMD) {
 		/* Tell the kernel we didn't handle it */
 		char *buf = ent->rsp.sense_buffer;
 

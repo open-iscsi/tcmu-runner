@@ -1499,7 +1499,7 @@ static int fbo_emulate_read_format_capacities(struct tcmu_device *dev,
 }
 
 /*
- * Return scsi status or TCMU_NOT_HANDLED
+ * Return scsi status or TCMU_STS_NOT_HANDLED
  */
 static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
@@ -1611,7 +1611,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 						   sense);
 		break;
 	default:
-		ret = TCMU_NOT_HANDLED;
+		ret = TCMU_STS_NOT_HANDLED;
 	}
 
 	cmd->done(dev, cmd, ret);

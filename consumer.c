@@ -100,7 +100,7 @@ static int foo_handle_cmd(
 							     state->block_size,
 							     cdb, iovec, iov_cnt, sense);
 		else
-			return TCMU_NOT_HANDLED;
+			return TCMU_STS_NOT_HANDLED;
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
@@ -126,7 +126,7 @@ static int foo_handle_cmd(
 
 	default:
 		tcmu_err("unknown command %x\n", cdb[0]);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	}
 }
 

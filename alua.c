@@ -481,7 +481,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	enabled_port = tcmu_get_enabled_port(group_list);
 	if (!enabled_port)
 		/* unsupported config */
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_INVALID_CMD;
 
 	if (alloc_len < 4)
 		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
@@ -719,7 +719,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 
 	port = tcmu_get_enabled_port(group_list);
 	if (!port)
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_INVALID_CMD;
 
 	if (!param_list_len)
 		return SAM_STAT_GOOD;

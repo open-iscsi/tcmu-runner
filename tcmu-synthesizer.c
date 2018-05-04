@@ -60,7 +60,7 @@ static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
 							     cdb, iovec,
 							     iov_cnt, sense);
 		else
-			return TCMU_NOT_HANDLED;
+			return TCMU_STS_NOT_HANDLED;
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
@@ -84,7 +84,7 @@ static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
 
 	default:
 		tcmu_dbg("unknown command %x\n", cdb[0]);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	}
 }
 

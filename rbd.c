@@ -1437,7 +1437,7 @@ out:
 #endif /* RBD_COMPARE_AND_WRITE_SUPPORT */
 
 /*
- * Return scsi status or TCMU_NOT_HANDLED
+ * Return scsi status or TCMU_STS_NOT_HANDLED
  */
 static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
@@ -1457,7 +1457,7 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		break;
 #endif
 	default:
-		ret = TCMU_NOT_HANDLED;
+		ret = TCMU_STS_NOT_HANDLED;
 	}
 
 	return ret;

@@ -296,7 +296,7 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 	uint8_t *sense = origcmd->sense_buf;
 	uint64_t opt_unmap_gran;
 	uint64_t unmap_gran_align, mask;
-	int ret = TCMU_NOT_HANDLED;
+	int ret = TCMU_STS_NOT_HANDLED;
 	int j = 0;
 	struct unmap_descriptor *desc;
 	struct tcmulib_cmd *ucmd;
@@ -2264,7 +2264,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	int ret;
 
 	if (!rhandler->handle_cmd)
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 
 	/*
 	 * Support handlers that implement their own threading/AIO
@@ -2289,7 +2289,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 
 static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	int ret = TCMU_NOT_HANDLED;
+	int ret = TCMU_STS_NOT_HANDLED;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	uint8_t *cdb = cmd->cdb;
@@ -2368,7 +2368,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = handle_format_unit(dev, cmd);
 		break;
 	default:
-		ret = TCMU_NOT_HANDLED;
+		ret = TCMU_STS_NOT_HANDLED;
 	}
 
 untrack:
@@ -2422,7 +2422,7 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 							     cdb, iovec,
 							     iov_cnt, sense);
 		else
-			return TCMU_NOT_HANDLED;
+			return TCMU_STS_NOT_HANDLED;
 	case READ_CAPACITY:
 		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
 			/* Reserved bits for MM logical units */
@@ -2445,17 +2445,17 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case RECEIVE_COPY_RESULTS:
 		if ((cdb[1] & 0x1f) == RCR_SA_OPERATING_PARAMETERS)
 			return handle_recv_copy_result(dev, cmd);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	case MAINTENANCE_OUT:
 		if (cdb[1] == MO_SET_TARGET_PGS)
 			return handle_stpg(dev, cmd);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	case MAINTENANCE_IN:
 		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
 			return handle_rtpg(dev, cmd);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	default:
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	}
 }
 
@@ -2467,7 +2467,7 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 	int ret;
 
 	if (!rhandler->handle_cmd)
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 
 	track_aio_request_start(rdev);
 
@@ -2517,18 +2517,18 @@ void tcmur_set_pending_ua(struct tcmu_device *dev, int ua)
 static int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
-	int ret = TCMU_NOT_HANDLED, ua;
+	int ret = TCMU_STS_NOT_HANDLED, ua;
 
 	switch (cdb[0]) {
 	case INQUIRY:
 	case REQUEST_SENSE:
 		/* The kernel will handle REPORT_LUNS */
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	}
 	pthread_mutex_lock(&rdev->state_lock);
 
 	if (!rdev->pending_uas) {
-		ret = TCMU_NOT_HANDLED;
+		ret = TCMU_STS_NOT_HANDLED;
 		goto unlock;
 	}
 
@@ -2565,12 +2565,12 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	 * try to passthrough it first
 	 */
 	ret = handle_try_passthrough(dev, cmd);
-	if (ret != TCMU_NOT_HANDLED)
+	if (ret != TCMU_STS_NOT_HANDLED)
 		return ret;
 
 	/* Falls back to the runner's generic handle callout */
 	ret = handle_sync_cmd(dev, cmd);
-	if (ret == TCMU_NOT_HANDLED)
+	if (ret == TCMU_STS_NOT_HANDLED)
 		ret = tcmur_cmd_handler(dev, cmd);
 	return ret;
 }

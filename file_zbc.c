@@ -2232,7 +2232,7 @@ static int zbc_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 /*
  * Handle command emulation.
- * Return scsi status or TCMU_NOT_HANDLED
+ * Return scsi status or TCMU_STS_NOT_HANDLED
  */
 static int zbc_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
@@ -2252,7 +2252,7 @@ static int zbc_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
 			return zbc_read_capacity(dev, cmd);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 
 	case MODE_SENSE:
 	case MODE_SENSE_10:
@@ -2270,14 +2270,14 @@ static int zbc_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return zbc_out(dev, cmd);
 
 	case READ_6:
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	case READ_10:
 	case READ_12:
 	case READ_16:
 		return zbc_read(dev, cmd);
 
 	case WRITE_6:
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	case WRITE_10:
 	case WRITE_12:
 	case WRITE_16:
@@ -2289,7 +2289,7 @@ static int zbc_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	}
 
-	return TCMU_NOT_HANDLED;
+	return TCMU_STS_NOT_HANDLED;
 }
 
 static const char zbc_cfg_desc[] =
