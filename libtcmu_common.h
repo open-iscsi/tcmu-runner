@@ -31,8 +31,6 @@ struct tcmu_device;
 struct tgt_port;
 struct tcmulib_cmd;
 
-#define TCMU_ASYNC_HANDLED -2
-
 /*
  * TCMU return status codes
  */

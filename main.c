@@ -641,7 +641,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			 *   - generic_handle_cmd: non tcmur handler calls (see generic_cmd())
 			 *			   and on errors when calling tcmur handler.
 			 */
-			if (ret != TCMU_ASYNC_HANDLED) {
+			if (ret != TCMU_STS_ASYNC_HANDLED) {
 				completed = 1;
 				tcmur_command_complete(dev, cmd, ret);
 			}

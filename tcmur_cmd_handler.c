@@ -360,7 +360,7 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 		}
 
 		ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
-		if (ret != TCMU_ASYNC_HANDLED) {
+		if (ret != TCMU_STS_ASYNC_HANDLED) {
 			tcmu_copy_cmd_sense_data(origcmd, ucmd);
 			goto free_ucmd;
 		}
@@ -422,7 +422,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 
 		if (nlbas) {
 			ret = align_and_split_unmap(dev, origcmd, lba, nlbas);
-			if (ret != TCMU_ASYNC_HANDLED)
+			if (ret != TCMU_STS_ASYNC_HANDLED)
 				goto state_unlock;
 		}
 
@@ -433,13 +433,13 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 state_unlock:
 	/*
 	 * If all calls are successful and nlbas > 0 for all bddls, the
-	 * status should be set to TCMU_ASYNC_HANDLED, or will be the error
+	 * status should be set to TCMU_STS_ASYNC_HANDLED, or will be the error
 	 * code. If all nlbas = 0 for all bddls, then we can just return
 	 * GOOD status.
 	 */
 	state->status = ret;
 
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		state->error = true;
 
 	refcount = state->refcount;
@@ -450,7 +450,7 @@ state_unlock:
 		 * Some unmaps have been dispatched, so the cbk will handle
 		 * releasing of resources and returning the error.
 		 */
-		return TCMU_ASYNC_HANDLED;
+		return TCMU_STS_ASYNC_HANDLED;
 
 	/*
 	 * No unmaps have been dispatched, so return the error and free
@@ -646,7 +646,7 @@ static void handle_writesame_cbk(struct tcmu_device *dev,
 	}
 
 	rc = async_handle_cmd(dev, cmd, writesame_work_fn);
-	if (rc != TCMU_ASYNC_HANDLED) {
+	if (rc != TCMU_STS_ASYNC_HANDLED) {
 		tcmu_dev_err(dev, "Write same async handle cmd failure\n");
 		ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
 					  ASC_WRITE_ERROR,
@@ -737,7 +737,7 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 
 	pthread_mutex_lock(&state->lock);
 	ret = align_and_split_unmap(dev, cmd, lba, nlbas);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		state->error = true;
 
 	refcount = state->refcount;
@@ -962,7 +962,7 @@ static void handle_write_verify_write_cbk(struct tcmu_device *dev,
 
 	state->readcmd->done = handle_write_verify_read_cbk;
 	ret = async_handle_cmd(dev, state->readcmd, read_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto finish_err;
 	return;
 
@@ -989,10 +989,10 @@ static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	cmd->done = handle_write_verify_write_cbk;
 
 	ret = async_handle_cmd(dev, cmd, write_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto free_write_verify;
 
-	return TCMU_ASYNC_HANDLED;
+	return TCMU_STS_ASYNC_HANDLED;
 
 free_write_verify:
 	write_verify_free(cmd);
@@ -1545,7 +1545,7 @@ static void handle_xcopy_write_cbk(struct tcmu_device *dst_dev,
 
 	cmd->done = handle_xcopy_read_cbk;
 	ret = async_handle_cmd(xcopy->src_dev, cmd, xcopy_read_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto out;
 
 	return;
@@ -1587,7 +1587,7 @@ static void handle_xcopy_read_cbk(struct tcmu_device *src_dev,
 	cmd->done = handle_xcopy_write_cbk;
 
 	ret = async_handle_cmd(xcopy->dst_dev, cmd, xcopy_write_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto err;
 
 	return;
@@ -1690,7 +1690,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	cmd->cmdstate = xcopy;
 
 	ret = async_handle_cmd(xcopy->src_dev, cmd, xcopy_read_work_fn);
-	if (ret == TCMU_ASYNC_HANDLED)
+	if (ret == TCMU_STS_ASYNC_HANDLED)
 		return ret;
 
 	free(xcopy->iov_base);
@@ -1791,7 +1791,7 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 	origcmd->done = handle_caw_write_cbk;
 
 	ret = async_handle_cmd(dev, origcmd, write_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto finish_err;
 
 	caw_free_readcmd(readcmd);
@@ -1845,8 +1845,8 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	pthread_mutex_lock(&rdev->caw_lock);
 
 	ret = async_handle_cmd(dev, readcmd, read_work_fn);
-	if (ret == TCMU_ASYNC_HANDLED)
-		return TCMU_ASYNC_HANDLED;
+	if (ret == TCMU_STS_ASYNC_HANDLED)
+		return TCMU_STS_ASYNC_HANDLED;
 
 	pthread_mutex_unlock(&rdev->caw_lock);
 	caw_free_readcmd(readcmd);
@@ -2105,7 +2105,7 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 			     state->done_blocks, dev->num_lbas, dev->block_size);
 
 		rc = async_handle_cmd(dev, writecmd, format_unit_work_fn);
-		if (rc != TCMU_ASYNC_HANDLED) {
+		if (rc != TCMU_STS_ASYNC_HANDLED) {
 			tcmu_dev_err(dev, " async handle cmd failure\n");
 			ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
 						  ASC_WRITE_ERROR,
@@ -2180,10 +2180,10 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	state->write_buf = writecmd->iovec->iov_base;
 
 	ret = async_handle_cmd(dev, writecmd, format_unit_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto free_iov;
 
-	return TCMU_ASYNC_HANDLED;
+	return TCMU_STS_ASYNC_HANDLED;
 
 free_iov:
 	free_iovec(writecmd);
@@ -2281,7 +2281,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	 */
 	track_aio_request_start(rdev);
 	ret = handle_passthrough(dev, cmd);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 
 	return ret;
@@ -2372,7 +2372,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 untrack:
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 	return ret;
 }
@@ -2477,7 +2477,7 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 		ret = rhandler->handle_cmd(dev, cmd);
 	}
 
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 
 	return ret;

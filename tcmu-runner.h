@@ -84,7 +84,7 @@ struct tcmur_handler {
 	 *
 	 * - SCSI status if handled (either good/bad)
 	 * - TCMU_STS_NOT_HANDLED if opcode is not handled
-	 * - TCMU_ASYNC_HANDLED if opcode is handled asynchronously
+	 * - TCMU_STS_ASYNC_HANDLED if opcode is handled asynchronously
 	 *
 	 * Handlers that set nr_threads > 0 and async handlers
 	 * that implement handle_cmd and the IO callouts below return:
