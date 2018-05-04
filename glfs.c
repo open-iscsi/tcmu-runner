@@ -621,7 +621,7 @@ static int tcmu_glfs_read(struct tcmu_device *dev,
 
 out:
 	free(cookie);
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 static int tcmu_glfs_write(struct tcmu_device *dev,
@@ -653,7 +653,7 @@ static int tcmu_glfs_write(struct tcmu_device *dev,
 
 out:
 	free(cookie);
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 static int tcmu_glfs_reconfig(struct tcmu_device *dev,
@@ -712,7 +712,7 @@ static int tcmu_glfs_flush(struct tcmu_device *dev,
 
 out:
 	free(cookie);
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 /*

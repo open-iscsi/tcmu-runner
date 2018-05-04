@@ -91,7 +91,7 @@ struct tcmur_handler {
 	 *
 	 * 0 if the handler has queued the command.
 	 * - TCMU_STS_NOT_HANDLED if the command is not supported.
-	 * - SAM_STAT_TASK_SET_FULL if the handler was not able to allocate
+	 * - TCMU_STS_NO_RESOURCE if the handler was not able to allocate
 	 *   resources for the command.
 	 *
 	 * If 0 is returned the handler must call the tcmulib_cmd->done
@@ -104,7 +104,7 @@ struct tcmur_handler {
 	 * Below callbacks are only exected called by generic_handle_cmd.
 	 * Returns:
 	 * - 0 if the handler has queued the command.
-	 * - SAM_STAT_TASK_SET_FULL if the handler was not able to allocate
+	 * - TCMU_STS_NO_RESOURCE if the handler was not able to allocate
 	 *   resources for the command.
 	 *
 	 * If 0 is returned the handler must call the tcmulib_cmd->done

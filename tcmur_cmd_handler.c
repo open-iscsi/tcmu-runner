@@ -973,7 +973,7 @@ finish_err:
 
 static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	int ret = SAM_STAT_TASK_SET_FULL;
+	int ret;
 	uint8_t *cdb = cmd->cdb;
 	size_t length = tcmu_get_xfer_length(cdb) * tcmu_get_dev_block_size(dev);
 
@@ -982,7 +982,7 @@ static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return ret;
 
 	if (write_verify_init(cmd, length)) {
-		ret = SAM_STAT_TASK_SET_FULL;
+		ret = TCMU_STS_NO_RESOURCE;
 		goto out;
 	}
 
@@ -1836,7 +1836,7 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	readcmd = caw_init_readcmd(cmd, half);
 	if (!readcmd) {
-		ret = SAM_STAT_TASK_SET_FULL;
+		ret = TCMU_STS_NO_RESOURCE;
 		goto out;
 	}
 
@@ -2195,7 +2195,7 @@ clear_format:
 	pthread_mutex_lock(&rdev->format_lock);
 	rdev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
 	pthread_mutex_unlock(&rdev->format_lock);
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 /* ALUA */

@@ -1016,6 +1016,17 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 	return NULL;
 }
 
+int tcmu_sts_to_scsi(int tcmu_sts)
+{
+	switch (tcmu_sts) {
+	case TCMU_STS_OK:
+		return SAM_STAT_GOOD;
+	case TCMU_STS_NO_RESOURCE:
+		return SAM_STAT_TASK_SET_FULL;
+	}
+	return tcmu_sts;
+}
+
 /* update the ring buffer's tail */
 #define TCMU_UPDATE_RB_TAIL(mb, ent) \
 do { \
@@ -1059,7 +1070,7 @@ void tcmulib_command_complete(
 			memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
 			       TCMU_SENSE_BUFFERSIZE);
 		}
-		ent->rsp.scsi_status = result;
+		ent->rsp.scsi_status = tcmu_sts_to_scsi(result);
 	}
 
 	TCMU_UPDATE_RB_TAIL(mb, ent);

@@ -193,7 +193,7 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	work = malloc(sizeof(*work));
 	if (!work)
-		return SAM_STAT_TASK_SET_FULL;
+		return TCMU_STS_NO_RESOURCE;
 
 	work->fn = fn;
 	work->dev = dev;

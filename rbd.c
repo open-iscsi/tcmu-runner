@@ -1196,7 +1196,7 @@ out_release_tracked_aio:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -1236,7 +1236,7 @@ out_release_tracked_aio:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 #ifdef RBD_DISCARD_SUPPORT
@@ -1275,7 +1275,7 @@ out_remove_tracked_aio:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 #endif /* RBD_DISCARD_SUPPORT */
 
@@ -1286,7 +1286,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
-	ssize_t ret = -ENOMEM;
+	ssize_t ret;
 
 	aio_cb = calloc(1, sizeof(*aio_cb));
 	if (!aio_cb) {
@@ -1317,7 +1317,7 @@ out_remove_tracked_aio:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 #endif
@@ -1373,7 +1373,7 @@ out_free_bounce_buffer:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 #endif /* RBD_WRITE_SAME_SUPPORT */
 
@@ -1432,7 +1432,7 @@ out_free_bounce_buffer:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 #endif /* RBD_COMPARE_AND_WRITE_SUPPORT */
 
