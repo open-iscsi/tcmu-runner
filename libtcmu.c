@@ -1016,13 +1016,17 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 	return NULL;
 }
 
-int tcmu_sts_to_scsi(int tcmu_sts)
+int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 {
 	switch (tcmu_sts) {
 	case TCMU_STS_OK:
 		return SAM_STAT_GOOD;
 	case TCMU_STS_NO_RESOURCE:
 		return SAM_STAT_TASK_SET_FULL;
+	case TCMU_STS_RANGE:
+		/* LBA out of range */
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2100,
+					    NULL);
 	}
 	return tcmu_sts;
 }
@@ -1066,11 +1070,12 @@ void tcmulib_command_complete(
 		buf[12] = 0x20; /* ASC: invalid command operation code */
 		buf[13] = 0x0;	/* ASCQ: (none) */
 	} else {
+		ent->rsp.scsi_status = tcmu_sts_to_scsi(result, cmd->sense_buf);
+
 		if (result != TCMU_STS_OK) {
 			memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
 			       TCMU_SENSE_BUFFERSIZE);
 		}
-		ent->rsp.scsi_status = tcmu_sts_to_scsi(result);
 	}
 
 	TCMU_UPDATE_RB_TAIL(mb, ent);

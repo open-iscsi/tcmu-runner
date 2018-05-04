@@ -1091,8 +1091,7 @@ static int fbo_check_lba_and_length(struct fbo_state *state, uint8_t *cdb,
 	num_blocks = tcmu_get_xfer_length(cdb);
 
 	if (lba >= state->num_lbas || lba + num_blocks > state->num_lbas)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return TCMU_STS_RANGE;
 
 	*plba = lba;
 	*plen = num_blocks * state->block_size;

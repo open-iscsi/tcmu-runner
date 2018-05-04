@@ -128,7 +128,7 @@ static inline int check_lbas(struct tcmu_device *dev,
 	if (start_lba + lba_cnt > dev_last_lba || start_lba + lba_cnt < start_lba) {
 		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %llu, xfer len %lu)\n",
 			     dev_last_lba, start_lba, lba_cnt);
-		return -1;
+		return TCMU_STS_RANGE;
 	}
 
 	return TCMU_STS_OK;
@@ -139,7 +139,6 @@ static int check_lba_and_length(struct tcmu_device *dev,
 {
 	uint8_t *cdb = cmd->cdb;
 	uint64_t start_lba = tcmu_get_lba(cdb);
-	uint8_t *sense = cmd->sense_buf;
 	int ret;
 
 	ret = check_iovec_length(dev, cmd, sectors);
@@ -148,8 +147,7 @@ static int check_lba_and_length(struct tcmu_device *dev,
 
 	ret = check_lbas(dev, start_lba, sectors);
 	if (ret)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return ret;
 
 	return 0;
 }
@@ -414,11 +412,8 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		}
 
 		ret = check_lbas(dev, lba, nlbas);
-		if (ret) {
-			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						  ASC_LBA_OUT_OF_RANGE, NULL);
+		if (ret)
 			goto state_unlock;
-		}
 
 		if (nlbas) {
 			ret = align_and_split_unmap(dev, origcmd, lba, nlbas);
@@ -710,8 +705,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	 */
 	ret = check_lbas(dev, start_lba, lba_cnt);
 	if (ret)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return ret;
 
 	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba:: %hu, last lba: %llu\n",
 		     start_lba, lba_cnt, start_lba + lba_cnt - 1);
@@ -1496,8 +1490,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(xcopy->src_dev,
 			     "src target exceeds last lba %lld (lba %lld, copy len %lld)\n",
 			     num_lbas, xcopy->src_lba, xcopy->lba_cnt);
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return TCMU_STS_RANGE;
 	}
 
 	num_lbas = tcmu_get_dev_num_lbas(xcopy->dst_dev);
@@ -1505,8 +1498,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(xcopy->dst_dev,
 			     "dst target exceeds last lba %lld (lba %lld, copy len %lld)\n",
 			     num_lbas, xcopy->dst_lba, xcopy->lba_cnt);
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return TCMU_STS_RANGE;
 	}
 
 	return TCMU_STS_OK;
@@ -1807,7 +1799,6 @@ static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
 	uint64_t start_lba = tcmu_get_lba(cmd->cdb);
-	uint8_t *sense = cmd->sense_buf;
 	uint8_t sectors = cmd->cdb[13];
 
 	/* double sectors since we have two buffers */
@@ -1817,8 +1808,7 @@ static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	ret = check_lbas(dev, start_lba, sectors);
 	if (ret)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return ret;
 
 	return 0;
 }
