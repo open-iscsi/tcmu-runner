@@ -35,6 +35,7 @@
 #include "libtcmu_priv.h"
 #include "target.h"
 #include "alua.h"
+#include "be_byteshift.h"
 
 int tcmu_get_cdb_length(uint8_t *cdb)
 {
@@ -200,19 +201,15 @@ void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fro
 int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq,
 			uint32_t *info)
 {
-	memset(sense_buf, 0, 18);
+	if (key != MISCOMPARE)
+		memset(sense_buf, 0, 18);
 	sense_buf[0] = 0x70;	/* fixed, current */
 	sense_buf[2] = key;
 	sense_buf[7] = 0xa;
 	sense_buf[12] = (asc_ascq >> 8) & 0xff;
 	sense_buf[13] = asc_ascq & 0xff;
 	if (info) {
-		if (key == MISCOMPARE) {
-			uint32_t val32 = htobe32(*info);
-
-			memcpy(&sense_buf[3], &val32, 4);
-			sense_buf[0] |= 0x80;
-		} else if (key == NOT_READY) {
+		if (key == NOT_READY) {
 			uint16_t val16 = htobe16((uint16_t)*info);
 
 			memcpy(&sense_buf[16], &val16, 2);
@@ -226,6 +223,15 @@ int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq,
 	 * this and return scsi_status yourself.
 	 */
 	return SAM_STAT_CHECK_CONDITION;
+}
+
+void tcmu_set_sense_info(uint8_t *sense_buf, uint32_t info)
+{
+	memset(sense_buf, 0, 18);
+
+	put_unaligned_be32(info, &sense_buf[3]);
+	/* Set VALID bit */
+	sense_buf[0] |= 0x80;
 }
 
 /*

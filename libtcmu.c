@@ -1031,6 +1031,10 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 		/* Internal target failure */
 		return tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x4400,
 					    NULL);
+	case TCMU_STS_MISCOMPARE:
+		/* Miscompare during verify operation */
+		return tcmu_set_sense_data(sense, MISCOMPARE, 0x1d00,
+					   NULL);
 	}
 	return tcmu_sts;
 }

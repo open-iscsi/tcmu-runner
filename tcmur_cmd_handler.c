@@ -913,9 +913,8 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 					     state->requested);
 	if (cmp_offset != -1) {
 		tcmu_dev_err(dev, "Verify failed at offset %lu\n", cmp_offset);
-		ret =  tcmu_set_sense_data(sense, MISCOMPARE,
-					   ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					   &cmp_offset);
+		ret =  TCMU_STS_MISCOMPARE;
+		tcmu_set_sense_info(sense, cmp_offset);
 	}
 
 done:
@@ -1743,9 +1742,8 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 					     state->requested);
 	if (cmp_offset != -1) {
 		/* verify failed - bail out */
-		ret = tcmu_set_sense_data(sense, MISCOMPARE,
-					  ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					  &cmp_offset);
+		ret = TCMU_STS_MISCOMPARE;
+		tcmu_set_sense_info(sense, cmp_offset);
 		goto finish_err;
 	}
 

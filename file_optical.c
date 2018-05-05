@@ -1196,9 +1196,8 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 
 		cmp_offset = tcmu_compare_with_iovec(buf, iovec, ret);
 		if (cmp_offset != -1) {
-			rc = tcmu_set_sense_data(sense, MISCOMPARE,
-					ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					&cmp_offset);
+			rc = TCMU_STS_MISCOMPARE;
+			tcmu_set_sense_info(sense, cmp_offset);
 			break;
 		}
 		tcmu_seek_in_iovec(iovec, ret);

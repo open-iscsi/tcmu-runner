@@ -109,7 +109,6 @@ enum scsi_protocol {
 #define ASC_LOGICAL_UNIT_COMMUNICATION_FAILURE  0x0800
 #define ASC_WRITE_ERROR                         0x0C00
 #define ASC_PARAMETER_LIST_LENGTH_ERROR         0x1a00
-#define ASC_MISCOMPARE_DURING_VERIFY_OPERATION  0x1d00
 #define ASC_LBA_OUT_OF_RANGE                    0x2100
 #define ASC_INVALID_FIELD_IN_CDB                0x2400
 #define ASC_INVALID_FIELD_IN_PARAMETER_LIST     0x2600

@@ -171,6 +171,7 @@ void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fro
 
 /* Basic implementations of mandatory SCSI commands */
 int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info);
+void tcmu_set_sense_info(uint8_t *sense_buf, uint32_t info);
 int tcmu_emulate_inquiry(struct tcmu_device *dev, struct tgt_port *port, uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
 int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb, uint8_t *sense);
 int tcmu_emulate_test_unit_ready(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
