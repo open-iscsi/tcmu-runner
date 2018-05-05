@@ -35,6 +35,7 @@
 #include "libtcmu_priv.h"
 #include "target.h"
 #include "alua.h"
+#include "be_byteshift.h"
 
 int tcmu_get_cdb_length(uint8_t *cdb)
 {
@@ -189,43 +190,38 @@ size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)
 	return length;
 }
 
-void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fromcmd)
+void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 {
-	if (!tocmd || !fromcmd)
-		return;
-
-	memcpy(tocmd->sense_buf, fromcmd->sense_buf, 18);
-}
-
-int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq,
-			uint32_t *info)
-{
-	memset(sense_buf, 0, 18);
 	sense_buf[0] = 0x70;	/* fixed, current */
 	sense_buf[2] = key;
 	sense_buf[7] = 0xa;
 	sense_buf[12] = (asc_ascq >> 8) & 0xff;
 	sense_buf[13] = asc_ascq & 0xff;
-	if (info) {
-		if (key == MISCOMPARE) {
-			uint32_t val32 = htobe32(*info);
+}
 
-			memcpy(&sense_buf[3], &val32, 4);
-			sense_buf[0] |= 0x80;
-		} else if (key == NOT_READY) {
-			uint16_t val16 = htobe16((uint16_t)*info);
+int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
+{
+	memset(sense_buf, 0, 18);
+	__tcmu_set_sense_data(sense_buf, key, asc_ascq);
+	return TCMU_STS_PASSTHROUGH_ERR;
+}
 
-			memcpy(&sense_buf[16], &val16, 2);
-			sense_buf[15] |= 0x80;
-		}
-	}
+void tcmu_set_sense_key_specific_info(uint8_t *sense_buf, uint16_t info)
+{
+	memset(sense_buf, 0, 18);
 
-	/*
-	 * It's very common to set sense and return check condition.
-	 * Returning this lets us do both in one go. Or, just ignore
-	 * this and return scsi_status yourself.
-	 */
-	return SAM_STAT_CHECK_CONDITION;
+	put_unaligned_be16(info, &sense_buf[16]);
+	/* Set SKSV bit */
+	sense_buf[15] |= 0x80;
+}
+
+void tcmu_set_sense_info(uint8_t *sense_buf, uint32_t info)
+{
+	memset(sense_buf, 0, 18);
+
+	put_unaligned_be32(info, &sense_buf[3]);
+	/* Set VALID bit */
+	sense_buf[0] |= 0x80;
 }
 
 /*
@@ -307,8 +303,7 @@ int tcmu_emulate_std_inquiry(
 	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	uint8_t buf[36];
 
@@ -335,7 +330,7 @@ int tcmu_emulate_std_inquiry(
 	buf[4] = 31; /* Set additional length to 31 */
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 /* This func from CCAN str/hex/hex.c. Public Domain */
@@ -361,8 +356,7 @@ int tcmu_emulate_evpd_inquiry(
 	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 
@@ -389,7 +383,7 @@ int tcmu_emulate_evpd_inquiry(
 		data[3] = 6;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0x80: /* Unit Serial Number */
@@ -403,11 +397,8 @@ int tcmu_emulate_evpd_inquiry(
 		data[1] = 0x80;
 
 		wwn = tcmu_get_wwn(dev);
-		if (!wwn) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
-		}
+		if (!wwn)
+			return TCMU_STS_HW_ERR;
 
 		/*
 		 * The maximum length of the unit_serial has limited
@@ -420,7 +411,7 @@ int tcmu_emulate_evpd_inquiry(
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 
 		free(wwn);
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0x83: /* Device identification */
@@ -438,10 +429,8 @@ int tcmu_emulate_evpd_inquiry(
 		data[1] = 0x83;
 
 		wwn = tcmu_get_wwn(dev);
-		if (!wwn) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE, NULL);
-		}
+		if (!wwn)
+			return TCMU_STS_HW_ERR;
 
 		ptr = &data[4];
 
@@ -592,7 +581,7 @@ finish_page83:
 		free(wwn);
 		wwn = NULL;
 
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0xb0: /* Block Limits */
@@ -672,7 +661,7 @@ finish_page83:
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
 
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0xb1: /* Block Device Characteristics VPD page */
@@ -701,7 +690,7 @@ finish_page83:
 		}
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	case 0xb2: /* Logical Block Provisioning VPD page */
@@ -744,14 +733,13 @@ finish_page83:
 			data[5] |= 0xe0;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 	break;
 	default:
 		tcmu_dev_err(dev, "Vital product data page code 0x%x not support\n",
 			     cdb[2]);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 }
 
@@ -763,29 +751,25 @@ int tcmu_emulate_inquiry(
 	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	if (!(cdb[1] & 0x01)) {
 		if (!cdb[2])
 			return tcmu_emulate_std_inquiry(port, cdb, iovec,
-							iov_cnt, sense);
+							iov_cnt);
 		else
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB, NULL);
+			return TCMU_STS_INVALID_CDB;
 	} else {
-		return tcmu_emulate_evpd_inquiry(dev, port, cdb, iovec, iov_cnt,
-						 sense);
+		return tcmu_emulate_evpd_inquiry(dev, port, cdb, iovec, iov_cnt);
 	}
 }
 
 int tcmu_emulate_test_unit_ready(
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 int tcmu_emulate_read_capacity_10(
@@ -793,8 +777,7 @@ int tcmu_emulate_read_capacity_10(
 	uint32_t block_size,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	uint8_t buf[8];
 	uint32_t val32;
@@ -819,7 +802,7 @@ int tcmu_emulate_read_capacity_10(
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 int tcmu_emulate_read_capacity_16(
@@ -827,8 +810,7 @@ int tcmu_emulate_read_capacity_16(
 	uint32_t block_size,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	uint8_t buf[32];
 	uint64_t val64;
@@ -863,7 +845,7 @@ int tcmu_emulate_read_capacity_16(
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static void copy_to_response_buf(uint8_t *to_buf, size_t to_len,
@@ -1028,8 +1010,7 @@ int tcmu_emulate_mode_sense(
 	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	bool sense_ten = (cdb[0] == MODE_SENSE_10);
 	uint8_t page_code = cdb[2] & 0x3f;
@@ -1042,7 +1023,7 @@ int tcmu_emulate_mode_sense(
 	uint8_t *orig_buf = NULL;
 
 	if (!alloc_len)
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	/* Mode parameter header. Mode data length filled in at the end. */
 	used_len = sense_ten ? 8 : 4;
@@ -1051,8 +1032,8 @@ int tcmu_emulate_mode_sense(
 
 	buf = calloc(1, alloc_len);
 	if (!buf)
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
+
 	orig_buf = buf;
 	buf += used_len;
 
@@ -1097,13 +1078,12 @@ int tcmu_emulate_mode_sense(
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, orig_buf, alloc_len);
 	free(orig_buf);
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 
 free_buf:
 	free(orig_buf);
 fail:
-	return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-				   ASC_INVALID_FIELD_IN_CDB, NULL);
+	return TCMU_STS_INVALID_CDB;
 }
 
 /*
@@ -1115,8 +1095,7 @@ int tcmu_emulate_mode_select(
 	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	bool select_ten = (cdb[0] == MODE_SELECT_10);
 	uint8_t page_code = cdb[2] & 0x3f;
@@ -1130,16 +1109,14 @@ int tcmu_emulate_mode_select(
 	bool got_sense = false;
 
 	if (!alloc_len)
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	if (tcmu_memcpy_from_iovec(in_buf, sizeof(in_buf), iovec, iov_cnt) >= sizeof(in_buf))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR, NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 
 	/* Abort if !pf or sp */
 	if (!(cdb[1] & 0x10) || (cdb[1] & 0x01))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	memset(buf, 0, sizeof(buf));
 	for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
@@ -1148,12 +1125,10 @@ int tcmu_emulate_mode_select(
 			ret = modesense_handlers[i].get(dev, &buf[hdr_len],
 							sizeof(buf) - hdr_len);
 			if (ret <= 0)
-				return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-							   ASC_INVALID_FIELD_IN_CDB, NULL);
+				return TCMU_STS_INVALID_CDB;
 
 			if  (!select_ten && (hdr_len + ret >= 255))
-				return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-							   ASC_INVALID_FIELD_IN_CDB, NULL);
+				return TCMU_STS_INVALID_CDB;
 
 			got_sense = true;
 			break;
@@ -1161,28 +1136,23 @@ int tcmu_emulate_mode_select(
 	}
 
 	if (!got_sense)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	if (alloc_len < (hdr_len + ret))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR, NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 
 	/* Verify what was selected is identical to what sense returns, since we
 	   don't support actually setting anything. */
 	if (memcmp(&buf[hdr_len], &in_buf[hdr_len], ret))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST, NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
-int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
-			    uint8_t *sense)
+int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb)
 {
 	if ((cdb[4] >> 4) & 0xf)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	/* Currently, we don't allow ejecting the medium, so we're
 	 * ignoring the FBO_PREV_EJECT flag, but it may turn out that
@@ -1191,10 +1161,9 @@ int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
 	 */
 
 	if (!(cdb[4] & 0x01))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 #define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)

@@ -31,8 +31,42 @@ struct tcmu_device;
 struct tgt_port;
 struct tcmulib_cmd;
 
-#define TCMU_NOT_HANDLED -1
-#define TCMU_ASYNC_HANDLED -2
+/*
+ * TCMU return status codes
+ */
+enum {
+	TCMU_STS_ASYNC_HANDLED = -2,
+	TCMU_STS_NOT_HANDLED = -1,
+	TCMU_STS_OK = 0,
+	TCMU_STS_NO_RESOURCE,
+	/* handler has setup sense. */
+	TCMU_STS_PASSTHROUGH_ERR,
+	TCMU_STS_BUSY,
+	TCMU_STS_WR_ERR,
+	TCMU_STS_RD_ERR,
+	TCMU_STS_MISCOMPARE,
+	TCMU_STS_INVALID_CMD,
+	TCMU_STS_INVALID_CDB,
+	TCMU_STS_INVALID_PARAM_LIST,
+	TCMU_STS_INVALID_PARAM_LIST_LEN,
+	TCMU_STS_TIMEOUT,
+	TCMU_STS_FENCED,
+	TCMU_STS_HW_ERR,
+	TCMU_STS_RANGE,
+	TCMU_STS_FRMT_IN_PROGRESS,
+	TCMU_STS_CAPACITY_CHANGED,
+	TCMU_STS_NOTSUPP_SAVE_PARAMS,
+	TCMU_STS_WR_ERR_INCOMPAT_FRMT,
+	TCMU_STS_TRANSITION,
+	TCMU_STS_IMPL_TRANSITION_ERR,
+	TCMU_STS_EXPL_TRANSITION_ERR,
+	TCMU_STS_NO_LOCK_HOLDERS,
+	/* xcopy specific errors */
+	TCMU_STS_NOTSUPP_SEG_DESC_TYPE,
+	TCMU_STS_NOTSUPP_TGT_DESC_TYPE,
+	TCMU_STS_CP_TGT_DEV_NOTCONN,
+	TCMU_STS_INVALID_CP_TGT_DEV_TYPE,
+};
 
 #define SENSE_BUFFERSIZE 96
 
@@ -140,22 +174,23 @@ size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src, si
 size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec, size_t iov_cnt);
 size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
 bool char_to_hex(unsigned char *val, char c);
-void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fromcmd);
 
 /* Basic implementations of mandatory SCSI commands */
-int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info);
-int tcmu_emulate_inquiry(struct tcmu_device *dev, struct tgt_port *port, uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
-int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb, uint8_t *sense);
-int tcmu_emulate_test_unit_ready(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
+void tcmu_set_sense_info(uint8_t *sense_buf, uint32_t info);
+void tcmu_set_sense_key_specific_info(uint8_t *sense_buf, uint16_t info);
+void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
+int tcmu_emulate_inquiry(struct tcmu_device *dev, struct tgt_port *port, uint8_t *cdb, struct iovec *iovec, size_t iov_cnt);
+int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb);
+int tcmu_emulate_test_unit_ready(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt);
 int tcmu_emulate_read_capacity_10(uint64_t num_lbas, uint32_t block_size, uint8_t *cdb,
-				  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+				  struct iovec *iovec, size_t iov_cnt);
 int tcmu_emulate_read_capacity_16(uint64_t num_lbas, uint32_t block_size, uint8_t *cdb,
-				  struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+				  struct iovec *iovec, size_t iov_cnt);
 int tcmu_emulate_mode_sense(struct tcmu_device *dev, uint8_t *cdb,
-			    struct iovec *iovec, size_t iov_cnt, uint8_t *sense);
+			    struct iovec *iovec, size_t iov_cnt);
 int tcmu_emulate_mode_select(struct tcmu_device *dev, uint8_t *cdb,
-			     struct iovec *iovec, size_t iov_cnt,
-			     uint8_t *sense);
+			     struct iovec *iovec, size_t iov_cnt);
 /* SCSI helpers */
 void tcmu_cdb_debug_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd);
 

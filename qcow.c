@@ -1451,18 +1451,17 @@ static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = bdev->ops->preadv(bdev, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_READ_ERROR, NULL);
+			ret = TCMU_STS_RD_ERR;
 			goto done;
 		}
 		tcmu_seek_in_iovec(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -1477,18 +1476,17 @@ static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = bdev->ops->pwritev(bdev, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_WRITE_ERROR, NULL);
+			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
 		tcmu_seek_in_iovec(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -1498,14 +1496,13 @@ static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	if (fsync(bdev->fd)) {
 		tcmu_dev_err(dev, "sync failed\n");
-		ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-					  ASC_WRITE_ERROR, NULL);
+		ret = TCMU_STS_WR_ERR;
 		goto done;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";

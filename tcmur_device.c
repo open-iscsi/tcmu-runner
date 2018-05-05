@@ -242,7 +242,7 @@ void tcmu_release_dev_lock(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	int new_state = TCMUR_DEV_LOCK_LOCKED;
+	int ret;
 
 	pthread_mutex_lock(&rdev->state_lock);
 	if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
@@ -251,10 +251,10 @@ void tcmu_release_dev_lock(struct tcmu_device *dev)
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	new_state = rhandler->unlock(dev);
-	if (new_state != TCMUR_DEV_LOCK_UNLOCKED)
-		tcmu_dev_warn(dev, "Lock not cleanly released. State %d.\n",
-			      new_state);
+	ret = rhandler->unlock(dev);
+	if (ret != TCMU_STS_OK)
+		tcmu_dev_warn(dev, "Lock not cleanly released. Ret %d.\n",
+			      ret);
 	/*
 	 * If we don't have a clean unlock we still report success and set
 	 * to unlocked to prevent new IO from executing in case the lock
@@ -279,12 +279,12 @@ retry:
 	tcmu_dev_dbg(dev, "Got rc %d tag %hu\n", ret, *tag);
 
 	switch (ret) {
-	case 0:
+	case TCMU_STS_OK:
 		break;
-	case -ENOENT:
+	case TCMU_STS_NO_LOCK_HOLDERS:
 		/* No lock holder yet */
 		break;
-	case -ESHUTDOWN:
+	case TCMU_STS_FENCED:
 		/*
 		 * This is safe without blocking/flushing because it
 		 * is called from the main IO thread and will wait for
@@ -297,7 +297,7 @@ retry:
 			goto retry;
 		}
 		/* fallthrough */
-	case -ETIMEDOUT:
+	case TCMU_STS_TIMEOUT:
 	default:
 		tcmu_dev_dbg(dev, "Could not reach device to get locker id\n");
 		/*
@@ -324,7 +324,7 @@ retry:
 		 * retried and the retry will be handled like other commands
 		 * during session level recovery.
 		 */
-		return -EAGAIN;
+		return TCMU_STS_BUSY;
 	}
 
 	return ret;
@@ -335,7 +335,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	int retries = 0, new_state = TCMUR_DEV_LOCK_UNLOCKED;
+	int retries = 0, ret = TCMU_STS_OK;
 
 	/* Block the kernel device. */
 	tcmu_block_device(dev);
@@ -359,9 +359,9 @@ retry:
 	tcmu_dev_dbg(dev, "lock call state %d retries %d. tag %hu\n",
 		     rdev->lock_state, retries, tag);
 
-	new_state = rhandler->lock(dev, tag);
-	switch (new_state) {
-	case TCMUR_DEV_LOCK_FENCED:
+	ret = rhandler->lock(dev, tag);
+	switch (ret) {
+	case TCMU_STS_FENCED:
 		/*
 		 * Try to reopen the backend device. If this
 		 * fails then go into recovery, so the initaitor
@@ -373,29 +373,24 @@ retry:
 			goto retry;
 		}
 		/* fallthrough */
-	case TCMUR_DEV_LOCK_UNKNOWN:
+	case TCMU_STS_TIMEOUT:
 		tcmu_dev_dbg(dev, "Fail handler device connection.\n");
 		tcmu_notify_conn_lost(dev);
-		new_state = TCMUR_DEV_LOCK_UNLOCKED;
 		break;
-	case TCMUR_DEV_LOCK_LOCKED:
-		break;
-	default:
-		new_state = TCMUR_DEV_LOCK_UNLOCKED;
 	}
 
 done:
 	/* TODO: set UA based on bgly's patches */
 	pthread_mutex_lock(&rdev->state_lock);
-	rdev->lock_state = new_state;
+	if (ret == TCMU_STS_OK)
+		rdev->lock_state = TCMUR_DEV_LOCK_LOCKED;
+	else
+		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 	tcmu_dev_dbg(dev, "lock call done. lock state %d\n", rdev->lock_state);
 	pthread_cond_signal(&rdev->lock_cond);
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	tcmu_unblock_device(dev);
 
-	if (new_state == TCMUR_DEV_LOCK_LOCKED)
-		return 0;
-	else
-		return -1;
+	return ret;
 }

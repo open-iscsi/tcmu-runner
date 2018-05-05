@@ -51,11 +51,6 @@ struct foo_state {
 	uint32_t block_size;
 };
 
-static int set_medium_error(uint8_t *sense)
-{
-	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
-}
-
 static int foo_open(struct tcmu_device *dev)
 {
 	/* open the backing file */
@@ -88,45 +83,42 @@ static int foo_handle_cmd(
 
 	switch (cmd) {
 	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, NULL, cdb, iovec, iov_cnt,
-					    sense);
-		break;
+		return tcmu_emulate_inquiry(dev, NULL, cdb, iovec, iov_cnt);
 	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
-		break;
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt);
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
 			return tcmu_emulate_read_capacity_16(state->num_lbas,
 							     state->block_size,
-							     cdb, iovec, iov_cnt, sense);
+							     cdb, iovec, iov_cnt);
 		else
-			return TCMU_NOT_HANDLED;
+			return TCMU_STS_NOT_HANDLED;
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt);
 		break;
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt);
 		break;
 	case READ_6:
 	case READ_10:
 	case READ_12:
 	case READ_16:
 		// A real "read" implementation goes here!
-		return set_medium_error(sense);
+		return TCMU_STS_RD_ERR;
 
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
 	case WRITE_16:
 		// A real "write" implemention goes here!
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	default:
 		tcmu_err("unknown command %x\n", cdb[0]);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	}
 }
 

@@ -193,7 +193,7 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	work = malloc(sizeof(*work));
 	if (!work)
-		return SAM_STAT_TASK_SET_FULL;
+		return TCMU_STS_NO_RESOURCE;
 
 	work->fn = fn;
 	work->dev = dev;
@@ -210,7 +210,7 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	pthread_mutex_unlock(&io_wq->io_lock);
 	pthread_cleanup_pop(0);
 
-	return TCMU_ASYNC_HANDLED;
+	return TCMU_STS_ASYNC_HANDLED;
 }
 
 int async_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -222,7 +222,7 @@ int async_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (!rhandler->nr_threads) {
 		ret = work_fn(dev, cmd);
 		if (!ret)
-			ret = TCMU_ASYNC_HANDLED;
+			ret = TCMU_STS_ASYNC_HANDLED;
 	} else {
 		ret = aio_schedule(dev, cmd, work_fn);
 	}

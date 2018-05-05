@@ -376,8 +376,7 @@ struct tgt_port *tcmu_get_enabled_port(struct list_head *group_list)
 }
 
 static int alua_set_state(struct tcmu_device *dev, struct alua_grp *group,
-			  uint8_t new_state, uint8_t alua_status,
-			  uint8_t *sense)
+			  uint8_t new_state, uint8_t alua_status)
 {
 	int ret;
 
@@ -385,11 +384,7 @@ static int alua_set_state(struct tcmu_device *dev, struct alua_grp *group,
 	if (ret) {
 		tcmu_dev_err(dev, "Could not change kernel state to %u\n",
 			     new_state);
-		if (sense)
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_STPG_CMD_FAILED, NULL);
-		else
-			return SAM_STAT_CHECK_CONDITION;
+		return TCMU_STS_EXPL_TRANSITION_ERR;
 	}
 
 	ret = tcmu_set_alua_int_setting(group, "alua_access_status", alua_status);
@@ -400,7 +395,7 @@ static int alua_set_state(struct tcmu_device *dev, struct alua_grp *group,
 
 	group->state = new_state;
 	group->status = alua_status;
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 /*
@@ -425,12 +420,12 @@ static int alua_sync_state(struct tcmu_device *dev,
 
 	if (rdev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT ||
 	    !rhandler->get_lock_tag)
-		return 0;
+		return TCMU_STS_OK;
 
 	ret = tcmu_get_lock_tag(dev, &ao_group_id);
-	if (ret == -ENOENT) {
+	if (ret == TCMU_STS_NO_LOCK_HOLDERS) {
 		ao_group_id = TCMU_ALUA_INVALID_GROUP_ID;
-	} else if (ret)
+	} else if (ret != TCMU_STS_OK)
 		return ret;
 
 	list_for_each(group_list, group, entry) {
@@ -459,11 +454,10 @@ static int alua_sync_state(struct tcmu_device *dev,
 
 		if (alua_state != group->state)
 			alua_set_state(dev, group, alua_state,
-				       ALUA_STAT_ALTERED_BY_IMPLICIT_ALUA,
-				       NULL);
+				       ALUA_STAT_ALTERED_BY_IMPLICIT_ALUA );
 	}
 
-	return 0;
+	return TCMU_STS_OK;
 }
 
 int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
@@ -481,16 +475,14 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	enabled_port = tcmu_get_enabled_port(group_list);
 	if (!enabled_port)
 		/* unsupported config */
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_INVALID_CMD;
 
 	if (alloc_len < 4)
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	buf = calloc(1, alloc_len);
 	if (!buf)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
 
 	if (ext_hdr && alloc_len > 5) {
 		buf[4] = 0x10;
@@ -505,10 +497,8 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	}
 
 	ret = alua_sync_state(dev, group_list, enabled_port->grp->id);
-	if (ret == -EAGAIN) {
-		ret = SAM_STAT_BUSY;
+	if (ret)
 		goto free_buf;
-	}
 
 	list_for_each(group_list, group, entry) {
 		int next_off = off + 8 + (group->num_tgt_ports * 4);
@@ -548,7 +538,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	memcpy(&buf[0], &ret32, 4);
 
 	tcmu_memcpy_into_iovec(cmd->iovec, cmd->iov_cnt, buf, alloc_len);
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 free_buf:
 	free(buf);
 	return ret;
@@ -572,15 +562,14 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	pthread_attr_t attr;
-	int ret = SAM_STAT_GOOD;
+	int ret = TCMU_STS_OK;
 
 	pthread_mutex_lock(&rdev->state_lock);
 	tcmu_dev_dbg(dev, "lock state %d\n", rdev->lock_state);
 	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED) {
 		goto done;
 	} else if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKING) {
-		ret = tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
-					  ASC_STATE_TRANSITION, NULL);
+		ret = TCMU_STS_TRANSITION;
 		goto done;
 	}
 
@@ -601,11 +590,9 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		tcmu_dev_err(dev, "Could not start implicit transition thread:%s\n",
 			     strerror(errno));
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
-		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
-					  ASC_STATE_TRANSITION_FAILED, NULL);
+		ret = TCMU_STS_IMPL_TRANSITION_ERR;
 	} else {
-		ret = tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
-					  ASC_STATE_TRANSITION, NULL);
+		ret = TCMU_STS_TRANSITION;
 	}
 
 done:
@@ -648,14 +635,13 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 {
 	struct tcmu_device *dev = group->dev;
 	struct alua_grp *tmp_group;
+	int ret;
 
 	tcmu_dev_dbg(dev, "transition group %u new state %u old state %u sup 0x%x\n",
 		     group->id, new_state, group->state, group->supported_states);
 
 	if (!alua_check_sup_state(new_state, group->supported_states))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
 	switch (new_state) {
 	case ALUA_ACCESS_STATE_OPTIMIZED:
@@ -663,16 +649,21 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 			/* just change local state */
 			break;
 
-		if (tcmu_acquire_dev_lock(dev, true, group->id))
+		ret = tcmu_acquire_dev_lock(dev, true, group->id);
+		if (ret == TCMU_STS_HW_ERR) {
+			return TCMU_STS_EXPL_TRANSITION_ERR;
+		} else if (ret) {
 			/*
-			 * We should return ASC_STPG_CMD_FAILED but we only
-			 * get 2 retries for that error in windows 2016.
+			 * We should return TCMU_STS_EXPL_TRANSITION_ERR but
+			 * we only get 2 retries for that error in windows 2016.
 			 * Most likely we temporarily couldn't connect to the
 			 * backend and it is dropping the session. Return BUSY
 			 * so this can be retried on another path when
 			 * the session recovery kicks in.
 			 */
-			return SAM_STAT_BUSY;
+			return TCMU_STS_BUSY;
+		}
+
 		/*
 		 * We only support 1 active group, so set everything else
 		 * to standby.
@@ -681,8 +672,7 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 			if (group == tmp_group)
 				continue;
 			alua_set_state(dev, tmp_group,
-				       ALUA_ACCESS_STATE_STANDBY, alua_status,
-				       sense);
+				       ALUA_ACCESS_STATE_STANDBY, alua_status);
 		}
 		break;
 	case ALUA_ACCESS_STATE_NON_OPTIMIZED:
@@ -690,20 +680,16 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 	case ALUA_ACCESS_STATE_OFFLINE:
 		/* TODO we only support standby and AO */
 		tcmu_dev_err(dev, "Igoring ANO/unavail/offline\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	case ALUA_ACCESS_STATE_STANDBY:
 		if (failover_is_supported(dev))
 			tcmu_release_dev_lock(dev);
 		break;
 	default:
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
-	return alua_set_state(dev, group, new_state, alua_status, sense);
+	return alua_set_state(dev, group, new_state, alua_status);
 }
 
 int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
@@ -715,25 +701,22 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 	uint32_t off = 4, param_list_len = tcmu_get_xfer_length(cmd->cdb);
 	uint16_t id, tmp_id;
 	char *buf, new_state;
-	int found, ret = SAM_STAT_GOOD;
+	int found, ret = TCMU_STS_OK;
 
 	port = tcmu_get_enabled_port(group_list);
 	if (!port)
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_INVALID_CMD;
 
 	if (!param_list_len)
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	buf = calloc(1, param_list_len);
 	if (!buf)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
 
 	if (tcmu_memcpy_from_iovec(buf, param_list_len, cmd->iovec,
 				   cmd->iov_cnt) != param_list_len) {
-		ret = tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto free_buf;
 	}
 
@@ -751,10 +734,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 				continue;
 
 			if (group != port->grp) {
-				ret = tcmu_set_sense_data(cmd->sense_buf,
-						HARDWARE_ERROR,
-						ASC_INTERNAL_TARGET_FAILURE,
-						NULL);
+				ret = TCMU_STS_HW_ERR;
 				tcmu_dev_err(dev, "Failing STPG for group %d. Unable to transition remote groups.\n",
 					     id);
 				goto free_buf;
@@ -765,7 +745,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 					new_state,
 					ALUA_STAT_ALTERED_BY_EXPLICIT_STPG,
 					cmd->sense_buf);
-			if (ret != SAM_STAT_GOOD) {
+			if (ret != TCMU_STS_OK) {
 				tcmu_dev_err(dev, "Failing STPG for group %d\n",
 					      id);
 				goto free_buf;
@@ -781,9 +761,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 			 */
 			tcmu_dev_err(dev, "Could not find group for %u for STPG\n",
 				      id);
-			ret = tcmu_set_sense_data(cmd->sense_buf,
-						  HARDWARE_ERROR,
-						  ASC_STPG_CMD_FAILED, NULL);
+			ret = TCMU_STS_EXPL_TRANSITION_ERR;
 			break;
 		}
 	}
@@ -803,9 +781,7 @@ int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
         if (rdev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
 		if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
 			tcmu_dev_dbg(dev, "device lock not held.\n");
-			return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
-						   ASC_PORT_IN_STANDBY,
-						   NULL);
+			return TCMU_STS_FENCED;
 		}
 	} else if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
 		return alua_implicit_transition(dev, cmd);

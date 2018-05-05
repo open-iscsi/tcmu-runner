@@ -631,7 +631,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			else
 				ret = tcmur_generic_handle_cmd(dev, cmd);
 
-			if (ret == TCMU_NOT_HANDLED)
+			if (ret == TCMU_STS_NOT_HANDLED)
 				tcmu_dev_warn(dev, "Command 0x%x not supported\n", cmd->cdb[0]);
 
 			/*
@@ -641,7 +641,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			 *   - generic_handle_cmd: non tcmur handler calls (see generic_cmd())
 			 *			   and on errors when calling tcmur handler.
 			 */
-			if (ret != TCMU_ASYNC_HANDLED) {
+			if (ret != TCMU_STS_ASYNC_HANDLED) {
 				completed = 1;
 				tcmur_command_complete(dev, cmd, ret);
 			}
