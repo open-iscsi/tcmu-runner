@@ -1023,6 +1023,11 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 		return SAM_STAT_GOOD;
 	case TCMU_STS_NO_RESOURCE:
 		return SAM_STAT_TASK_SET_FULL;
+	/*
+	 * We drop the session during timeout handling so force
+	 * a retry to have it handled during session level recovery.
+	 */
+	case TCMU_STS_TIMEOUT:
 	case TCMU_STS_BUSY:
 		return SAM_STAT_BUSY;
 	case TCMU_STS_RANGE:
@@ -1075,6 +1080,20 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 		/* Device capacity has changed */
 		return tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A09,
 					   NULL);
+	case TCMU_STS_TRANSITION:
+		/* ALUA state transition */
+		return tcmu_set_sense_data(sense, NOT_READY, 0x040A, NULL);
+	case TCMU_STS_IMPL_TRANSITION_ERR:
+		/* Implicit ALUA state transition failed */
+		return tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A07,
+					   NULL);
+	case TCMU_STS_EXPL_TRANSITION_ERR:
+		/* STPG failed */
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x670A,
+					   NULL);
+	case TCMU_STS_FENCED:
+		/* ALUA state in standby */
+		return tcmu_set_sense_data(sense, NOT_READY, 0x040B, NULL);
 	}
 	return tcmu_sts;
 }

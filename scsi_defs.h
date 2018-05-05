@@ -101,8 +101,6 @@ enum scsi_protocol {
  * Sense codes
  */
 #define ASC_NOT_READY_FORMAT_IN_PROGRESS        0x0404
-#define ASC_STATE_TRANSITION                    0x040A
-#define ASC_PORT_IN_STANDBY                     0x040B
 #define ASC_READ_ERROR                          0x1100
 #define ASC_LOGICAL_UNIT_COMMUNICATION_FAILURE  0x0800
 #define ASC_WRITE_ERROR                         0x0C00
@@ -110,12 +108,9 @@ enum scsi_protocol {
 #define ASC_LBA_OUT_OF_RANGE                    0x2100
 #define ASC_INVALID_FIELD_IN_CDB                0x2400
 #define ASC_INVALID_FIELD_IN_PARAMETER_LIST     0x2600
-#define ASC_STATE_CHNAGED                       0x2A06
-#define ASC_STATE_TRANSITION_FAILED             0x2A07
 #define ASC_CANT_WRITE_INCOMPATIBLE_FORMAT      0x3005
 #define ASC_SAVING_PARAMETERS_NOT_SUPPORTED     0x3900
 #define ASC_INTERNAL_TARGET_FAILURE             0x4400
-#define ASC_STPG_CMD_FAILED                     0x670A
 
 #define ALUA_ACCESS_STATE_OPTIMIZED		0x0
 #define ALUA_ACCESS_STATE_NON_OPTIMIZED		0x1
