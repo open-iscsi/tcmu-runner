@@ -1466,7 +1466,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	switch(cdb[0]) {
 	case TEST_UNIT_READY:
-		ret = tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		ret = tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt);
 		break;
 	case REQUEST_SENSE:
 		ret = fbo_emulate_request_sense(dev, cdb, iovec, iov_cnt, sense);
@@ -1498,7 +1498,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = fbo_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
 		break;
 	case START_STOP:
-		ret = tcmu_emulate_start_stop(dev, cdb, sense);
+		ret = tcmu_emulate_start_stop(dev, cdb);
 		break;
 	case ALLOW_MEDIUM_REMOVAL:
 		ret = fbo_emulate_allow_medium_removal(dev, cdb, sense);
@@ -1515,7 +1515,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 			ret = tcmu_emulate_read_capacity_10(state->num_lbas,
 							    state->block_size,
 							    cdb, iovec,
-							    iov_cnt, sense);
+							    iov_cnt);
 		break;
 	case VERIFY:
 		ret = fbo_verify(dev, cdb, iovec, iov_cnt, sense);

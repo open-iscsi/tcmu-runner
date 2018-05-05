@@ -2219,7 +2219,6 @@ static int zbc_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint8_t *cdb = cmd->cdb;
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
-	uint8_t *sense = cmd->sense_buf;
 
 	switch (cmd->cdb[0]) {
 
@@ -2227,7 +2226,7 @@ static int zbc_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return zbc_inquiry(dev, cmd);
 
 	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt);
 
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
@@ -2240,8 +2239,7 @@ static int zbc_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(dev, cdb,
-						iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt);
 
 	case ZBC_IN:
 		return zbc_in(dev, cmd);

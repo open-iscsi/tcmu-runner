@@ -190,14 +190,6 @@ size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)
 	return length;
 }
 
-void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fromcmd)
-{
-	if (!tocmd || !fromcmd)
-		return;
-
-	memcpy(tocmd->sense_buf, fromcmd->sense_buf, 18);
-}
-
 void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 {
 	sense_buf[0] = 0x70;	/* fixed, current */
@@ -311,8 +303,7 @@ int tcmu_emulate_std_inquiry(
 	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	uint8_t buf[36];
 
@@ -365,8 +356,7 @@ int tcmu_emulate_evpd_inquiry(
 	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 
@@ -761,26 +751,23 @@ int tcmu_emulate_inquiry(
 	struct tgt_port *port,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	if (!(cdb[1] & 0x01)) {
 		if (!cdb[2])
 			return tcmu_emulate_std_inquiry(port, cdb, iovec,
-							iov_cnt, sense);
+							iov_cnt);
 		else
 			return TCMU_STS_INVALID_CDB;
 	} else {
-		return tcmu_emulate_evpd_inquiry(dev, port, cdb, iovec, iov_cnt,
-						 sense);
+		return tcmu_emulate_evpd_inquiry(dev, port, cdb, iovec, iov_cnt);
 	}
 }
 
 int tcmu_emulate_test_unit_ready(
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	return TCMU_STS_OK;
 }
@@ -790,8 +777,7 @@ int tcmu_emulate_read_capacity_10(
 	uint32_t block_size,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	uint8_t buf[8];
 	uint32_t val32;
@@ -824,8 +810,7 @@ int tcmu_emulate_read_capacity_16(
 	uint32_t block_size,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	uint8_t buf[32];
 	uint64_t val64;
@@ -1025,8 +1010,7 @@ int tcmu_emulate_mode_sense(
 	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	bool sense_ten = (cdb[0] == MODE_SENSE_10);
 	uint8_t page_code = cdb[2] & 0x3f;
@@ -1111,8 +1095,7 @@ int tcmu_emulate_mode_select(
 	struct tcmu_device *dev,
 	uint8_t *cdb,
 	struct iovec *iovec,
-	size_t iov_cnt,
-	uint8_t *sense)
+	size_t iov_cnt)
 {
 	bool select_ten = (cdb[0] == MODE_SELECT_10);
 	uint8_t page_code = cdb[2] & 0x3f;
@@ -1166,8 +1149,7 @@ int tcmu_emulate_mode_select(
 	return TCMU_STS_OK;
 }
 
-int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
-			    uint8_t *sense)
+int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb)
 {
 	if ((cdb[4] >> 4) & 0xf)
 		return TCMU_STS_INVALID_CDB;
