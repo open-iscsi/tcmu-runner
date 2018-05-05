@@ -198,21 +198,20 @@ void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fro
 	memcpy(tocmd->sense_buf, fromcmd->sense_buf, 18);
 }
 
-int __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
+void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 {
 	sense_buf[0] = 0x70;	/* fixed, current */
 	sense_buf[2] = key;
 	sense_buf[7] = 0xa;
 	sense_buf[12] = (asc_ascq >> 8) & 0xff;
 	sense_buf[13] = asc_ascq & 0xff;
-
-	return SAM_STAT_CHECK_CONDITION;
 }
 
 int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 {
 	memset(sense_buf, 0, 18);
-	return __tcmu_set_sense_data(sense_buf, key, asc_ascq);
+	__tcmu_set_sense_data(sense_buf, key, asc_ascq);
+	return TCMU_STS_PASSTHROUGH_ERR;
 }
 
 void tcmu_set_sense_key_specific_info(uint8_t *sense_buf, uint16_t info)
