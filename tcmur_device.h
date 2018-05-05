@@ -34,12 +34,31 @@
 enum {
 	TMCUR_DEV_FAILOVER_ALL_ACTIVE,
 	TMCUR_DEV_FAILOVER_IMPLICIT,
+	TMCUR_DEV_FAILOVER_EXPLICIT,
 };
 
 enum {
 	TCMUR_DEV_LOCK_UNLOCKED,
 	TCMUR_DEV_LOCK_LOCKED,
 	TCMUR_DEV_LOCK_LOCKING,
+	/*
+	 * Lock is not held by local or remote nodes.
+	 */
+	TCMUR_DEV_LOCK_NO_HOLDERS,
+	/*
+	 * Handler is not able to connect to its backend to check
+	 * the lock status because it has been fenced off from the
+	 * the cluster. The lock is not held by the local node, and
+	 * the handler needs to be reopened so it can be reinitialized
+	 * and grab the lock later.
+	 */
+	TCMUR_DEV_LOCK_FENCED,
+	/*
+	 * Handler is not able to connect to its backend to check the
+	 * lock status due to a transport issue like the network
+	 * is not reachable or due to a IO failure. Lock may or may not be
+	 * held by the local node at this time.
+	 */
 	TCMUR_DEV_LOCK_UNKNOWN,
 };
 
@@ -85,10 +104,11 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev);
 void tcmu_notify_conn_lost(struct tcmu_device *dev);
 void tcmu_notify_lock_lost(struct tcmu_device *dev);
 
-int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread);
-int tcmu_reopen_dev(struct tcmu_device *dev);
+int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries);
+int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries);
 
-int tcmu_acquire_dev_lock(struct tcmu_device *dev);
-void tcmu_update_dev_lock_state(struct tcmu_device *dev);
+int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync, uint16_t tag);
+void tcmu_release_dev_lock(struct tcmu_device *dev);
+int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag);
 
 #endif

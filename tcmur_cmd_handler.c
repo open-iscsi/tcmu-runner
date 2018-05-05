@@ -828,31 +828,13 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 	return write_same_fn(dev, cmd, off, len, cmd->iovec, cmd->iov_cnt);
 }
 
-static inline int tcmur_alua_implicit_transition(struct tcmu_device *dev,
-					  struct tcmulib_cmd *cmd)
-{
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	int ret;
-
-	if (!failover_is_supported(dev))
-		return 0;
-
-	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
-		ret = alua_implicit_transition(dev, cmd);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
-}
-
 int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			   tcmur_writesame_fn_t write_same_fn)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
-	ret = tcmur_alua_implicit_transition(dev, cmd);
+	ret = alua_check_state(dev, cmd);
 	if (ret)
 		return ret;
 
@@ -1889,7 +1871,7 @@ int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 {
         int ret;
 
-        ret = tcmur_alua_implicit_transition(dev, cmd);
+        ret = alua_check_state(dev, cmd);
         if (ret)
                 return ret;
 
@@ -2217,6 +2199,23 @@ clear_format:
 }
 
 /* ALUA */
+static int handle_stpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct list_head group_list;
+	int ret;
+
+	list_head_init(&group_list);
+
+	ret = tcmu_get_alua_grps(dev, &group_list);
+	if (ret)
+		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
+					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+
+	ret = tcmu_emulate_set_tgt_port_grps(dev, &group_list, cmd);
+	tcmu_release_alua_grps(&group_list);
+	return ret;
+}
+
 static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct list_head group_list;
@@ -2322,7 +2321,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case WRITE_SAME:
 	case WRITE_SAME_16:
 	case FORMAT_UNIT:
-		ret = tcmur_alua_implicit_transition(dev, cmd);
+		ret = alua_check_state(dev, cmd);
 		if (ret)
 			goto untrack;
 		break;
@@ -2394,8 +2393,6 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	port = tcmu_get_enabled_port(&group_list);
 	if (!port) {
 		tcmu_dev_dbg(dev, "no enabled ports found. Skipping ALUA support\n");
-	} else {
-		tcmu_update_dev_lock_state(dev);
 	}
 
 	ret = tcmu_emulate_inquiry(dev, port, cmd->cdb, cmd->iovec,
@@ -2448,6 +2445,10 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case RECEIVE_COPY_RESULTS:
 		if ((cdb[1] & 0x1f) == RCR_SA_OPERATING_PARAMETERS)
 			return handle_recv_copy_result(dev, cmd);
+		return TCMU_NOT_HANDLED;
+	case MAINTENANCE_OUT:
+		if (cdb[1] == MO_SET_TARGET_PGS)
+			return handle_stpg(dev, cmd);
 		return TCMU_NOT_HANDLED;
 	case MAINTENANCE_IN:
 		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)

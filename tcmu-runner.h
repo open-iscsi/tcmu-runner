@@ -43,12 +43,6 @@ typedef int (*unmap_fn_t)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 struct tcmulib_cfg_info;
 
-enum {
-	TCMUR_LOCK_SUCCESS,
-	TCMUR_LOCK_FAILED,
-	TCMUR_LOCK_NOTCONN,
-};
-
 struct tcmur_handler {
 	const char *name;	/* Human-friendly name */
 	const char *subtype;	/* Name for cfgstring matching */
@@ -123,13 +117,26 @@ struct tcmur_handler {
 	unmap_fn_t unmap;
 
 	/*
-	 * Must return a TCMUR_LOCK return value.
+	 * Must return the new lock state as a TCMUR_DEV_LOCK value.
+	 * If the lock is acquired and the tag is non-NULL, it must be
+	 * associated with the lock and returned by get_lock_tag on local
+	 * and remote nodes. When unlock is successful, the tag
+	 * associated with the lock must be deleted.
 	 */
-	int (*lock)(struct tcmu_device *dev);
+	int (*lock)(struct tcmu_device *dev, uint16_t tag);
+	int (*unlock)(struct tcmu_device *dev);
+
 	/*
-	 * Must return TCMUR_DEV_LOCK state value.
+	 * Return tag set in lock call in tag buffer.
+	 * Returns:
+	 * 0 success.
+	 * -ESHUTDOWN Node is fenced from cluster.
+	 * -ETIMEDOUT Not able able to execute request in handler specific
+	 *            period.
+	 * -EIO misc failure.
+	 * -ENOENT tag has not been set.
 	 */
-	int (*get_lock_state)(struct tcmu_device *dev);
+	int (*get_lock_tag)(struct tcmu_device *dev, uint16_t *tag);
 
 	/*
 	 * internal field, don't touch this

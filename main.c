@@ -592,8 +592,10 @@ static void tcmur_stop_device(void *arg)
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	if (is_open)
+	if (is_open) {
+		tcmu_release_dev_lock(dev);
 		rhandler->close(dev);
+	}
 
 	pthread_mutex_lock(&rdev->state_lock);
 	rdev->flags |= TCMUR_DEV_FLAG_STOPPED;
