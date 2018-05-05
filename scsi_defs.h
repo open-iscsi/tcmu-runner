@@ -97,18 +97,6 @@ enum scsi_protocol {
 #define SAM_STAT_ACA_ACTIVE		0x30
 #define SAM_STAT_TASK_ABORTED		0x40
 
-/*
- * Sense codes
- */
-#define ASC_READ_ERROR                          0x1100
-#define ASC_LOGICAL_UNIT_COMMUNICATION_FAILURE  0x0800
-#define ASC_WRITE_ERROR                         0x0C00
-#define ASC_PARAMETER_LIST_LENGTH_ERROR         0x1a00
-#define ASC_LBA_OUT_OF_RANGE                    0x2100
-#define ASC_INVALID_FIELD_IN_CDB                0x2400
-#define ASC_INVALID_FIELD_IN_PARAMETER_LIST     0x2600
-#define ASC_INTERNAL_TARGET_FAILURE             0x4400
-
 #define ALUA_ACCESS_STATE_OPTIMIZED		0x0
 #define ALUA_ACCESS_STATE_NON_OPTIMIZED		0x1
 #define ALUA_ACCESS_STATE_STANDBY		0x2

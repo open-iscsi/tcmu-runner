@@ -55,6 +55,15 @@
 #define ZBC_SA_RESET_WP				0x04
 
 /*
+ * SCSI additional sense codes.
+ */
+#define ASC_READ_ERROR				0x1100
+#define ASC_WRITE_ERROR				0x0C00
+#define ASC_LBA_OUT_OF_RANGE			0x2100
+#define ASC_INVALID_FIELD_IN_CDB		0x2400
+#define ASC_INTERNAL_TARGET_FAILURE		0x4400
+
+/*
  * ZBC related additional sense codes.
  */
 #define ASC_UNALIGNED_WRITE_COMMAND		0x2104
