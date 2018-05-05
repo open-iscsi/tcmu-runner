@@ -100,7 +100,6 @@ enum scsi_protocol {
 /*
  * Sense codes
  */
-#define ASC_NOT_READY_FORMAT_IN_PROGRESS        0x0404
 #define ASC_READ_ERROR                          0x1100
 #define ASC_LOGICAL_UNIT_COMMUNICATION_FAILURE  0x0800
 #define ASC_WRITE_ERROR                         0x0C00

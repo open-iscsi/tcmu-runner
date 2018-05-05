@@ -1392,9 +1392,8 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 	 */
 	if (state->flags & FBO_FORMATTING) {
 		pthread_mutex_unlock(&state->state_mtx);
-		return tcmu_set_sense_data(sense, NOT_READY,
-					   ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					   &state->format_progress);
+		tcmu_set_sense_key_specific_info(sense, state->format_progress);
+		return TCMU_STS_FRMT_IN_PROGRESS;
 	}
 	state->format_progress = 0;
 	state->flags |= FBO_FORMATTING;
@@ -1459,9 +1458,8 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	    cdb[0] != REQUEST_SENSE &&
 	    cdb[0] != GET_CONFIGURATION &&
 	    cdb[0] != GPCMD_GET_EVENT_STATUS_NOTIFICATION) {
-		ret = tcmu_set_sense_data(sense, NOT_READY,
-					  ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					  &state->format_progress);
+		tcmu_set_sense_key_specific_info(sense, state->format_progress);
+		ret = TCMU_STS_FRMT_IN_PROGRESS;
 		cmd->done(dev, cmd, ret);
 		return 0;
 	}

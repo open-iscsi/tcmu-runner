@@ -2025,7 +2025,6 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	struct tcmulib_cmd *writecmd;
 	struct format_unit_state *state;
 	size_t max_xfer_length, length = 1024 * 1024;
-	uint8_t *sense = cmd->sense_buf;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
 	int ret;
@@ -2033,9 +2032,9 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	pthread_mutex_lock(&rdev->format_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING) {
 		pthread_mutex_unlock(&rdev->format_lock);
-		return tcmu_set_sense_data(sense, NOT_READY,
-					  ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					  &rdev->format_progress);
+		tcmu_set_sense_key_specific_info(cmd->sense_buf,
+						 rdev->format_progress);
+		return TCMU_STS_FRMT_IN_PROGRESS;
 	}
 	rdev->format_progress = 0;
 	rdev->flags |= TCMUR_DEV_FLAG_FORMATTING;
@@ -2439,10 +2438,11 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (ret != TCMU_STS_NOT_HANDLED)
 		return ret;
 
-	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING && cmd->cdb[0] != INQUIRY)
-		return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
-					   ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					   &rdev->format_progress);
+	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING && cmd->cdb[0] != INQUIRY) {
+		tcmu_set_sense_key_specific_info(cmd->sense_buf,
+						 rdev->format_progress);
+		return TCMU_STS_FRMT_IN_PROGRESS;
+	}
 
 	/*
 	 * The handler want to handle some commands by itself,

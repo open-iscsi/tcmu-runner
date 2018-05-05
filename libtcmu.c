@@ -1040,8 +1040,7 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 					    NULL);
 	case TCMU_STS_MISCOMPARE:
 		/* Miscompare during verify operation */
-		return tcmu_set_sense_data(sense, MISCOMPARE, 0x1d00,
-					   NULL);
+		return __tcmu_set_sense_data(sense, MISCOMPARE, 0x1d00);
 	case TCMU_STS_RD_ERR:
 		/* Read medium error */
 		return tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x1100, NULL);
@@ -1102,6 +1101,9 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 		/* Saving params not supported */
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3900,
 					   NULL);
+	case TCMU_STS_FRMT_IN_PROGRESS:
+		/* Format in progress */
+		return __tcmu_set_sense_data(sense, NOT_READY, 0x0404);
 	}
 	return tcmu_sts;
 }
