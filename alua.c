@@ -484,8 +484,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 		return TCMU_STS_INVALID_CMD;
 
 	if (alloc_len < 4)
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	buf = calloc(1, alloc_len);
 	if (!buf)
@@ -505,7 +504,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 
 	ret = alua_sync_state(dev, group_list, enabled_port->grp->id);
 	if (ret == -EAGAIN) {
-		ret = SAM_STAT_BUSY;
+		ret = TCMU_STS_BUSY;
 		goto free_buf;
 	}
 
@@ -652,9 +651,7 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 		     group->id, new_state, group->state, group->supported_states);
 
 	if (!alua_check_sup_state(new_state, group->supported_states))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
 	switch (new_state) {
 	case ALUA_ACCESS_STATE_OPTIMIZED:
@@ -671,7 +668,7 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 			 * so this can be retried on another path when
 			 * the session recovery kicks in.
 			 */
-			return SAM_STAT_BUSY;
+			return TCMU_STS_BUSY;
 		/*
 		 * We only support 1 active group, so set everything else
 		 * to standby.
@@ -689,17 +686,13 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 	case ALUA_ACCESS_STATE_OFFLINE:
 		/* TODO we only support standby and AO */
 		tcmu_dev_err(dev, "Igoring ANO/unavail/offline\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	case ALUA_ACCESS_STATE_STANDBY:
 		if (failover_is_supported(dev))
 			tcmu_release_dev_lock(dev);
 		break;
 	default:
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	return alua_set_state(dev, group, new_state, alua_status, sense);
@@ -729,9 +722,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 
 	if (tcmu_memcpy_from_iovec(buf, param_list_len, cmd->iovec,
 				   cmd->iov_cnt) != param_list_len) {
-		ret = tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto free_buf;
 	}
 

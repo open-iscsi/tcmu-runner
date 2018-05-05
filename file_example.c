@@ -103,8 +103,7 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = preadv(state->fd, iov, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_READ_ERROR, NULL);
+			ret = TCMU_STS_RD_ERR;
 			goto done;
 		}
 
@@ -121,7 +120,7 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -136,8 +135,7 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = pwritev(state->fd, iov, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_WRITE_ERROR, NULL);
+			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
 		tcmu_seek_in_iovec(iov, ret);
@@ -147,7 +145,7 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -157,14 +155,13 @@ static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	if (fsync(state->fd)) {
 		tcmu_err("sync failed\n");
-		ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-					  ASC_WRITE_ERROR, NULL);
+		ret = TCMU_STS_WR_ERR;
 		goto done;
 	}
 	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)

@@ -1107,7 +1107,6 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	struct iovec *iov = aio_cb->iov;
 	size_t iov_cnt = aio_cb->iov_cnt;
 	uint32_t cmp_offset;
-	uint16_t asc_ascq;
 	int64_t ret;
 	int tcmu_r;
 
@@ -1126,18 +1125,14 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		tcmu_set_sense_info(tcmulib_cmd->sense_buf, cmp_offset);
 	} else if (ret == -EINVAL) {
 		tcmu_dev_err(dev, "Invalid IO request.\n");
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     ILLEGAL_REQUEST,
-					     ASC_INVALID_FIELD_IN_CDB, NULL);
+		tcmu_r = TCMU_STS_INVALID_CDB;
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal IO error %d.\n", ret);
 
 		if (aio_cb->type == RBD_AIO_TYPE_READ)
-			asc_ascq = ASC_READ_ERROR;
+			tcmu_r = TCMU_STS_RD_ERR;
 		else
-			asc_ascq = ASC_WRITE_ERROR;
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     MEDIUM_ERROR, asc_ascq, NULL);
+			tcmu_r = TCMU_STS_WR_ERR;
 	} else {
 		tcmu_r = TCMU_STS_OK;
 		if (aio_cb->type == RBD_AIO_TYPE_READ &&
@@ -1187,7 +1182,7 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (ret < 0)
 		goto out_release_tracked_aio;
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_release_tracked_aio:
 	rbd_aio_release(completion);
@@ -1227,7 +1222,7 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		goto out_release_tracked_aio;
 	}
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_release_tracked_aio:
 	rbd_aio_release(completion);
@@ -1266,7 +1261,7 @@ static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (ret < 0)
 		goto out_remove_tracked_aio;
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
@@ -1308,7 +1303,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		goto out_remove_tracked_aio;
 	}
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
@@ -1362,7 +1357,7 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 	if (ret < 0)
 		goto out_remove_tracked_aio;
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
@@ -1421,7 +1416,7 @@ static int tcmu_rbd_aio_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (ret < 0)
 		goto out_remove_tracked_aio;
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);

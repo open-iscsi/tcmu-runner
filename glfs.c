@@ -575,13 +575,11 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 		/* Read/write/flush failed */
 		switch (cookie->op) {
 		case TCMU_GLFS_READ:
-			ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-			                           ASC_READ_ERROR, NULL);
+			ret = TCMU_STS_RD_ERR;
 			break;
 		case TCMU_GLFS_WRITE:
 		case TCMU_GLFS_FLUSH:
-			ret =  tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-			                           ASC_WRITE_ERROR, NULL);
+			ret = TCMU_STS_WR_ERR;
 			break;
 		}
 	} else {
@@ -617,7 +615,7 @@ static int tcmu_glfs_read(struct tcmu_device *dev,
 		goto out;
 	}
 
-	return 0;
+	return TCMU_STS_OK;
 
 out:
 	free(cookie);
@@ -649,7 +647,7 @@ static int tcmu_glfs_write(struct tcmu_device *dev,
 		goto out;
 	}
 
-	return 0;
+	return TCMU_STS_OK;
 
 out:
 	free(cookie);
@@ -708,7 +706,7 @@ static int tcmu_glfs_flush(struct tcmu_device *dev,
 		goto out;
 	}
 
-	return 0;
+	return TCMU_STS_OK;
 
 out:
 	free(cookie);

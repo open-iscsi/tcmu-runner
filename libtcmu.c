@@ -1023,6 +1023,8 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 		return SAM_STAT_GOOD;
 	case TCMU_STS_NO_RESOURCE:
 		return SAM_STAT_TASK_SET_FULL;
+	case TCMU_STS_BUSY:
+		return SAM_STAT_BUSY;
 	case TCMU_STS_RANGE:
 		/* LBA out of range */
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2100,
@@ -1034,6 +1036,44 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 	case TCMU_STS_MISCOMPARE:
 		/* Miscompare during verify operation */
 		return tcmu_set_sense_data(sense, MISCOMPARE, 0x1d00,
+					   NULL);
+	case TCMU_STS_RD_ERR:
+		/* Read medium error */
+		return tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x1100, NULL);
+	case TCMU_STS_WR_ERR:
+		/* Write medium error */
+		return tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x0C00, NULL);
+	case TCMU_STS_INVALID_CDB:
+		/* Invalid field in CDB */
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2400,
+					   NULL);
+	case TCMU_STS_INVALID_PARAM_LIST:
+		/* Invalid field in parameter list */
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2600,
+					   NULL);
+	case TCMU_STS_INVALID_PARAM_LIST_LEN:
+		/* Invalid list parameter list length */
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x1a00,
+					   NULL);
+	case TCMU_STS_NOTSUPP_SEG_DESC_TYPE:
+		/* Unsupported segment descriptor type code */
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2609,
+					   NULL);
+	case TCMU_STS_NOTSUPP_TGT_DESC_TYPE:
+		/* Unsupported target descriptor type code */
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2607,
+					   NULL);
+	case TCMU_STS_CP_TGT_DEV_NOTCONN:
+		/* Copy target device not reachable */
+		return tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D02,
+					   NULL);
+	case TCMU_STS_INVALID_CP_TGT_DEV_TYPE:
+		/* Invalid copy target device type */
+		return tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D03,
+					   NULL);
+	case TCMU_STS_CAPACITY_CHANGED:
+		/* Device capacity has changed */
+		return tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A09,
 					   NULL);
 	}
 	return tcmu_sts;

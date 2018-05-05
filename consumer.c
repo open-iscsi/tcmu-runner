@@ -51,11 +51,6 @@ struct foo_state {
 	uint32_t block_size;
 };
 
-static int set_medium_error(uint8_t *sense)
-{
-	return tcmu_set_sense_data(sense, MEDIUM_ERROR, ASC_READ_ERROR, NULL);
-}
-
 static int foo_open(struct tcmu_device *dev)
 {
 	/* open the backing file */
@@ -115,7 +110,7 @@ static int foo_handle_cmd(
 	case READ_12:
 	case READ_16:
 		// A real "read" implementation goes here!
-		return set_medium_error(sense);
+		return TCMU_STS_RD_ERR;
 
 	case WRITE_6:
 	case WRITE_10:

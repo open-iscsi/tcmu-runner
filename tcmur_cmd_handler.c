@@ -114,7 +114,7 @@ static inline int check_iovec_length(struct tcmu_device *dev,
                              iov_length, sectors, tcmu_get_dev_block_size(dev));
 		return TCMU_STS_HW_ERR;
         }
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static inline int check_lbas(struct tcmu_device *dev,
@@ -146,7 +146,7 @@ static int check_lba_and_length(struct tcmu_device *dev,
 	if (ret)
 		return ret;
 
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static void handle_generic_cbk(struct tcmu_device *dev,
@@ -371,7 +371,6 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 				 uint16_t bddl, uint8_t *par)
 {
 	struct unmap_state *state = origcmd->cmdstate;
-	uint8_t *sense = origcmd->sense_buf;
 	uint16_t offset = 0;
 	int ret = TCMU_STS_OK, i = 0, refcount;
 
@@ -392,9 +391,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
 			tcmu_dev_err(dev, "Illegal parameter list LBA count %lu exceeds:%u\n",
 				     nlbas, VPD_MAX_UNMAP_LBA_COUNT);
-			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-						  NULL);
+			ret = TCMU_STS_INVALID_PARAM_LIST;
 			goto state_unlock;
 		}
 
@@ -447,7 +444,6 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 {
 	uint8_t *cdb = origcmd->cdb;
 	size_t copied, data_length = tcmu_get_xfer_length(cdb);
-	uint8_t *sense = origcmd->sense_buf;
 	struct unmap_state *state;
 	uint8_t *par;
 	uint16_t dl, bddl;
@@ -461,9 +457,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	 */
 	if (cdb[1] & 0x01) {
 		tcmu_dev_err(dev, "Illegal request: anchor is not supported for now!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB,
-					   NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
 	/*
@@ -489,9 +483,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	if (data_length < 8) {
 		tcmu_dev_err(dev, "Illegal parameter list length %llu and it should be >= 8\n",
 			     data_length);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 	}
 
 	par = calloc(1, data_length);
@@ -503,9 +495,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 					origcmd->iov_cnt);
 	if (copied != data_length) {
 		tcmu_dev_err(dev, "Failed to copy the Data-Out Buffer !\n");
-		ret = tcmu_set_sense_data(origcmd->sense_buf, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto out_free_par;
 	}
 
@@ -542,9 +532,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	if (bddl / 16 > VPD_MAX_UNMAP_BLOCK_DESC_COUNT) {
 		tcmu_dev_err(dev, "Illegal parameter list count %hu exceeds :%u\n",
 			     bddl / 16, VPD_MAX_UNMAP_BLOCK_DESC_COUNT);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST;
 		goto out_free_par;
 	}
 
@@ -598,7 +586,6 @@ static void handle_writesame_cbk(struct tcmu_device *dev,
 {
 	struct write_same *write_same = cmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint8_t *sense = cmd->sense_buf;
 	uint64_t write_lbas = write_same->iov_len / block_size;
 	uint64_t left_lbas;
 	int rc;
@@ -627,9 +614,7 @@ static void handle_writesame_cbk(struct tcmu_device *dev,
 	rc = async_handle_cmd(dev, cmd, writesame_work_fn);
 	if (rc != TCMU_STS_ASYNC_HANDLED) {
 		tcmu_dev_err(dev, "Write same async handle cmd failure\n");
-		ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
-					  ASC_WRITE_ERROR,
-					  NULL);
+		ret = TCMU_STS_WR_ERR;
 		goto finish_err;
 	}
 
@@ -644,7 +629,6 @@ finish_err:
 static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
-	uint8_t *sense = cmd->sense_buf;
 	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t start_lba = tcmu_get_lba(cdb);
@@ -653,9 +637,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	if (cmd->iov_cnt != 1 || cmd->iovec->iov_len != block_size) {
 		tcmu_dev_err(dev, "Illegal Data-Out: iov_cnt %u length: %u\n",
 			     cmd->iov_cnt, cmd->iovec->iov_len);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB,
-					   NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
 	/*
@@ -666,9 +648,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	 */
 	if (!lba_cnt) {
 		tcmu_dev_err(dev, "The WSNZ = 1 & WRITE_SAME blocks = 0 is not supported!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB,
-					   NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
 	/*
@@ -678,9 +658,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	if (lba_cnt > VPD_MAX_WRITE_SAME_LENGTH) {
 		tcmu_dev_err(dev, "blocks: %u exceeds MAXIMUM WRITE SAME LENGTH: %u\n",
 			     lba_cnt, VPD_MAX_WRITE_SAME_LENGTH);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB,
-					   NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
 	/*
@@ -694,7 +672,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba:: %hu, last lba: %llu\n",
 		     start_lba, lba_cnt, start_lba + lba_cnt - 1);
 
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int handle_unmap_in_writesame(struct tcmu_device *dev,
@@ -1014,27 +992,21 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 	if (sdll % XCOPY_SEGMENT_DESC_B2B_LEN != 0) {
 		tcmu_err("Illegal block --> block type segment descriptor length %u\n",
 			 sdll);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	if (sdll > RCR_OP_MAX_SEGMENT_DESC_COUNT * XCOPY_SEGMENT_DESC_B2B_LEN) {
 		tcmu_err("Only %u segment descriptor(s) supported, but there are %u\n",
 			 RCR_OP_MAX_SEGMENT_DESC_COUNT,
 			 sdll / XCOPY_SEGMENT_DESC_B2B_LEN);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/* EXTENDED COPY segment descriptor type codes block --> block */
 	if (seg_desc[0] != XCOPY_SEG_DESC_TYPE_CODE_B2B) {
 		tcmu_err("Unsupport segment descriptor type code 0x%x\n",
 			 seg_desc[0]);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_UNSUPPORTED_SEGMENT_DESC_TYPE_CODE,
-					   NULL);
+		return TCMU_STS_NOTSUPP_SEG_DESC_TYPE;
 	}
 
 	/*
@@ -1045,9 +1017,7 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 	if (desc_len != 0x18) {
 		tcmu_err("Invalid length for block->block type 0x%x\n",
 			 desc_len);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1167,9 +1137,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	 */
 	if ((tgt_desc[4] & 0x0f) != 0x1) {
 		tcmu_dev_err(udev, "Id target CODE DET only support binary type!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1177,9 +1145,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	 */
 	if ((tgt_desc[5] & 0x30) != 0x00) {
 		tcmu_dev_err(udev, "Id target ASSOCIATION other than LUN not supported!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1191,9 +1157,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	 */
 	if ((tgt_desc[5] & 0x0f) != 0x3) {
 		tcmu_dev_err(udev, "Id target DESIGNATOR TYPE other than NAA not supported!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 	/*
 	 * Check for matching 16 byte length for NAA IEEE Registered Extended
@@ -1202,9 +1166,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	if (tgt_desc[7] != 16) {
 		tcmu_dev_err(udev, "Id target DESIGNATOR LENGTH should be 16, but it's: %d\n",
 			     tgt_desc[7]);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1213,9 +1175,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	if ((tgt_desc[8] >> 4) != 0x06) {
 		tcmu_dev_err(udev, "Id target NAA designator type: 0x%x\n",
 			     tgt_desc[8] >> 4);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1254,9 +1214,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 	if (tdll > RCR_OP_MAX_TARGET_DESC_COUNT * XCOPY_TARGET_DESC_LEN) {
 		tcmu_dev_err(udev, "Only %u target descriptor(s) supported, but there are %u\n",
 			     RCR_OP_MAX_TARGET_DESC_COUNT, tdll / XCOPY_TARGET_DESC_LEN);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	for (i = 0; i < RCR_OP_MAX_TARGET_DESC_COUNT; i++) {
@@ -1273,9 +1231,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 		} else {
 			tcmu_dev_err(udev, "Unsupport target descriptor type code 0x%x\n",
 				     tgt_desc[0]);
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_UNSUPPORTED_TARGET_DESC_TYPE_CODE,
-						   NULL);
+			return TCMU_STS_NOTSUPP_TGT_DESC_TYPE;
 		}
 	}
 
@@ -1289,9 +1245,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 	if (ret) {
 		tcmu_err("Target device not found, the index are %hu and %hu\n",
 			 xcopy->stdi, xcopy->dtdi);
-		return tcmu_set_sense_data(sense, COPY_ABORTED,
-					   ASC_COPY_TARGET_DEVICE_NOT_REACHABLE,
-					   NULL);
+		return TCMU_STS_CP_TGT_DEV_NOTCONN;
 	}
 
 	tcmu_dev_dbg(xcopy->src_dev, "Source device NAA IEEE WWN: 0x%16phN\n",
@@ -1349,9 +1303,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	if ((par[1] & 0x18) != 0x18 || par[0]) {
 		tcmu_dev_err(dev, "LIST ID USAGE: 0x%x, LIST IDENTIFIER: 0x%x\n",
 			     (par[1] & 0x18) >> 3, par[0]);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST;
 		goto err;
 	}
 
@@ -1365,9 +1317,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	if (tdll % 32 != 0) {
 		tcmu_dev_err(dev, "Illegal target descriptor length %u\n",
 			     tdll);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto err;
 	}
 
@@ -1380,9 +1330,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	if (sdll < 8) {
 		tcmu_dev_err(dev, "Illegal segment descriptor length %u\n",
 			     tdll);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto err;
 	}
 
@@ -1394,9 +1342,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	if (tdll + sdll > RCR_OP_MAX_DESC_LIST_LEN) {
 		tcmu_dev_err(dev, "descriptor list length %u exceeds maximum %u\n",
 			     tdll + sdll, RCR_OP_MAX_DESC_LIST_LEN);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto err;
 	}
 
@@ -1418,9 +1364,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(dev, "Illegal list length: length from CDB is %u,"
 			     " but here the length is %u\n",
 			     data_length, tdll + sdll + inline_dl);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto err;
 	}
 
@@ -1453,9 +1397,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(dev, "The block size of src dev %u != dst dev %u\n",
 			     tcmu_get_dev_block_size(xcopy->src_dev),
 			     tcmu_get_dev_block_size(xcopy->dst_dev));
-		ret = tcmu_set_sense_data(sense, COPY_ABORTED,
-					  ASC_INCORRECT_COPY_TARGET_DEVICE_TYPE,
-					  NULL);
+		ret = TCMU_STS_INVALID_CP_TGT_DEV_TYPE;
 		goto err;
 	}
 
@@ -1591,7 +1533,6 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	size_t data_length = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint32_t max_sectors, src_max_sectors, copy_lbas, dst_max_sectors;
-	uint8_t *sense = cmd->sense_buf;
 	struct xcopy *xcopy;
 	int ret;
 
@@ -1609,9 +1550,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (data_length < XCOPY_HDR_LEN) {
 		tcmu_dev_err(dev, "Illegal parameter list: length %u < hdr_len %u\n",
 			     data_length, XCOPY_HDR_LEN);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 	}
 
 	xcopy = calloc(1, sizeof(struct xcopy));
@@ -1779,7 +1718,7 @@ static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (ret)
 		return ret;
 
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -2022,7 +1961,6 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmulib_cmd *origcmd = writecmd->cmdstate;
 	struct format_unit_state *state = origcmd->cmdstate;
-	uint8_t *sense = origcmd->sense_buf;
 	int rc;
 
 	writecmd->iovec->iov_base = state->write_buf;
@@ -2064,9 +2002,7 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 		rc = async_handle_cmd(dev, writecmd, format_unit_work_fn);
 		if (rc != TCMU_STS_ASYNC_HANDLED) {
 			tcmu_dev_err(dev, " async handle cmd failure\n");
-			ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
-						  ASC_WRITE_ERROR,
-						  NULL);
+			ret = TCMU_STS_WR_ERR;
 			goto free_iovec;
 		}
 	}
@@ -2250,7 +2186,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	track_aio_request_start(rdev);
 
 	if (tcmu_dev_in_recovery(dev)) {
-		ret = SAM_STAT_BUSY;
+		ret = TCMU_STS_BUSY;
 		goto untrack;
 	}
 
@@ -2377,9 +2313,7 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case READ_CAPACITY:
 		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
 			/* Reserved bits for MM logical units */
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB,
-						   NULL);
+			return TCMU_STS_INVALID_CDB;
 		else
 			return tcmu_emulate_read_capacity_10(num_lbas,
 							     block_size,
@@ -2423,7 +2357,7 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 	track_aio_request_start(rdev);
 
 	if (tcmu_dev_in_recovery(dev)) {
-		ret = SAM_STAT_BUSY;
+		ret = TCMU_STS_BUSY;
 	} else {
 		ret = rhandler->handle_cmd(dev, cmd);
 	}
@@ -2486,8 +2420,7 @@ static int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
 	ua = ffs(rdev->pending_uas) - 1;
 	switch (ua) {
 	case TCMUR_UA_DEV_SIZE_CHANGED:
-		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
-					  ASC_CAPACITY_HAS_CHANGED, NULL);
+		ret = TCMU_STS_CAPACITY_CHANGED;
 		break;
 	}
 	rdev->pending_uas &= ~(1 << ua);
@@ -2503,7 +2436,7 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	int ret;
 
 	ret = handle_pending_ua(rdev, cmd);
-	if (ret == SAM_STAT_CHECK_CONDITION)
+	if (ret != TCMU_STS_NOT_HANDLED)
 		return ret;
 
 	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING && cmd->cdb[0] != INQUIRY)

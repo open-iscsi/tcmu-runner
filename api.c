@@ -751,8 +751,7 @@ finish_page83:
 	default:
 		tcmu_dev_err(dev, "Vital product data page code 0x%x not support\n",
 			     cdb[2]);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 }
 
@@ -772,8 +771,7 @@ int tcmu_emulate_inquiry(
 			return tcmu_emulate_std_inquiry(port, cdb, iovec,
 							iov_cnt, sense);
 		else
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB, NULL);
+			return TCMU_STS_INVALID_CDB;
 	} else {
 		return tcmu_emulate_evpd_inquiry(dev, port, cdb, iovec, iov_cnt,
 						 sense);
@@ -1103,8 +1101,7 @@ int tcmu_emulate_mode_sense(
 free_buf:
 	free(orig_buf);
 fail:
-	return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-				   ASC_INVALID_FIELD_IN_CDB, NULL);
+	return TCMU_STS_INVALID_CDB;
 }
 
 /*
@@ -1134,13 +1131,11 @@ int tcmu_emulate_mode_select(
 		return TCMU_STS_OK;
 
 	if (tcmu_memcpy_from_iovec(in_buf, sizeof(in_buf), iovec, iov_cnt) >= sizeof(in_buf))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR, NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 
 	/* Abort if !pf or sp */
 	if (!(cdb[1] & 0x10) || (cdb[1] & 0x01))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	memset(buf, 0, sizeof(buf));
 	for (i = 0; i < ARRAY_SIZE(modesense_handlers); i++) {
@@ -1149,12 +1144,10 @@ int tcmu_emulate_mode_select(
 			ret = modesense_handlers[i].get(dev, &buf[hdr_len],
 							sizeof(buf) - hdr_len);
 			if (ret <= 0)
-				return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-							   ASC_INVALID_FIELD_IN_CDB, NULL);
+				return TCMU_STS_INVALID_CDB;
 
 			if  (!select_ten && (hdr_len + ret >= 255))
-				return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-							   ASC_INVALID_FIELD_IN_CDB, NULL);
+				return TCMU_STS_INVALID_CDB;
 
 			got_sense = true;
 			break;
@@ -1162,18 +1155,15 @@ int tcmu_emulate_mode_select(
 	}
 
 	if (!got_sense)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	if (alloc_len < (hdr_len + ret))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR, NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 
 	/* Verify what was selected is identical to what sense returns, since we
 	   don't support actually setting anything. */
 	if (memcmp(&buf[hdr_len], &in_buf[hdr_len], ret))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST, NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
 	return TCMU_STS_OK;
 }
@@ -1182,8 +1172,7 @@ int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
 			    uint8_t *sense)
 {
 	if ((cdb[4] >> 4) & 0xf)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	/* Currently, we don't allow ejecting the medium, so we're
 	 * ignoring the FBO_PREV_EJECT flag, but it may turn out that
@@ -1192,8 +1181,7 @@ int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb,
 	 */
 
 	if (!(cdb[4] & 0x01))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	return TCMU_STS_OK;
 }
