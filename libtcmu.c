@@ -1027,6 +1027,10 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 		/* LBA out of range */
 		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2100,
 					    NULL);
+	case TCMU_STS_HW_ERR:
+		/* Internal target failure */
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x4400,
+					    NULL);
 	}
 	return tcmu_sts;
 }

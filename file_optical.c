@@ -1174,8 +1174,7 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 
 	buf = malloc(length);
 	if (!buf)
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
 
 	pthread_cleanup_push(fbo_cleanup_buffer, buf);
 	memset(buf, 0, length);
@@ -1326,8 +1325,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 	buf = malloc(length);
 	if (!buf) {
 		tcmu_dbg("  malloc failed\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	pthread_cleanup_push(fbo_cleanup_buffer, buf);

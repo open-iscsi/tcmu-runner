@@ -108,14 +108,11 @@ static inline int check_iovec_length(struct tcmu_device *dev,
 				     struct tcmulib_cmd *cmd, uint32_t sectors)
 {
         size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
-	uint8_t *sense = cmd->sense_buf;
 
         if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
                 tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
                              iov_length, sectors, tcmu_get_dev_block_size(dev));
-
-                return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-                                           ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_HW_ERR;
         }
 	return 0;
 }
@@ -197,7 +194,6 @@ static struct unmap_state *unmap_state_alloc(struct tcmu_device *dev,
 					     struct tcmulib_cmd *cmd,
 					     int *return_err)
 {
-	uint8_t *sense = cmd->sense_buf;
 	struct unmap_state *state;
 	int ret;
 
@@ -206,18 +202,14 @@ static struct unmap_state *unmap_state_alloc(struct tcmu_device *dev,
 	state = calloc(1, sizeof(*state));
 	if (!state) {
 		tcmu_dev_err(dev, "Failed to calloc memory for unmap_state!\n");
-		*return_err = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
+		*return_err = TCMU_STS_NO_RESOURCE;
 		return NULL;
 	}
 
 	ret = pthread_mutex_init(&state->lock, NULL);
 	if (ret == -1) {
 		tcmu_dev_err(dev, "Failed to init spin lock in state!\n");
-		*return_err = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
+		*return_err = TCMU_STS_HW_ERR;
 		goto out_free_state;
 	}
 
@@ -291,7 +283,6 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 {
 	struct unmap_state *state = origcmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint8_t *sense = origcmd->sense_buf;
 	uint64_t opt_unmap_gran;
 	uint64_t unmap_gran_align, mask;
 	int ret = TCMU_STS_NOT_HANDLED;
@@ -326,17 +317,13 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 		desc = calloc(1, sizeof(*desc));
 		if (!desc) {
 			tcmu_dev_err(dev, "Failed to calloc desc!\n");
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
+			return TCMU_STS_NO_RESOURCE;
 		}
 
 		ucmd = calloc(1, sizeof(*ucmd));
 		if (!ucmd) {
 			tcmu_dev_err(dev, "Failed to calloc unmapcmd!\n");
-			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
+			ret = TCMU_STS_NO_RESOURCE;
 			goto free_desc;
 		}
 
@@ -510,10 +497,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	par = calloc(1, data_length);
 	if (!par) {
 		tcmu_dev_err(dev, "The state parameter is NULL!\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
-
+		return TCMU_STS_NO_RESOURCE;
 	}
 	copied = tcmu_memcpy_from_iovec(par, data_length, origcmd->iovec,
 					origcmd->iov_cnt);
@@ -748,7 +732,6 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint8_t *cdb = cmd->cdb;
-	uint8_t *sense = cmd->sense_buf;
 	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t start_lba = tcmu_get_lba(cdb);
@@ -767,9 +750,7 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	write_same = calloc(1, sizeof(struct write_same));
 	if (!write_same) {
 		tcmu_dev_err(dev, "Failed to calloc write_same data!\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	max_xfer_length = tcmu_get_dev_max_xfer_len(dev) * block_size;
@@ -781,9 +762,7 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (!write_same->iov_base) {
 		tcmu_dev_err(dev, "Failed to calloc iov_base data!\n");
 		free(write_same);
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	write_lbas = length / block_size;
@@ -1182,9 +1161,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	 */
 	memset(wwn, 0, XCOPY_NAA_IEEE_REGEX_LEN);
 	if (xcopy_gen_naa_ieee(udev, wwn))
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_HW_ERR;
 
 	/*
 	 * CODE SET: for now only binary type code is supported.
@@ -1349,9 +1326,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	par = calloc(1, data_length);
 	if (!par) {
 		tcmu_dev_err(dev, "calloc parameter list buffer error\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	tcmu_memcpy_from_iovec(par, data_length, iovec, iov_cnt);
@@ -1643,9 +1618,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	xcopy = calloc(1, sizeof(struct xcopy));
 	if (!xcopy) {
 		tcmu_dev_err(dev, "calloc xcopy data error\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	/* Parse and check the parameter list */
@@ -1671,9 +1644,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	xcopy->iov_base = calloc(1, xcopy->iov_len);
 	if (!xcopy->iov_base) {
 		tcmu_dev_err(dev, "calloc iovec data error\n");
-		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					  ASC_INTERNAL_TARGET_FAILURE,
-					  NULL);
+		ret = TCMU_STS_NO_RESOURCE;
 		goto finish_err;
 	}
 
@@ -2079,9 +2050,7 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 		if ((dev->num_lbas - state->done_blocks) * dev->block_size < state->length)
 		    state->length = (dev->num_lbas - state->done_blocks) * dev->block_size;
 		if (alloc_iovec(writecmd, state->length)) {
-			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
+			ret = TCMU_STS_NO_RESOURCE;
 			goto free_cmd;
 		}
 
@@ -2196,10 +2165,8 @@ static int handle_stpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	list_head_init(&group_list);
 
-	ret = tcmu_get_alua_grps(dev, &group_list);
-	if (ret)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+	if (tcmu_get_alua_grps(dev, &group_list))
+		return TCMU_STS_HW_ERR;
 
 	ret = tcmu_emulate_set_tgt_port_grps(dev, &group_list, cmd);
 	tcmu_release_alua_grps(&group_list);
@@ -2213,10 +2180,8 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	list_head_init(&group_list);
 
-	ret = tcmu_get_alua_grps(dev, &group_list);
-	if (ret)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+	if (tcmu_get_alua_grps(dev, &group_list))
+		return TCMU_STS_HW_ERR;
 
 	ret = tcmu_emulate_report_tgt_port_grps(dev, &group_list, cmd);
 	tcmu_release_alua_grps(&group_list);
@@ -2375,10 +2340,8 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	list_head_init(&group_list);
 
-	ret = tcmu_get_alua_grps(dev, &group_list);
-	if (ret)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+	if (tcmu_get_alua_grps(dev, &group_list))
+		return TCMU_STS_HW_ERR;
 
 	port = tcmu_get_enabled_port(&group_list);
 	if (!port) {

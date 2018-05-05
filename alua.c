@@ -489,8 +489,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 
 	buf = calloc(1, alloc_len);
 	if (!buf)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
 
 	if (ext_hdr && alloc_len > 5) {
 		buf[4] = 0x10;
@@ -726,8 +725,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 
 	buf = calloc(1, param_list_len);
 	if (!buf)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
 
 	if (tcmu_memcpy_from_iovec(buf, param_list_len, cmd->iovec,
 				   cmd->iov_cnt) != param_list_len) {
@@ -751,10 +749,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 				continue;
 
 			if (group != port->grp) {
-				ret = tcmu_set_sense_data(cmd->sense_buf,
-						HARDWARE_ERROR,
-						ASC_INTERNAL_TARGET_FAILURE,
-						NULL);
+				ret = TCMU_STS_HW_ERR;
 				tcmu_dev_err(dev, "Failing STPG for group %d. Unable to transition remote groups.\n",
 					     id);
 				goto free_buf;

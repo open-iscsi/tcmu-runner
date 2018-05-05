@@ -403,11 +403,8 @@ int tcmu_emulate_evpd_inquiry(
 		data[1] = 0x80;
 
 		wwn = tcmu_get_wwn(dev);
-		if (!wwn) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
-		}
+		if (!wwn)
+			return TCMU_STS_HW_ERR;
 
 		/*
 		 * The maximum length of the unit_serial has limited
@@ -438,10 +435,8 @@ int tcmu_emulate_evpd_inquiry(
 		data[1] = 0x83;
 
 		wwn = tcmu_get_wwn(dev);
-		if (!wwn) {
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE, NULL);
-		}
+		if (!wwn)
+			return TCMU_STS_HW_ERR;
 
 		ptr = &data[4];
 
@@ -1051,8 +1046,8 @@ int tcmu_emulate_mode_sense(
 
 	buf = calloc(1, alloc_len);
 	if (!buf)
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
+
 	orig_buf = buf;
 	buf += used_len;
 
