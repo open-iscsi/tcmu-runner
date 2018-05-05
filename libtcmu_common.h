@@ -177,7 +177,7 @@ bool char_to_hex(unsigned char *val, char c);
 void tcmu_copy_cmd_sense_data(struct tcmulib_cmd *tocmd, struct tcmulib_cmd *fromcmd);
 
 /* Basic implementations of mandatory SCSI commands */
-int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq, uint32_t *info);
+int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
 void tcmu_set_sense_info(uint8_t *sense_buf, uint32_t info);
 void tcmu_set_sense_key_specific_info(uint8_t *sense_buf, uint16_t info);
 int __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);

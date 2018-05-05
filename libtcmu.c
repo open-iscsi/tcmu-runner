@@ -1016,7 +1016,7 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 	return NULL;
 }
 
-int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
+static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 {
 	switch (tcmu_sts) {
 	case TCMU_STS_OK:
@@ -1032,75 +1032,61 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 		return SAM_STAT_BUSY;
 	case TCMU_STS_RANGE:
 		/* LBA out of range */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2100,
-					    NULL);
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2100);
 	case TCMU_STS_HW_ERR:
 		/* Internal target failure */
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x4400,
-					    NULL);
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x4400);
 	case TCMU_STS_MISCOMPARE:
 		/* Miscompare during verify operation */
 		return __tcmu_set_sense_data(sense, MISCOMPARE, 0x1d00);
 	case TCMU_STS_RD_ERR:
 		/* Read medium error */
-		return tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x1100, NULL);
+		return tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x1100);
 	case TCMU_STS_WR_ERR:
 		/* Write medium error */
-		return tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x0C00, NULL);
+		return tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x0C00);
 	case TCMU_STS_INVALID_CDB:
 		/* Invalid field in CDB */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2400,
-					   NULL);
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2400);
 	case TCMU_STS_INVALID_PARAM_LIST:
 		/* Invalid field in parameter list */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2600,
-					   NULL);
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2600);
 	case TCMU_STS_INVALID_PARAM_LIST_LEN:
 		/* Invalid list parameter list length */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x1a00,
-					   NULL);
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x1a00);
 	case TCMU_STS_NOTSUPP_SEG_DESC_TYPE:
 		/* Unsupported segment descriptor type code */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2609,
-					   NULL);
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2609);
 	case TCMU_STS_NOTSUPP_TGT_DESC_TYPE:
 		/* Unsupported target descriptor type code */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2607,
-					   NULL);
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2607);
 	case TCMU_STS_CP_TGT_DEV_NOTCONN:
 		/* Copy target device not reachable */
-		return tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D02,
-					   NULL);
+		return tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D02);
 	case TCMU_STS_INVALID_CP_TGT_DEV_TYPE:
 		/* Invalid copy target device type */
-		return tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D03,
-					   NULL);
+		return tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D03);
 	case TCMU_STS_CAPACITY_CHANGED:
 		/* Device capacity has changed */
-		return tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A09,
-					   NULL);
+		return tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A09);
 	case TCMU_STS_TRANSITION:
 		/* ALUA state transition */
-		return tcmu_set_sense_data(sense, NOT_READY, 0x040A, NULL);
+		return tcmu_set_sense_data(sense, NOT_READY, 0x040A);
 	case TCMU_STS_IMPL_TRANSITION_ERR:
 		/* Implicit ALUA state transition failed */
-		return tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A07,
-					   NULL);
+		return tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A07);
 	case TCMU_STS_EXPL_TRANSITION_ERR:
 		/* STPG failed */
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x670A,
-					   NULL);
+		return tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x670A);
 	case TCMU_STS_FENCED:
 		/* ALUA state in standby */
-		return tcmu_set_sense_data(sense, NOT_READY, 0x040B, NULL);
+		return tcmu_set_sense_data(sense, NOT_READY, 0x040B);
 	case TCMU_STS_WR_ERR_INCOMPAT_FRMT:
 		/* Can't write - incompatible format */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3005,
-					   NULL);
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3005);
 	case TCMU_STS_NOTSUPP_SAVE_PARAMS:
 		/* Saving params not supported */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3900,
-					   NULL);
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3900);
 	case TCMU_STS_FRMT_IN_PROGRESS:
 		/* Format in progress */
 		return __tcmu_set_sense_data(sense, NOT_READY, 0x0404);

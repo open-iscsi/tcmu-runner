@@ -209,25 +209,10 @@ int __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 	return SAM_STAT_CHECK_CONDITION;
 }
 
-
-int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq,
-			uint32_t *info)
+int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 {
-	int ret;
-
 	memset(sense_buf, 0, 18);
-	ret = __tcmu_set_sense_data(sense_buf, key, asc_ascq);
-
-	if (info) {
-		if (key == NOT_READY) {
-			uint16_t val16 = htobe16((uint16_t)*info);
-
-			memcpy(&sense_buf[16], &val16, 2);
-			sense_buf[15] |= 0x80;
-		}
-	}
-
-	return ret;
+	return __tcmu_set_sense_data(sense_buf, key, asc_ascq);
 }
 
 void tcmu_set_sense_key_specific_info(uint8_t *sense_buf, uint16_t info)
