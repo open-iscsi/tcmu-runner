@@ -329,9 +329,7 @@ static int fbo_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec,
 
 	/* We don't support saved pages */
 	if (page_control == 3)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_SAVING_PARAMETERS_NOT_SUPPORTED,
-					   NULL);
+		return TCMU_STS_NOTSUPP_SAVE_PARAMS;
 
 	memset(buf, 0, sizeof(buf));
 
@@ -1201,9 +1199,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	if (state->flags & FBO_READ_ONLY)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_CANT_WRITE_INCOMPATIBLE_FORMAT,
-					   NULL);
+		return TCMU_STS_WR_ERR_INCOMPAT_FRMT;
 
 	rc = fbo_check_lba_and_length(state, cdb, sense, &cur_lba, &length);
 	if (rc != TCMU_STS_OK)
@@ -1262,9 +1258,7 @@ static int fbo_verify(struct tcmu_device *dev, uint8_t *cdb,
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	if (state->flags & FBO_READ_ONLY)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_CANT_WRITE_INCOMPATIBLE_FORMAT,
-					   NULL);
+		return TCMU_STS_WR_ERR_INCOMPAT_FRMT;
 
 	/* All of these bits are reserved for MM logical units */
 	if (cdb[1] & 0x13)
@@ -1358,9 +1352,7 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	if (state->flags & FBO_READ_ONLY)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_CANT_WRITE_INCOMPATIBLE_FORMAT,
-					   NULL);
+		return TCMU_STS_WR_ERR_INCOMPAT_FRMT;
 
 	if (!(cdb[1] & 0x10) || ((cdb[1] & 0x07) != 1) || cdb[3] || cdb[4])
 		return TCMU_STS_INVALID_CDB;

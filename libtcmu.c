@@ -1094,6 +1094,14 @@ int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 	case TCMU_STS_FENCED:
 		/* ALUA state in standby */
 		return tcmu_set_sense_data(sense, NOT_READY, 0x040B, NULL);
+	case TCMU_STS_WR_ERR_INCOMPAT_FRMT:
+		/* Can't write - incompatible format */
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3005,
+					   NULL);
+	case TCMU_STS_NOTSUPP_SAVE_PARAMS:
+		/* Saving params not supported */
+		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3900,
+					   NULL);
 	}
 	return tcmu_sts;
 }
