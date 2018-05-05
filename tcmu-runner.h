@@ -82,34 +82,35 @@ struct tcmur_handler {
 	/*
 	 * Async handle_cmd only handlers return:
 	 *
-	 * - SCSI status if handled (either good/bad)
+	 * - TCMU_STS_OK if the command has been executed successfully
 	 * - TCMU_STS_NOT_HANDLED if opcode is not handled
 	 * - TCMU_STS_ASYNC_HANDLED if opcode is handled asynchronously
+	 * - Non TCMU_STS_OK code indicating failure
+	 * - TCMU_STS_PASSTHROUGH_ERR For handlers that require low level
+	 *   SCSI processing and want to setup their own sense buffers.
 	 *
 	 * Handlers that set nr_threads > 0 and async handlers
 	 * that implement handle_cmd and the IO callouts below return:
 	 *
-	 * 0 if the handler has queued the command.
+	 * - TCMU_STS_OK if the handler has queued the command.
 	 * - TCMU_STS_NOT_HANDLED if the command is not supported.
 	 * - TCMU_STS_NO_RESOURCE if the handler was not able to allocate
 	 *   resources for the command.
 	 *
-	 * If 0 is returned the handler must call the tcmulib_cmd->done
-	 * function with TCMU_STS_OK or a SAM status code and set the
-	 * the sense asc/ascq if needed.
+	 * If TCMU_STS_OK is returned from the callout the handler must call
+	 * the tcmulib_cmd->done function with TCMU_STS return code.
 	 */
 	handle_cmd_fn_t handle_cmd;
 
 	/*
-	 * Below callbacks are only exected called by generic_handle_cmd.
+	 * Below callbacks are only executed by generic_handle_cmd.
 	 * Returns:
-	 * - 0 if the handler has queued the command.
+	 * - TCMU_STS_OK if the handler has queued the command.
 	 * - TCMU_STS_NO_RESOURCE if the handler was not able to allocate
 	 *   resources for the command.
 	 *
-	 * If 0 is returned the handler must call the tcmulib_cmd->done
-	 * function with TCMU_STS_OK or a SAM status code and set the
-	 * the sense asc/ascq if needed.
+	 * If TCMU_STS_OK is returned from the callout the handler must call
+	 * the tcmulib_cmd->done function with TCMU_STS return code.
 	 */
 	rw_fn_t write;
 	rw_fn_t read;
