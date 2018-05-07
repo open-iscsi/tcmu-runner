@@ -114,12 +114,13 @@ do { \
 	} \
 } while (0)
 
-#define TCMU_PARSE_CFG_BOOL(cfg, key) \
+#define TCMU_PARSE_CFG_BOOL(cfg, key, def) \
 do { \
 	struct tcmu_conf_option *option; \
 	option = tcmu_get_option(#key); \
 	if (option) { \
 		cfg->key = option->opt_bool; \
+		option->opt_bool = def; \
 	} \
 } while (0)
 
