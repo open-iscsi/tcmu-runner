@@ -153,9 +153,9 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg, bool reloading)
 		tcmu_set_log_level(cfg->log_level);
 	}
 
+	/* set log_dir path option */
+	TCMU_PARSE_CFG_STR(cfg, log_dir_path, TCMU_LOG_DIR_DEFAULT);
 	if (!reloading) {
-		/* set log_dir path option */
-		TCMU_PARSE_CFG_STR(cfg, log_dir_path, TCMU_LOG_DIR_DEFAULT);
 		/*
 		 * The priority of the logdir setting is:
 		 * 1, --tcmu_log_dir/-l LOG_DIR_PATH
@@ -164,11 +164,16 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg, bool reloading)
 		 * 4, default /var/log/
 		 */
 		if (!tcmu_get_logdir())
-			tcmu_logdir_create(cfg->log_dir_path);
+			tcmu_logdir_create(cfg->log_dir_path, false);
 		else
 			tcmu_warn("The logdir option from the tcmu.conf will be ignored\n");
 	} else {
-		tcmu_warn("The logdir option is not supported by dynamic reloading for now!\n");
+		/*
+		 * Here we asume that users want to change the
+		 * log_dir_path without considering the priority
+		 * mentioned above.
+		 */
+		tcmu_logdir_resetup(cfg->log_dir_path);
 	}
 
 	/* add your new config options */

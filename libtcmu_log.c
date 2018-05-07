@@ -42,7 +42,6 @@ struct log_buf {
 	pthread_mutex_t lock;
 
 	bool thread_active;
-	int init_state;
 	bool finish_initialize;
 
 	unsigned int head;
@@ -60,10 +59,12 @@ struct log_output {
 	void *data;
 	tcmu_log_destination dest;
 	bool bypass;
+	bool enabled;
 };
 
 static int tcmu_log_level = TCMU_LOG_INFO;
-static struct log_buf *logbuf = NULL;
+static struct log_buf *tcmu_logbuf = NULL;
+static pthread_mutex_t tcmu_logbuf_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* covert log level from tcmu config to syslog */
 static inline int to_syslog_level(int level)
@@ -101,7 +102,7 @@ bool tcmu_logdir_getenv(void)
 	if (!log_path)
 		return true;
 
-	if (!tcmu_logdir_create(log_path))
+	if (!tcmu_logdir_create(log_path, false))
 		return false;
 
 	return true;
@@ -156,20 +157,63 @@ static inline void rb_update_head(struct log_buf *logbuf)
 	logbuf->head = (logbuf->head + 1) % LOG_ENTRYS;
 }
 
+static void log_cleanup_output(struct log_output *output)
+{
+	if (!output)
+		return;
+
+	if (output->close_fn != NULL)
+		output->close_fn(output->data);
+	if (output->name != NULL)
+		free(output->name);
+}
+
+static void log_cleanup(void *arg)
+{
+	struct log_output *output;
+
+	pthread_mutex_lock(&tcmu_logbuf_lock);
+
+	pthread_cond_destroy(&tcmu_logbuf->cond);
+	pthread_mutex_destroy(&tcmu_logbuf->lock);
+
+	darray_foreach(output, tcmu_logbuf->outputs)
+		log_cleanup_output(output);
+
+	darray_free(tcmu_logbuf->outputs);
+
+	free(tcmu_logbuf);
+	tcmu_logbuf = NULL;
+
+	pthread_mutex_unlock(&tcmu_logbuf_lock);
+}
+
 static void log_output(int pri, const char *msg, bool bypass)
 {
 	struct log_output *output;
 	char timestamp[TCMU_TIME_STRING_BUFLEN] = {0, };
 	int ret;
+	int i = 0;
 
 	ret = time_string_now(timestamp);
 	if (ret < 0)
 		return;
 
-	darray_foreach (output, logbuf->outputs) {
-		if (output->bypass == bypass && pri <= output->priority) {
-			output->output_fn(pri, timestamp, msg, output->data);
+	darray_foreach (output, tcmu_logbuf->outputs) {
+		if (output->enabled) {
+			if (output->bypass == bypass && pri <= output->priority)
+				output->output_fn(pri, timestamp,
+						  msg, output->data);
+		} else {
+			/*
+			 * We just close and free the resource here to make
+			 * sure no outputing operation is in process.
+			 */
+			log_cleanup_output(output);
+			darray_remove(tcmu_logbuf->outputs, i);
+			continue;
 		}
+		i++;
 	}
 }
 
@@ -188,17 +232,17 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	if (!fmt)
 		return;
 
-	if (!logbuf || !logbuf->finish_initialize) {
+	if (!tcmu_logbuf || !tcmu_logbuf->finish_initialize) {
 		/* handle early log calls by config and deamon setup */
 		vfprintf(stderr, fmt, args);
 		return;
 	}
 
-	pthread_mutex_lock(&logbuf->lock);
+	pthread_mutex_lock(&tcmu_logbuf->lock);
 
-	head = logbuf->head;
-	rb_set_pri(logbuf, head, pri);
-	msg = rb_get_msg(logbuf, head);
+	head = tcmu_logbuf->head;
+	rb_set_pri(tcmu_logbuf, head, pri);
+	msg = rb_get_msg(tcmu_logbuf, head);
 
 	if (dev) {
 		rhandler = tcmu_get_runner_handler(dev);
@@ -214,12 +258,12 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	memcpy(buf, msg, LOG_MSG_LEN);
 	log_output(pri, buf, true);
 
-	rb_update_head(logbuf);
+	rb_update_head(tcmu_logbuf);
 
-	if (logbuf->thread_active == false)
-		pthread_cond_signal(&logbuf->cond);
+	if (tcmu_logbuf->thread_active == false)
+		pthread_cond_signal(&tcmu_logbuf->cond);
 
-	pthread_mutex_unlock(&logbuf->lock);
+	pthread_mutex_unlock(&tcmu_logbuf->lock);
 }
 
 void tcmu_err_message(struct tcmu_device *dev, const char *funcname,
@@ -297,10 +341,27 @@ static int append_output(log_output_fn_t output_fn, log_close_fn_t close_fn, voi
 	output.dest = dest;
 	output.name = ndup;
 	output.bypass = bypass;
+	output.enabled = true;
 
-	darray_append(logbuf->outputs, output);
+	darray_append(tcmu_logbuf->outputs, output);
 
 	return 0;
+}
+
+static void log_output_disable(const tcmu_log_destination dest)
+{
+	struct log_output *output;
+	struct log_output *last = NULL;
+
+	/* This will just keep the last one enabled. */
+	darray_foreach(output, tcmu_logbuf->outputs) {
+		if (output->dest == dest && output->enabled) {
+			if (last)
+				last->enabled = false;
+
+			last = output;
+		}
+	}
 }
 
 static int output_to_syslog(int pri, const char *timestamp,
@@ -405,7 +466,7 @@ static int create_stdout_output(int pri)
 	return 0;
 }
 
-static int create_file_output(int pri, const char *filename)
+int tcmu_create_file_output(int pri, const char *filename, bool reloading)
 {
 	char log_file_path[PATH_MAX];
 	int fd, ret;
@@ -429,6 +490,10 @@ static int create_file_output(int pri, const char *filename)
 		tcmu_err("Failed to append output file: %s\n", log_file_path);
 		return ret;
 	}
+
+	/* Disable the old entries */
+	if (reloading)
+		log_output_disable(TCMU_LOG_TO_FILE);
 
         return 0;
 }
@@ -468,47 +533,25 @@ static bool log_buf_not_empty_output(struct log_buf *logbuf)
 	return true;
 }
 
-static void log_cleanup(void *arg)
-{
-	struct log_buf *logbuf = arg;
-	struct log_output *output;
-
-	pthread_cond_destroy(&logbuf->cond);
-	pthread_mutex_destroy(&logbuf->lock);
-
-	darray_foreach(output, logbuf->outputs) {
-		if (output->close_fn != NULL)
-			output->close_fn(output->data);
-		if (output->name != NULL)
-			free(output->name);
-        }
-
-	darray_free(logbuf->outputs);
-
-	free(logbuf);
-}
-
 static void *log_thread_start(void *arg)
 {
-	struct log_buf *logbuf = arg;
+	pthread_cleanup_push(log_cleanup, NULL);
 
-	pthread_cleanup_push(log_cleanup, arg);
-
-	pthread_mutex_lock(&logbuf->lock);
-	if(!logbuf->finish_initialize){
-		logbuf->finish_initialize = true;
-		pthread_cond_signal(&logbuf->cond);
+	pthread_mutex_lock(&tcmu_logbuf->lock);
+	if(!tcmu_logbuf->finish_initialize){
+		tcmu_logbuf->finish_initialize = true;
+		pthread_cond_signal(&tcmu_logbuf->cond);
 	}
-	pthread_mutex_unlock(&logbuf->lock);
+	pthread_mutex_unlock(&tcmu_logbuf->lock);
 
 	while (1) {
-		pthread_mutex_lock(&logbuf->lock);
-		logbuf->thread_active = false;
-		pthread_cond_wait(&logbuf->cond, &logbuf->lock);
-		logbuf->thread_active = true;
-		pthread_mutex_unlock(&logbuf->lock);
+		pthread_mutex_lock(&tcmu_logbuf->lock);
+		tcmu_logbuf->thread_active = false;
+		pthread_cond_wait(&tcmu_logbuf->cond, &tcmu_logbuf->lock);
+		tcmu_logbuf->thread_active = true;
+		pthread_mutex_unlock(&tcmu_logbuf->lock);
 
-		while (log_buf_not_empty_output(logbuf));
+		while (log_buf_not_empty_output(tcmu_logbuf));
 	}
 
 	pthread_cleanup_pop(1);
@@ -538,7 +581,7 @@ char *tcmu_get_logdir(void)
 	return tcmu_log_dir;
 }
 
-static char *tcmu_alloc_and_set_log_dir(const char *log_dir)
+static char *tcmu_alloc_and_set_log_dir(const char *log_dir, bool reloading)
 {
 	/*
 	 * Do nothing here and will use the /var/log/
@@ -546,6 +589,9 @@ static char *tcmu_alloc_and_set_log_dir(const char *log_dir)
 	 */
 	if (!log_dir)
 		return NULL;
+
+	if (reloading && tcmu_log_dir)
+		free(tcmu_log_dir);
 
 	tcmu_log_dir = strdup(log_dir);
 	if (!tcmu_log_dir)
@@ -606,7 +652,7 @@ static int tcmu_mkdirs(const char *pathname)
 	return tcmu_mkdir(path);
 }
 
-bool tcmu_logdir_create(const char *path)
+bool tcmu_logdir_create(const char *path, bool reloading)
 {
 	if (!tcmu_logdir_check(path))
 		return false;
@@ -614,7 +660,7 @@ bool tcmu_logdir_create(const char *path)
 	if (!tcmu_mkdirs(path))
 		return false;
 
-	return !!tcmu_alloc_and_set_log_dir(path);
+	return !!tcmu_alloc_and_set_log_dir(path, reloading);
 }
 
 int tcmu_make_absolute_logfile(char *path, const char *filename)
@@ -630,18 +676,18 @@ int tcmu_setup_log(void)
 {
 	int ret;
 
-	logbuf = malloc(sizeof(struct log_buf));
-	if (!logbuf)
+	tcmu_logbuf = malloc(sizeof(struct log_buf));
+	if (!tcmu_logbuf)
 		return -ENOMEM;
 
-	logbuf->thread_active = false;
-	logbuf->finish_initialize = false;
-	logbuf->head = 0;
-	logbuf->tail = 0;
-	pthread_cond_init(&logbuf->cond, NULL);
-	pthread_mutex_init(&logbuf->lock, NULL);
+	tcmu_logbuf->thread_active = false;
+	tcmu_logbuf->finish_initialize = false;
+	tcmu_logbuf->head = 0;
+	tcmu_logbuf->tail = 0;
+	pthread_cond_init(&tcmu_logbuf->cond, NULL);
+	pthread_mutex_init(&tcmu_logbuf->lock, NULL);
 
-	darray_init(logbuf->outputs);
+	darray_init(tcmu_logbuf->outputs);
 
 	ret = create_syslog_output(TCMU_LOG_INFO, NULL);
 	if (ret < 0)
@@ -651,24 +697,51 @@ int tcmu_setup_log(void)
 	if (ret < 0)
 		tcmu_err("create stdout output error \n");
 
-	ret = create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME);
+	ret = tcmu_create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME, false);
 	if (ret < 0)
 		tcmu_err("create file output error \n");
 
-	ret = pthread_create(&logbuf->thread_id, NULL, log_thread_start, logbuf);
+	ret = pthread_create(&tcmu_logbuf->thread_id, NULL, log_thread_start,
+			     NULL);
 	if (ret)
 		goto cleanup_log;
 
-	pthread_mutex_lock(&logbuf->lock);
-	while (!logbuf->finish_initialize)
-		pthread_cond_wait(&logbuf->cond, &logbuf->lock);
-	pthread_mutex_unlock(&logbuf->lock);
+	pthread_mutex_lock(&tcmu_logbuf->lock);
+	while (!tcmu_logbuf->finish_initialize)
+		pthread_cond_wait(&tcmu_logbuf->cond, &tcmu_logbuf->lock);
+	pthread_mutex_unlock(&tcmu_logbuf->lock);
 
 	return 0;
 
 cleanup_log:
-	log_cleanup(logbuf);
+	log_cleanup(NULL);
 	return -ENOMEM;
+}
+
+int tcmu_logdir_resetup(char *log_dir_path)
+{
+	int ret;
+
+	pthread_mutex_lock(&tcmu_logbuf_lock);
+
+	if (!tcmu_logbuf) {
+		ret = -ESHUTDOWN;
+		goto unlock;
+	}
+
+	if (!tcmu_logdir_create(log_dir_path, true)) {
+		ret = -ENOENT;
+		goto unlock;
+	}
+
+	ret = tcmu_create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME,
+				      true);
+	if (ret < 0)
+		tcmu_err("Could not change log path to %s, ret:%d.\n",
+			 log_dir_path, ret);
+unlock:
+	pthread_mutex_unlock(&tcmu_logbuf_lock);
+	return ret;
 }
 
 void tcmu_destroy_log()
@@ -676,10 +749,15 @@ void tcmu_destroy_log()
 	pthread_t thread;
 	void *join_retval;
 
-	if (!logbuf)
+	pthread_mutex_lock(&tcmu_logbuf_lock);
+	if (!tcmu_logbuf) {
+		pthread_mutex_unlock(&tcmu_logbuf_lock);
 		return;
+	}
 
-	thread = logbuf->thread_id;
+	thread = tcmu_logbuf->thread_id;
+	pthread_mutex_unlock(&tcmu_logbuf_lock);
+
 	if (pthread_cancel(thread))
 		return;
 

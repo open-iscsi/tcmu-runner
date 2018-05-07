@@ -1017,7 +1017,7 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			if (!tcmu_logdir_create(optarg))
+			if (!tcmu_logdir_create(optarg, false))
 				goto free_opt;
 			break;
 		case 'f':
