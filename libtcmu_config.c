@@ -123,12 +123,18 @@ do { \
 	} \
 } while (0)
 
-#define TCMU_PARSE_CFG_STR(cfg, key) \
+#define TCMU_PARSE_CFG_STR(cfg, key, def) \
 do { \
 	struct tcmu_conf_option *option; \
+	char buf[1024]; \
 	option = tcmu_get_option(#key); \
 	if (option) { \
-		cfg->key = strdup(option->opt_str); } \
+		cfg->key = strdup(option->opt_str); \
+		if (option->opt_str) \
+			free(option->opt_str); \
+		sprintf(buf, "%s", def); \
+		option->opt_str = strdup(buf); \
+	} \
 } while (0);
 
 #define TCMU_FREE_CFG_STR_KEY(cfg, key) \
@@ -146,7 +152,7 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg, bool reloading)
 
 	if (!reloading) {
 		/* set log_dir path option */
-		TCMU_PARSE_CFG_STR(cfg, log_dir_path);
+		TCMU_PARSE_CFG_STR(cfg, log_dir_path, TCMU_LOG_DIR_DEFAULT);
 		/*
 		 * The priority of the logdir setting is:
 		 * 1, --tcmu_log_dir/-l LOG_DIR_PATH
