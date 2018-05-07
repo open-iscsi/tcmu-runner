@@ -240,29 +240,41 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 
 	pthread_mutex_lock(&tcmu_logbuf->lock);
 
-	head = tcmu_logbuf->head;
-	rb_set_pri(tcmu_logbuf, head, pri);
-	msg = rb_get_msg(tcmu_logbuf, head);
-
+	/* Format the log msg */
 	if (dev) {
 		rhandler = tcmu_get_runner_handler(dev);
-		n = sprintf(msg, "%s:%d %s/%s: ", funcname, linenr,
+		n = sprintf(buf, "%s:%d %s/%s: ", funcname, linenr,
 		            rhandler ? rhandler->subtype: "",
 		            dev ? dev->tcm_dev_name: "");
 	} else {
-		n = sprintf(msg, "%s:%d: ", funcname, linenr);
+		n = sprintf(buf, "%s:%d: ", funcname, linenr);
 	}
 
-	vsnprintf(msg + n, LOG_MSG_LEN - n, fmt, args);
+	vsnprintf(buf + n, LOG_MSG_LEN - n, fmt, args);
 
-	memcpy(buf, msg, LOG_MSG_LEN);
+	/*
+	 * Bypass the ringbuffer for some cases,
+	 * such as stdout and log file
+	 */
 	log_output(pri, buf, true);
 
+	if (pri >= TCMU_LOG_DEBUG_SCSI_CMD)
+		goto unlock;
+
+	/*
+	 * Insert the log msg to the ringbuffer if
+	 * the pri < TCMU_LOG_DEBUG_SCSI_CMD
+	 */
+	head = tcmu_logbuf->head;
+	rb_set_pri(tcmu_logbuf, head, pri);
+	msg = rb_get_msg(tcmu_logbuf, head);
+	memcpy(msg, buf, LOG_MSG_LEN);
 	rb_update_head(tcmu_logbuf);
 
 	if (tcmu_logbuf->thread_active == false)
 		pthread_cond_signal(&tcmu_logbuf->cond);
 
+unlock:
 	pthread_mutex_unlock(&tcmu_logbuf->lock);
 }
 
