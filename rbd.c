@@ -87,6 +87,7 @@ struct tcmu_rbd_state {
 	char *pool_name;
 	char *osd_op_timeout;
 	char *conf_path;
+	char *id;
 };
 
 enum rbd_aio_type {
@@ -423,7 +424,7 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	int ret;
 
-	ret = rados_create(&state->cluster, NULL);
+	ret = rados_create(&state->cluster, state->id);
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not create cluster. (Err %d)\n", ret);
 		return ret;
@@ -776,6 +777,8 @@ static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 		free(state->image_name);
 	if (state->pool_name)
 		free(state->pool_name);
+	if (state->id)
+		free(state->id);
 	free(state);
 }
 
@@ -876,6 +879,13 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 			if (!state->conf_path || !strlen(state->conf_path)) {
 				ret = -ENOMEM;
 				tcmu_dev_err(dev, "Could not copy conf path.\n");
+				goto free_config;
+			}
+		} else if (!strncmp(next_opt, "id=", 3)) {
+			state->id = strdup(next_opt + 3);
+			if (!state->id || !strlen(state->id)) {
+				ret = -ENOMEM;
+				tcmu_dev_err(dev, "Could not copy id.\n");
 				goto free_config;
 			}
 		}
@@ -1420,7 +1430,8 @@ static const char tcmu_rbd_cfg_desc[] =
 	"poolname:	Existing RADOS pool\n"
 	"devicename:	Name of the RBD image\n"
 	"optionN:	Like: \"osd_op_timeout=30\" in secs\n"
-	"                     \"conf=/etc/ceph/cluster.conf\"\n";
+	"                     \"conf=/etc/ceph/cluster.conf\"\n"
+	"                     \"id=user\"\n";
 
 struct tcmur_handler tcmu_rbd_handler = {
 	.name	       = "Ceph RBD handler",
