@@ -130,6 +130,8 @@ do { \
 	char buf[1024]; \
 	option = tcmu_get_option(#key); \
 	if (option) { \
+		if (cfg->key) \
+			free(cfg->key); \
 		cfg->key = strdup(option->opt_str); \
 		if (option->opt_str) \
 			free(option->opt_str); \
@@ -179,6 +181,7 @@ static void tcmu_conf_free_str_keys(struct tcmu_config *cfg)
 	 * For example:
 	 * TCMU_FREE_CFG_STR_KEY(cfg, 'STR KEY');
 	 */
+	 TCMU_FREE_CFG_STR_KEY(cfg, log_dir_path);
 }
 
 #define TCMU_MAX_CFG_FILE_SIZE (2 * 1024 * 1024)
@@ -545,8 +548,6 @@ void tcmu_destroy_config(struct tcmu_config *cfg)
 	}
 
 	tcmu_conf_free_str_keys(cfg);
-	if (cfg->log_dir_path)
-		free(cfg->log_dir_path);
 	free(cfg->path);
 	free(cfg);
 }
