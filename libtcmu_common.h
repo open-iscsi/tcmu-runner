@@ -192,7 +192,7 @@ int tcmu_emulate_mode_sense(struct tcmu_device *dev, uint8_t *cdb,
 int tcmu_emulate_mode_select(struct tcmu_device *dev, uint8_t *cdb,
 			     struct iovec *iovec, size_t iov_cnt);
 /* SCSI helpers */
-void tcmu_cdb_debug_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd);
+void tcmu_print_cdb_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd, const char *info);
 
 #ifdef __cplusplus
 }

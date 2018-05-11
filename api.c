@@ -1169,7 +1169,9 @@ int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb)
 #define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)
 #define CDB_FIX_BYTES 64 /* 64 bytes for default */
 #define CDB_FIX_SIZE CDB_TO_BUF_SIZE(CDB_FIX_BYTES)
-void tcmu_cdb_debug_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd)
+void tcmu_print_cdb_info(struct tcmu_device *dev,
+			 const struct tcmulib_cmd *cmd,
+			 const char *info)
 {
 	int i, n, bytes;
 	char fix[CDB_FIX_SIZE], *buf;
@@ -1191,9 +1193,17 @@ void tcmu_cdb_debug_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd)
 	for (i = 0, n = 0; i < bytes; i++) {
 		n += sprintf(buf + n, "%x ", cmd->cdb[i]);
 	}
+
+	if (info)
+		n += sprintf(buf + n, "%s", info);
+
 	sprintf(buf + n, "\n");
 
-	tcmu_dev_dbg_scsi_cmd(dev, buf);
+	if (info) {
+		tcmu_dev_warn(dev, buf);
+	} else {
+		tcmu_dev_dbg_scsi_cmd(dev, buf);
+	}
 
 	if (bytes > CDB_FIX_SIZE)
 		free(buf);
