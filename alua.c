@@ -565,13 +565,15 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	int ret = TCMU_STS_OK;
 
 	pthread_mutex_lock(&rdev->state_lock);
-	tcmu_dev_dbg(dev, "lock state %d\n", rdev->lock_state);
 	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED) {
 		goto done;
 	} else if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKING) {
+		tcmu_dev_info(dev, "Lock acquisition operation is already in process.");
 		ret = TCMU_STS_TRANSITION;
 		goto done;
 	}
+
+	tcmu_dev_info(dev, "Starting lock acquisition operation.");
 
 	rdev->lock_state = TCMUR_DEV_LOCK_LOCKING;
 
