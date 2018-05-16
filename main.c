@@ -56,6 +56,8 @@
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
 
+# define TCMU_LOCK_FILE   "/var/run/lock/tcmu.lock"
+
 static char *handler_path = DEFAULT_HANDLER_PATH;
 
 static struct tcmu_config *tcmu_cfg;
@@ -994,6 +996,8 @@ int main(int argc, char **argv)
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
 	bool new_path = false;
+	struct flock lock_fd = {0, };
+	int fd;
 	int ret;
 
 	while (1) {
@@ -1057,18 +1061,34 @@ int main(int argc, char **argv)
 	if (tcmu_setup_log())
 		goto destroy_config;
 
-	tcmu_dbg("handler path: %s\n", handler_path);
+	fd = creat(TCMU_LOCK_FILE, S_IRUSR | S_IWUSR);
+	if (fd == -1) {
+		tcmu_err("creat(%s) failed: [%m]\n", TCMU_LOCK_FILE);
+		goto destroy_log;
+	}
+
+	lock_fd.l_type = F_WRLCK;
+	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
+		if (errno == EAGAIN) {
+			tcmu_err("tcmu-runner is already running...\n");
+		} else {
+			tcmu_err("fcntl(F_SETLK) on lockfile %s failed: [%m]\n",
+			         TCMU_LOCK_FILE);
+		}
+		goto close_fd;
+	}
 
 	ret = load_our_module();
 	if (ret < 0) {
 		tcmu_err("couldn't load module\n");
-		goto destroy_log;
+		goto close_fd;
 	}
 
+	tcmu_dbg("handler path: %s\n", handler_path);
 	ret = open_handlers();
 	if (ret < 0) {
 		tcmu_err("couldn't open handlers\n");
-		goto destroy_log;
+		goto close_fd;
 	}
 	tcmu_dbg("%d runner handlers found\n", ret);
 
@@ -1137,6 +1157,13 @@ int main(int argc, char **argv)
 	g_object_unref(manager);
 	tcmulib_close(tcmulib_context);
 
+	lock_fd.l_type = F_UNLCK;
+	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
+		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",
+		         TCMU_LOCK_FILE);
+	}
+	close(fd);
+
 	tcmu_destroy_config(tcmu_cfg);
 	tcmu_destroy_log();
 
@@ -1146,6 +1173,13 @@ err_tcmulib_close:
 	tcmulib_close(tcmulib_context);
 err_free_handlers:
 	darray_free(handlers);
+close_fd:
+	lock_fd.l_type = F_UNLCK;
+	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
+		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",
+		         TCMU_LOCK_FILE);
+	}
+	close(fd);
 destroy_log:
 	tcmu_destroy_log();
 destroy_config:
