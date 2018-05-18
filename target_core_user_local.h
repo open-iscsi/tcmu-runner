@@ -4,7 +4,12 @@
 /* This header will be used by application too */
 
 #include <linux/types.h>
+
+#ifndef __USE_GNU
 #include <linux/uio.h>
+#else
+#include <sys/uio.h>
+#endif
 
 #define TCMU_VERSION "2.0"
 
