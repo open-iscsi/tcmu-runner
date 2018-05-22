@@ -1024,11 +1024,15 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 	return NULL;
 }
 
-static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
+static int tcmu_sts_to_scsi(struct tcmu_device *dev, int tcmu_sts,
+			    uint8_t *sense, uint8_t *cdb)
 {
-	switch (tcmu_sts) {
-	case TCMU_STS_OK:
+	if (tcmu_sts == TCMU_STS_OK)
 		return SAM_STAT_GOOD;
+
+	tcmu_dev_dbg(dev, "Completing 0x%x with status %d\n", cdb[0], tcmu_sts);
+
+	switch (tcmu_sts) {
 	case TCMU_STS_NO_RESOURCE:
 		return SAM_STAT_TASK_SET_FULL;
 	/*
@@ -1158,7 +1162,8 @@ void tcmulib_command_complete(
 		ent->hdr.cmd_id = cmd->cmd_id;
 	}
 
-	ent->rsp.scsi_status = tcmu_sts_to_scsi(result, cmd->sense_buf);
+	ent->rsp.scsi_status = tcmu_sts_to_scsi(dev, result, cmd->sense_buf,
+					cmd->cdb);
 	if (ent->rsp.scsi_status == SAM_STAT_CHECK_CONDITION) {
 		memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
 		       TCMU_SENSE_BUFFERSIZE);
