@@ -210,11 +210,6 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 
 		group->tpgs = TPGS_ALUA_IMPLICIT;
 	} else if (!strcmp(str_val, "Implicit")) {
-		if (!failover_is_supported(dev)) {
-			tcmu_dev_err(dev, "device failover is not supported with the alua access type: Implicit\n");
-			goto free_str_val;
-		}
-
 		rdev->failover_type = TMCUR_DEV_FAILOVER_IMPLICIT;
 
 		group->tpgs = TPGS_ALUA_IMPLICIT;
@@ -227,11 +222,6 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 
 		goto free_str_val;
 	} else if (!strcmp(str_val, "Implicit and Explicit")) {
-		if (!failover_is_supported(dev)) {
-			tcmu_dev_err(dev, "device failover is not supported with the alua access type: Implicit and Explicit\n");
-			goto free_str_val;
-		}
-
 		/*
 		 * Only report explicit so initiator always sends STPG.
 		 * We only need implicit enabled in the kernel so we can
@@ -544,7 +534,7 @@ free_buf:
 	return ret;
 }
 
-bool failover_is_supported(struct tcmu_device *dev)
+bool lock_is_required(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 
@@ -563,6 +553,9 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	pthread_attr_t attr;
 	int ret = TCMU_STS_OK;
+
+	if (!lock_is_required(dev))
+		return ret;
 
 	pthread_mutex_lock(&rdev->state_lock);
 	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED) {
@@ -647,7 +640,7 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 
 	switch (new_state) {
 	case ALUA_ACCESS_STATE_OPTIMIZED:
-		if (!failover_is_supported(dev))
+		if (!lock_is_required(dev))
 			/* just change local state */
 			break;
 
@@ -684,7 +677,7 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 		tcmu_dev_err(dev, "Igoring ANO/unavail/offline\n");
 		return TCMU_STS_INVALID_PARAM_LIST;
 	case ALUA_ACCESS_STATE_STANDBY:
-		if (failover_is_supported(dev))
+		if (lock_is_required(dev))
 			tcmu_release_dev_lock(dev);
 		break;
 	default:
@@ -777,9 +770,6 @@ int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 
-	if (!failover_is_supported(dev))
-		return 0;
-
         if (rdev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
 		if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
 			tcmu_dev_dbg(dev, "device lock not held.\n");
@@ -789,5 +779,5 @@ int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return alua_implicit_transition(dev, cmd);
 	}
 
-	return 0;
+	return TCMU_STS_OK;
 }
