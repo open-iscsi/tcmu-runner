@@ -713,6 +713,11 @@ out:
 	return TCMU_STS_NO_RESOURCE;
 }
 
+static int tcmu_glfs_lock(struct tcmu_device *dev)
+{
+	return 0;
+}
+
 /*
  * For backstore creation
  *
@@ -744,6 +749,7 @@ struct tcmur_handler glfs_handler = {
 	.write          = tcmu_glfs_write,
 	.reconfig       = tcmu_glfs_reconfig,
 	.flush          = tcmu_glfs_flush,
+	.lock           = tcmu_glfs_lock,
 };
 
 /* Entry point must be named "handler_init". */
