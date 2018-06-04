@@ -18,7 +18,7 @@ One goal of TCMU is that configuring a userspace-backed LUN should be as easy as
 
 ### License
 
-tcmu-runner is [Apache 2.0 licensed](http://www.apache.org/licenses/LICENSE-2.0).
+tcmu-runner is LGPLv2.1 or Apache License 2.0.
 
 ### Releases
 
