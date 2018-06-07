@@ -23,6 +23,8 @@
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
 
+#include "ccan/list/list.h"
+
 /*
  * System config for TCMU, for now there are only 3 option types supported:
  * 1, The "int type" option, for example:
@@ -75,7 +77,6 @@
  * system config reload thread daemon will try to update them for all the
  * tcmu-runner, consumer and tcmu-synthesizer daemons.
  */
-#include "ccan/list/list.h"
 
 static LIST_HEAD(tcmu_options);
 
@@ -337,7 +338,7 @@ static void tcmu_parse_option(char **cur, const char *end)
 		option->opt_str = strdup(s);
 		break;
 	default:
-		tcmu_err("option type %d not supported!\n");
+		tcmu_err("option type %d not supported!\n", option->type);
 		break;
 	}
 }
