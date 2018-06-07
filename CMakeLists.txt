@@ -65,7 +65,7 @@ target_link_libraries(tcmu
   ${LIBNL_GENL_LIB}
   ${GLIB_LIBRARIES}
   )
-install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} NAMELINK_SKIP)
+install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Stuff for building the static library
 add_library(tcmu_static
