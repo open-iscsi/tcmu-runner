@@ -31,7 +31,6 @@ struct tcmu_config {
  *    4: DEBUG
  *    5: DEBUG SCSI CMD
  */
-
 enum {
 	TCMU_CONF_LOG_LEVEL_MIN = 1,
 	TCMU_CONF_LOG_ERROR = 1,
@@ -40,26 +39,6 @@ enum {
 	TCMU_CONF_LOG_DEBUG,
 	TCMU_CONF_LOG_DEBUG_SCSI_CMD,
 	TCMU_CONF_LOG_LEVEL_MAX = TCMU_CONF_LOG_DEBUG_SCSI_CMD,
-};
-
-typedef enum {
-	TCMU_OPT_NONE = 0,
-	TCMU_OPT_INT, /* type int */
-	TCMU_OPT_STR, /* type string */
-	TCMU_OPT_BOOL, /* type boolean */
-	TCMU_OPT_MAX,
-} tcmu_option_type;
-
-struct tcmu_conf_option {
-	struct list_node list;
-
-	char *key;
-	tcmu_option_type type;
-	union {
-		int opt_int;
-		bool opt_bool;
-		char *opt_str;
-	};
 };
 
 void tcmu_destroy_config(struct tcmu_config *cfg);

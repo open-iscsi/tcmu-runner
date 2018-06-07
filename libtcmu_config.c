@@ -25,6 +25,26 @@
 
 #include "ccan/list/list.h"
 
+typedef enum {
+	TCMU_OPT_NONE = 0,
+	TCMU_OPT_INT, /* type int */
+	TCMU_OPT_STR, /* type string */
+	TCMU_OPT_BOOL, /* type boolean */
+	TCMU_OPT_MAX,
+} tcmu_option_type;
+
+struct tcmu_conf_option {
+	struct list_node list;
+
+	char *key;
+	tcmu_option_type type;
+	union {
+		int opt_int;
+		bool opt_bool;
+		char *opt_str;
+	};
+};
+
 /*
  * System config for TCMU, for now there are only 3 option types supported:
  * 1, The "int type" option, for example:
