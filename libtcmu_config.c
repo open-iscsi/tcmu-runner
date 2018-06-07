@@ -301,7 +301,8 @@ static void tcmu_parse_option(char **cur, const char *end)
 	}
 	/* skip character '='  */
 	s++;
-	while (isblank(*r) || *r == '=')
+	r--;
+	while (isblank(*r))
 		r--;
 	r++;
 	*r = '\0';
@@ -309,17 +310,13 @@ static void tcmu_parse_option(char **cur, const char *end)
 	option = tcmu_get_option(p);
 	if (!option) {
 		r = s;
-		while (isblank(*r) || *r == '=')
+		while (isblank(*r))
 			r++;
 
-		if (*r == '"' || *r == '\'') {
-			type = TCMU_OPT_STR;
-		} else if (isdigit(*r)) {
+		if (isdigit(*r))
 			type = TCMU_OPT_INT;
-		} else {
-			tcmu_err("option type not supported!\n");
-			return;
-		}
+		else
+			type = TCMU_OPT_STR;
 
 		option = tcmu_register_option(p, type);
 		if (!option)
@@ -339,7 +336,6 @@ static void tcmu_parse_option(char **cur, const char *end)
 		option->opt_int = atoi(s);
 		break;
 	case TCMU_OPT_STR:
-		s++;
 		while (isblank(*s))
 			s++;
 		/* skip first " or ' if exist */
