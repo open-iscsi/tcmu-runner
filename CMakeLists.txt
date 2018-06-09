@@ -60,7 +60,7 @@ target_link_libraries(tcmu
   ${LIBNL_GENL_LIB}
   ${GLIB_LIBRARIES}
   )
-install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} NAMELINK_SKIP)
+install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Stuff for building the static library
 add_library(tcmu_static
@@ -271,6 +271,8 @@ configure_file (
   )
 install(SCRIPT tcmu.conf_install.cmake)
 
+install(FILES libtcmu.h libtcmu_common.h libtcmu_priv.h darray.h
+  DESTINATION include)
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
