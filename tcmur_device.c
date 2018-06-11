@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <unistd.h>
 
+#include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "tcmu-runner.h"
@@ -40,7 +41,7 @@ bool tcmu_dev_in_recovery(struct tcmu_device *dev)
 int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret, attempt = 0;
 
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
@@ -233,7 +234,7 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev)
 
 void tcmu_release_dev_lock(struct tcmu_device *dev)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
 
@@ -260,7 +261,7 @@ void tcmu_release_dev_lock(struct tcmu_device *dev)
 
 int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int retry = 0, ret;
 
@@ -326,7 +327,7 @@ retry:
 int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 			  uint16_t tag)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int retries = 0, ret = TCMU_STS_OK;
 

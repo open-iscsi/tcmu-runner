@@ -2281,7 +2281,7 @@ static const char zbc_cfg_desc[] =
 	"  will create a host-managed disk with 128 MiB zones and 100\n"
 	"  conventional zones, stored in the file /var/local/zbc.raw\n";
 
-static struct tcmur_handler zbc_handler = {
+static struct tcmulib_backstore_handler zbc_handler = {
 	.cfg_desc = zbc_cfg_desc,
 
 	.name = "ZBC Emulation Handler",

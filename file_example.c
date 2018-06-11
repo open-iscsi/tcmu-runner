@@ -176,7 +176,7 @@ static int file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 static const char file_cfg_desc[] =
 	"The path to the file to use as a backstore.";
 
-static struct tcmur_handler file_handler = {
+static struct tcmulib_backstore_handler file_handler = {
 	.cfg_desc = file_cfg_desc,
 
 	.reconfig = file_reconfig,

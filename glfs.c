@@ -725,7 +725,7 @@ static const char glfs_cfg_desc[] =
 	"  hostname:  The server's hostname\n"
 	"  filepath:  The path of the backing file";
 
-struct tcmur_handler glfs_handler = {
+struct tcmulib_backstore_handler glfs_handler = {
 	.name           = "Gluster glfs handler",
 	.subtype        = "glfs",
 	.cfg_desc       = glfs_cfg_desc,

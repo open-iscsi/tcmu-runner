@@ -920,7 +920,7 @@ struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)
 	return dev->handler;
 }
 
-struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
+struct tcmulib_backstore_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
 {
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 

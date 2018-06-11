@@ -149,7 +149,7 @@ static void handle_generic_cbk(struct tcmu_device *dev,
 
 static int read_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 
 	return rhandler->read(dev, cmd, cmd->iovec, cmd->iov_cnt,
@@ -160,7 +160,7 @@ static int read_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int write_work_fn(struct tcmu_device *dev,
 				struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 
 	return rhandler->write(dev, cmd, cmd->iovec, cmd->iov_cnt,
@@ -259,7 +259,7 @@ static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd,
 
 static int unmap_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *ucmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct unmap_descriptor *desc = ucmd->cmdstate;
 	uint64_t offset = desc->offset, length = desc->length;
 
@@ -552,7 +552,7 @@ struct write_same {
 static int writesame_work_fn(struct tcmu_device *dev,
 				 struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	struct write_same *write_same = cmd->cmdstate;
 	uint64_t cur_lba = write_same->cur_lba;
@@ -697,7 +697,7 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 
 static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint8_t *cdb = cmd->cdb;
 	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
@@ -771,7 +771,7 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			   tcmur_writesame_fn_t write_same_fn)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
 	ret = alua_check_state(dev, cmd);
@@ -1449,7 +1449,7 @@ out:
 
 static int xcopy_write_work_fn(struct tcmu_device *dst_dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dst_dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dst_dev);
 	uint32_t block_size = tcmu_get_dev_block_size(dst_dev);
 	struct xcopy *xcopy = cmd->cmdstate;
 	struct iovec *iovec = &xcopy->iovec;
@@ -1491,7 +1491,7 @@ err:
 
 static int xcopy_read_work_fn(struct tcmu_device *src_dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(src_dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(src_dev);
 	uint32_t block_size = tcmu_get_dev_block_size(src_dev);
 	struct xcopy *xcopy = cmd->cmdstate;
 	struct iovec *iovec = &xcopy->iovec;
@@ -1765,7 +1765,7 @@ int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 /* async flush */
 static int flush_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 
 	return rhandler->flush(dev, cmd);
 }
@@ -1928,7 +1928,7 @@ struct format_unit_state {
 
 static int format_unit_work_fn(struct tcmu_device *dev,
 			       struct tcmulib_cmd *writecmd) {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmulib_cmd *origcmd = writecmd->cmdstate;
 	struct format_unit_state *state = origcmd->cmdstate;
 
@@ -2104,7 +2104,7 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 /* command passthrough */
 static int passthrough_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 
 	return rhandler->handle_cmd(dev, cmd);
 }
@@ -2116,7 +2116,7 @@ static int handle_passthrough(struct tcmu_device *dev,
 	return async_handle_cmd(dev, cmd, passthrough_work_fn);
 }
 
-bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler)
+bool tcmulib_backstore_handler_is_passthrough_only(struct tcmulib_backstore_handler *rhandler)
 {
 	if (rhandler->write || rhandler->read || rhandler->flush)
 		return false;
@@ -2127,7 +2127,7 @@ bool tcmur_handler_is_passthrough_only(struct tcmur_handler *rhandler)
 int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 				  struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
 
@@ -2158,7 +2158,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret = TCMU_STS_NOT_HANDLED;
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	uint8_t *cdb = cmd->cdb;
 
@@ -2325,7 +2325,7 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int handle_try_passthrough(struct tcmu_device *dev,
 				  struct tcmulib_cmd *cmd)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
 

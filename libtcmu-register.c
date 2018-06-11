@@ -17,11 +17,11 @@
 #include "libtcmu_priv.h"
 #include "tcmuhandler-generated.h"
 
-darray(struct tcmur_handler *) g_runner_handlers = darray_new();
+darray(struct tcmulib_backstore_handler *) g_runner_handlers = darray_new();
 
-int tcmulib_register_backstore_handler(struct tcmur_handler *handler)
+int tcmulib_register_backstore_handler(struct tcmulib_backstore_handler *handler)
 {
-	struct tcmur_handler *h;
+	struct tcmulib_backstore_handler *h;
 	int i;
 
 	for (i = 0; i < darray_size(g_runner_handlers); i++) {
@@ -37,7 +37,7 @@ int tcmulib_register_backstore_handler(struct tcmur_handler *handler)
 	return 0;
 }
 
-bool tcmulib_unregister_backstore_handler(struct tcmur_handler *handler)
+bool tcmulib_unregister_backstore_handler(struct tcmulib_backstore_handler *handler)
 {
 	int i;
 	for (i = 0; i < darray_size(g_runner_handlers); i++) {
@@ -49,7 +49,7 @@ bool tcmulib_unregister_backstore_handler(struct tcmur_handler *handler)
 	return false;
 }
 
-struct tcmur_handler *tcmulib_next_backstore_handler(int *ind)
+struct tcmulib_backstore_handler *tcmulib_next_backstore_handler(int *ind)
 {
 	int i;
 

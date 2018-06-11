@@ -54,13 +54,13 @@ static char *handler_path = DEFAULT_HANDLER_PATH;
 
 static struct tcmu_config *tcmu_cfg;
 
-static int tcmur_register_dbus_handler(struct tcmur_handler *handler)
+static int tcmur_register_dbus_handler(struct tcmulib_backstore_handler *handler)
 {
 	assert(handler->_is_dbus_handler == true);
 	return tcmulib_register_backstore_handler(handler);
 }
 
-static void free_dbus_handler(struct tcmur_handler *handler)
+static void free_dbus_handler(struct tcmulib_backstore_handler *handler)
 {
 	g_free((char*)handler->opaque);
 	g_free((char*)handler->subtype);
@@ -68,7 +68,7 @@ static void free_dbus_handler(struct tcmur_handler *handler)
 	g_free(handler);
 }
 
-static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
+static bool tcmur_unregister_dbus_handler(struct tcmulib_backstore_handler *handler)
 {
 	bool ret = false;
 	assert(handler->_is_dbus_handler == true);
@@ -178,7 +178,7 @@ on_check_config(TCMUService1 *interface,
 		gchar *cfgstring,
 		gpointer user_data)
 {
-	struct tcmur_handler *handler = user_data;
+	struct tcmulib_backstore_handler *handler = user_data;
 	char *reason = NULL;
 	bool str_ok = true;
 
@@ -198,7 +198,7 @@ on_check_config(TCMUService1 *interface,
 }
 
 static void
-dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
+dbus_export_handler(struct tcmulib_backstore_handler *handler, GCallback check_config)
 {
 	GDBusObjectSkeleton *object;
 	char obj_name[128];
@@ -219,7 +219,7 @@ dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
 }
 
 static bool
-dbus_unexport_handler(struct tcmur_handler *handler)
+dbus_unexport_handler(struct tcmulib_backstore_handler *handler)
 {
 	char obj_name[128];
 
@@ -260,7 +260,7 @@ on_dbus_check_config(TCMUService1 *interface,
 		     gpointer user_data)
 {
 	char *bus_name, *obj_name;
-	struct tcmur_handler *handler = user_data;
+	struct tcmulib_backstore_handler *handler = user_data;
 	GDBusConnection *connection;
 	GError *error = NULL;
 	GVariant *result;
@@ -294,7 +294,7 @@ on_handler_appeared(GDBusConnection *connection,
 		    const gchar     *name_owner,
 		    gpointer         user_data)
 {
-	struct tcmur_handler *handler = user_data;
+	struct tcmulib_backstore_handler *handler = user_data;
 	struct dbus_info *info = handler->opaque;
 
 	if (info->register_invocation) {
@@ -312,7 +312,7 @@ on_handler_vanished(GDBusConnection *connection,
 		    const gchar     *name,
 		    gpointer         user_data)
 {
-	struct tcmur_handler *handler = user_data;
+	struct tcmulib_backstore_handler *handler = user_data;
 	struct dbus_info *info = handler->opaque;
 
 	if (info->register_invocation) {
@@ -336,14 +336,14 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 		    gchar *cfg_desc,
 		    gpointer user_data)
 {
-	struct tcmur_handler *handler;
+	struct tcmulib_backstore_handler *handler;
 	struct dbus_info *info;
 	char *bus_name;
 
 	bus_name = g_strdup_printf("org.kernel.TCMUService1.HandlerManager1.%s",
 				   subtype);
 
-	handler               = g_new0(struct tcmur_handler, 1);
+	handler               = g_new0(struct tcmulib_backstore_handler, 1);
 	handler->subtype      = g_strdup(subtype);
 	handler->cfg_desc     = g_strdup(cfg_desc);
 	handler->open         = dbus_handler_open;
@@ -400,7 +400,7 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
-	struct tcmur_handler *handler;
+	struct tcmulib_backstore_handler *handler;
 	int i = 0;
 
 	tcmu_dbg("bus %s acquired\n", name);
@@ -528,7 +528,7 @@ static int load_our_module(void)
 static void tcmur_stop_device(void *arg)
 {
 	struct tcmu_device *dev = arg;
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	bool is_open = false;
 
@@ -570,7 +570,7 @@ static void tcmur_stop_device(void *arg)
 static void *tcmur_cmdproc_thread(void *arg)
 {
 	struct tcmu_device *dev = arg;
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct pollfd pfd;
 	int ret;
@@ -589,7 +589,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_print_cdb_info(dev, cmd, NULL);
 
-			if (tcmur_handler_is_passthrough_only(rhandler))
+			if (tcmulib_backstore_handler_is_passthrough_only(rhandler))
 				ret = tcmur_cmd_passthrough_handler(dev, cmd);
 			else
 				ret = tcmur_generic_handle_cmd(dev, cmd);
@@ -656,7 +656,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 
 static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
 	if (tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev) ==
@@ -676,7 +676,7 @@ static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 
 static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 
 	if (!rhandler->reconfig)
 		return -EOPNOTSUPP;
@@ -691,7 +691,7 @@ static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 
 static int dev_added(struct tcmu_device *dev)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct list_head group_list;
 	struct tcmur_device *rdev;
 	int32_t block_size, max_sectors;
@@ -952,7 +952,7 @@ int main(int argc, char **argv)
 {
 	darray(struct tcmulib_handler) handlers = darray_new();
 	struct tcmulib_context *tcmulib_context;
-	struct tcmur_handler *tmp_r_handler;
+	struct tcmulib_backstore_handler *tmp_r_handler;
 	GMainLoop *loop;
 	GIOChannel *libtcmu_gio;
 	guint reg_id;

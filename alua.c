@@ -21,6 +21,7 @@
 #include <scsi/scsi.h>
 
 #include "libtcmu_log.h"
+#include "libtcmu.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
 #include "tcmur_device.h"
@@ -395,7 +396,7 @@ static int alua_sync_state(struct tcmu_device *dev,
 			   uint16_t enabled_group_id)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct alua_grp *group;
 	uint16_t ao_group_id;
 	uint8_t alua_state;
@@ -529,7 +530,7 @@ free_buf:
 
 bool lock_is_required(struct tcmu_device *dev)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 
 	return !!rhandler->lock;
 }

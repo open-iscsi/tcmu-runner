@@ -1500,7 +1500,7 @@ done:
 
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";
 
-static struct tcmur_handler qcow_handler = {
+static struct tcmulib_backstore_handler qcow_handler = {
 	.name = "QEMU Copy-On-Write image file",
 	.subtype = "qcow",
 	.cfg_desc = qcow_cfg_desc,

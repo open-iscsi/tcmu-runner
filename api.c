@@ -24,6 +24,7 @@
 
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
+#include "libtcmu.h"
 #include "libtcmu_priv.h"
 #include "target.h"
 #include "alua.h"
@@ -350,7 +351,7 @@ int tcmu_emulate_evpd_inquiry(
 	struct iovec *iovec,
 	size_t iov_cnt)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 
 	switch (cdb[2]) {
 	case 0x0: /* Supported VPD pages */

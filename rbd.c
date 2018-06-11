@@ -1425,7 +1425,7 @@ static const char tcmu_rbd_cfg_desc[] =
 	"                     \"conf=/etc/ceph/cluster.conf\"\n"
 	"                     \"id=user\"\n";
 
-struct tcmur_handler tcmu_rbd_handler = {
+struct tcmulib_backstore_handler tcmu_rbd_handler = {
 	.name	       = "Ceph RBD handler",
 	.subtype       = "rbd",
 	.cfg_desc      = tcmu_rbd_cfg_desc,

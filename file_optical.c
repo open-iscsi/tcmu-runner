@@ -1550,7 +1550,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static const char fbo_cfg_desc[] =
 	"The path to the file to use as a backstore.";
 
-static struct tcmur_handler fbo_handler = {
+static struct tcmulib_backstore_handler fbo_handler = {
 	.cfg_desc = fbo_cfg_desc,
 
 	.open = fbo_open,
