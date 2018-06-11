@@ -1564,6 +1564,6 @@ static struct tcmur_handler fbo_handler = {
 /* Entry point must be named "handler_init". */
 int handler_init(void)
 {
-	return tcmur_register_handler(&fbo_handler);
+	return tcmulib_register_backstore_handler(&fbo_handler);
 }
 

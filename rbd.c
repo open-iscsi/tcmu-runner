@@ -1450,5 +1450,5 @@ struct tcmur_handler tcmu_rbd_handler = {
 
 int handler_init(void)
 {
-	return tcmur_register_handler(&tcmu_rbd_handler);
+	return tcmulib_register_backstore_handler(&tcmu_rbd_handler);
 }

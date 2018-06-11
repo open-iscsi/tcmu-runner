@@ -73,6 +73,20 @@ struct tcmulib_handler {
 };
 
 /*
+ * Each tcmu-runner (tcmur) handler plugin must export the
+ * following. It usually just calls tcmur_register_handler.
+ *
+ * int handler_init(void);
+ */
+
+/*
+ * APIs for tcmur only
+ */
+int tcmulib_register_backstore_handler(struct tcmur_handler *handler);
+bool tcmulib_unregister_backstore_handler(struct tcmur_handler *handler);
+struct tcmur_handler *tcmulib_next_backstore_handler(int *ind);
+
+/*
  * APIs for libtcmu only
  *
  * Use these functions to handle TCMU devices and events within an

@@ -748,7 +748,7 @@ int handler_init(void)
 		return -1;
 	}
 
-	ret = tcmur_register_handler(&glfs_handler);
+	ret = tcmulib_register_backstore_handler(&glfs_handler);
 	if (ret != 0) {
 		pthread_mutex_destroy(&glfs_lock);
 	}

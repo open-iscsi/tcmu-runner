@@ -1,5 +1,4 @@
 {
-	tcmur_register_handler;
 	tcmur_handle_caw;
 	tcmur_handle_writesame;
 	tcmu_notify_lock_lost;

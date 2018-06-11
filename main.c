@@ -54,42 +54,10 @@ static char *handler_path = DEFAULT_HANDLER_PATH;
 
 static struct tcmu_config *tcmu_cfg;
 
-darray(struct tcmur_handler *) g_runner_handlers = darray_new();
-
-int tcmur_register_handler(struct tcmur_handler *handler)
-{
-	struct tcmur_handler *h;
-	int i;
-
-	for (i = 0; i < darray_size(g_runner_handlers); i++) {
-		h = darray_item(g_runner_handlers, i);
-		if (!strcmp(h->subtype, handler->subtype)) {
-			tcmu_err("Handler %s has already been registered\n",
-				 handler->subtype);
-			return -1;
-		}
-	}
-
-	darray_append(g_runner_handlers, handler);
-	return 0;
-}
-
 static int tcmur_register_dbus_handler(struct tcmur_handler *handler)
 {
 	assert(handler->_is_dbus_handler == true);
-	return tcmur_register_handler(handler);
-}
-
-bool tcmur_unregister_handler(struct tcmur_handler *handler)
-{
-	int i;
-	for (i = 0; i < darray_size(g_runner_handlers); i++) {
-		if (darray_item(g_runner_handlers, i) == handler) {
-			darray_remove(g_runner_handlers, i);
-			return true;
-		}
-	}
-	return false;
+	return tcmulib_register_backstore_handler(handler);
 }
 
 static void free_dbus_handler(struct tcmur_handler *handler)
@@ -105,7 +73,7 @@ static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
 	bool ret = false;
 	assert(handler->_is_dbus_handler == true);
 
-	ret = tcmur_unregister_handler(handler);
+	ret = tcmulib_unregister_backstore_handler(handler);
 
 	if (ret == true) {
 		free_dbus_handler(handler);
@@ -432,14 +400,15 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
-	struct tcmur_handler **handler;
+	struct tcmur_handler *handler;
+	int i = 0;
 
 	tcmu_dbg("bus %s acquired\n", name);
 
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
-	darray_foreach(handler, g_runner_handlers) {
-		dbus_export_handler(*handler, G_CALLBACK(on_check_config));
+	while ((handler = tcmulib_next_backstore_handler(&i))) {
+		dbus_export_handler(handler, G_CALLBACK(on_check_config));
 	}
 
 	dbus_handler_manager1_init(connection);
@@ -983,7 +952,7 @@ int main(int argc, char **argv)
 {
 	darray(struct tcmulib_handler) handlers = darray_new();
 	struct tcmulib_context *tcmulib_context;
-	struct tcmur_handler **tmp_r_handler;
+	struct tcmur_handler *tmp_r_handler;
 	GMainLoop *loop;
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
@@ -991,6 +960,7 @@ int main(int argc, char **argv)
 	struct flock lock_fd = {0, };
 	int fd;
 	int ret;
+	int i = 0;
 
 	while (1) {
 		int option_index = 0;
@@ -1088,14 +1058,14 @@ int main(int argc, char **argv)
 	 * Convert from tcmu-runner's handler struct to libtcmu's
 	 * handler struct, an array of which we pass in, below.
 	 */
-	darray_foreach(tmp_r_handler, g_runner_handlers) {
+	while ((tmp_r_handler = tcmulib_next_backstore_handler(&i))) {
 		struct tcmulib_handler tmp_handler;
 
 		memset(&tmp_handler, 0, sizeof(tmp_handler));
-		tmp_handler.name = (*tmp_r_handler)->name;
-		tmp_handler.subtype = (*tmp_r_handler)->subtype;
-		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;
-		tmp_handler.check_config = (*tmp_r_handler)->check_config;
+		tmp_handler.name = (tmp_r_handler)->name;
+		tmp_handler.subtype = (tmp_r_handler)->subtype;
+		tmp_handler.cfg_desc = (tmp_r_handler)->cfg_desc;
+		tmp_handler.check_config = (tmp_r_handler)->check_config;
 		tmp_handler.reconfig = dev_reconfig;
 		tmp_handler.added = dev_added;
 		tmp_handler.removed = dev_removed;
@@ -1105,7 +1075,7 @@ int main(int argc, char **argv)
 		 * darray b/c handlers will never be added or removed
 		 * once open_handlers() is done.
 		 */
-		tmp_handler.hm_private = *tmp_r_handler;
+		tmp_handler.hm_private = tmp_r_handler;
 
 		darray_append(handlers, tmp_handler);
 	}

@@ -63,6 +63,7 @@
 
 #include "tcmu-runner.h"
 #include "scsi_defs.h"
+#include "libtcmu.h"
 #include "qcow.h"
 #include "qcow2.h"
 
@@ -1515,5 +1516,5 @@ static struct tcmur_handler qcow_handler = {
 /* Entry point must be named "handler_init". */
 int handler_init(void)
 {
-	return tcmur_register_handler(&qcow_handler);
+	return tcmulib_register_backstore_handler(&qcow_handler);
 }

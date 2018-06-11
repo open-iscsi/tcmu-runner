@@ -194,5 +194,5 @@ static struct tcmur_handler file_handler = {
 /* Entry point must be named "handler_init". */
 int handler_init(void)
 {
-	return tcmur_register_handler(&file_handler);
+	return tcmulib_register_backstore_handler(&file_handler);
 }

@@ -137,19 +137,6 @@ struct tcmur_handler {
 };
 
 /*
- * Each tcmu-runner (tcmur) handler plugin must export the
- * following. It usually just calls tcmur_register_handler.
- *
- * int handler_init(void);
- */
-
-/*
- * APIs for tcmur only
- */
-int tcmur_register_handler(struct tcmur_handler *handler);
-bool tcmur_unregister_handler(struct tcmur_handler *handler);
-
-/*
  * Misc
  */
 void tcmu_cancel_thread(pthread_t thread);

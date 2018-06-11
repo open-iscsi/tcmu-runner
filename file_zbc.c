@@ -2298,5 +2298,5 @@ static struct tcmur_handler zbc_handler = {
  */
 int handler_init(void)
 {
-	return tcmur_register_handler(&zbc_handler);
+	return tcmulib_register_backstore_handler(&zbc_handler);
 }
