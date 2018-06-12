@@ -16,9 +16,9 @@
 
 #include "libtcmu.h"
 #include "libtcmu_priv.h"
-#include "tcmur_device.h"
-#include "tcmur_aio.h"
-#include "tcmu-runner.h"
+#include "libtcmu_device.h"
+#include "libtcmu_aio.h"
+#include "libtcmu_log.h"
 
 struct tcmu_work {
 	struct tcmu_device *dev;
@@ -248,6 +248,27 @@ void cleanup_aio_tracking(struct tcmur_device *rdev)
 	if (ret != 0) {
 		tcmu_err("failed to destroy track lock\n");
 	}
+}
+
+static void tcmu_cancel_thread(pthread_t thread)
+{
+	void *join_retval;
+	int ret;
+
+	ret = pthread_cancel(thread);
+	if (ret) {
+		tcmu_err("pthread_cancel failed with value %d\n", ret);
+		return;
+	}
+
+	ret = pthread_join(thread, &join_retval);
+	if (ret) {
+		tcmu_err("pthread_join failed with value %d\n", ret);
+		return;
+	}
+
+	if (join_retval != PTHREAD_CANCELED)
+		tcmu_err("unexpected join retval: %p\n", join_retval);
 }
 
 void cleanup_io_work_queue_threads(struct tcmu_device *dev)

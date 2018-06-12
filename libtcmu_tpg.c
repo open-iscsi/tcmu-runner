@@ -21,9 +21,9 @@
 
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
-#include "tcmur_device.h"
-#include "target.h"
-#include "alua.h"
+#include "libtcmu_device.h"
+#include "libtcmu_tpg.h"
+#include "libtcmu_alua.h"
 
 static struct list_head tpg_recovery_list = LIST_HEAD_INIT(tpg_recovery_list);
 /*

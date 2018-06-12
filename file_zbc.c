@@ -26,10 +26,11 @@
 #include <errno.h>
 #include <scsi/scsi.h>
 #include <linux/types.h>
+#include <limits.h>
 
 #include "scsi_defs.h"
 #include "libtcmu.h"
-#include "tcmu-runner.h"
+#include "libtcmu_log.h"
 
 /*
  * SCSI commands.

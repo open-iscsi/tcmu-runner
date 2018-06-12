@@ -25,10 +25,10 @@
 
 #include <scsi/scsi.h>
 
-#include "tcmu-runner.h"
 #include "tcmur_cmd_handler.h"
 #include "libtcmu.h"
-#include "tcmur_device.h"
+#include "libtcmu_device.h"
+#include "libtcmu_log.h"
 
 #include <rbd/librbd.h>
 #include <rados/librados.h>

@@ -34,7 +34,7 @@
 
 #include "scsi_defs.h"
 #include "libtcmu.h"
-#include "tcmu-runner.h"
+#include "libtcmu_log.h"
 
 struct file_state {
 	int fd;

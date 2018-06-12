@@ -26,8 +26,8 @@
 #include "libtcmu_common.h"
 #include "libtcmu.h"
 #include "libtcmu_priv.h"
-#include "target.h"
-#include "alua.h"
+#include "libtcmu_tpg.h"
+#include "libtcmu_alua.h"
 #include "be_byteshift.h"
 
 int tcmu_get_cdb_length(uint8_t *cdb)

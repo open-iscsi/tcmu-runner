@@ -22,10 +22,11 @@
 #include <glusterfs/api/glfs.h>
 #include "darray.h"
 
-#include "tcmu-runner.h"
 #include "libtcmu.h"
-#include "tcmur_device.h"
+#include "libtcmu_device.h"
 #include "tcmur_cmd_handler.h"
+#include "libtcmu_scsi.h"
+#include "libtcmu_log.h"
 
 #define ALLOWED_BSOFLAGS (O_DIRECT | O_RDWR | O_LARGEFILE)
 

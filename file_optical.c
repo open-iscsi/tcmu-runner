@@ -51,8 +51,9 @@
 #include <signal.h>
 
 #include "be_byteshift.h"
-#include "tcmu-runner.h"
 #include "libtcmu.h"
+#include "libtcmu_log.h"
+#include "scsi_defs.h"
 
 struct fbo_state {
 	int fd;

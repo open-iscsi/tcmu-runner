@@ -18,10 +18,9 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
-#include "tcmu-runner.h"
-#include "tcmur_device.h"
+#include "libtcmu_device.h"
 #include "tcmur_cmd_handler.h"
-#include "target.h"
+#include "libtcmu_tpg.h"
 
 bool tcmu_dev_in_recovery(struct tcmu_device *dev)
 {

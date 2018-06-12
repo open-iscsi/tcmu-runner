@@ -61,7 +61,6 @@
 #include <linux/falloc.h>
 #endif
 
-#include "tcmu-runner.h"
 #include "scsi_defs.h"
 #include "libtcmu.h"
 #include "qcow.h"

@@ -24,9 +24,9 @@
 #include "libtcmu.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
-#include "tcmur_device.h"
-#include "target.h"
-#include "alua.h"
+#include "libtcmu_device.h"
+#include "libtcmu_tpg.h"
+#include "libtcmu_alua.h"
 
 #define TCMU_ALUA_INVALID_GROUP_ID USHRT_MAX
 

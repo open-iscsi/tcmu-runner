@@ -6,14 +6,14 @@
  * later), or the Apache License 2.0.
  */
 
-#ifndef __TCMUR_DEVICE_H
-#define __TCMUR_DEVICE_H
+#ifndef __LIBTCMU_FAILOVER_H
+#define __LIBTCMU_FAILOVER_H
 
 #include "pthread.h"
 
 #include "ccan/list/list.h"
 
-#include "tcmur_aio.h"
+#include "libtcmu_aio.h"
 
 #define TCMUR_DEV_FLAG_FORMATTING	(1 << 0)
 #define TCMUR_DEV_FLAG_IN_RECOVERY	(1 << 1)

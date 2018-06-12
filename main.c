@@ -38,15 +38,16 @@
 #include <sys/utsname.h>
 #include "target_core_user_local.h"
 #include "darray.h"
-#include "tcmu-runner.h"
-#include "tcmur_aio.h"
-#include "tcmur_device.h"
+#include "libtcmu_aio.h"
+#include "libtcmu_device.h"
 #include "tcmur_cmd_handler.h"
 #include "libtcmu.h"
 #include "tcmuhandler-generated.h"
 #include "version.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+#include "libtcmu_scsi.h"
+#include "libtcmu_alua.h"
 
 # define TCMU_LOCK_FILE   "/var/run/lock/tcmu.lock"
 
@@ -806,7 +807,7 @@ free_rdev:
 	return ret;
 }
 
-void tcmu_cancel_thread(pthread_t thread)
+static void tcmu_cancel_thread(pthread_t thread)
 {
 	void *join_retval;
 	int ret;
