@@ -72,6 +72,7 @@ add_library(tcmu_static
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
+  libtcmu_time.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
