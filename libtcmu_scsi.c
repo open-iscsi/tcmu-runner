@@ -25,6 +25,7 @@
 #include "libtcmu_device.h"
 #include "tcmur_cmd_handler.h"
 #include "libtcmu_alua.h"
+#include "libtcmu_scsi.h"
 
 static void _cleanup_spin_lock(void *arg)
 {
@@ -34,28 +35,25 @@ static void _cleanup_spin_lock(void *arg)
 void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			    int rc)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-
-	pthread_cleanup_push(_cleanup_spin_lock, (void *)&rdev->lock);
-	pthread_spin_lock(&rdev->lock);
+	pthread_cleanup_push(_cleanup_spin_lock, (void *)&dev->lock);
+	pthread_spin_lock(&dev->lock);
 
 	tcmulib_command_complete(dev, cmd, rc);
 
-	pthread_spin_unlock(&rdev->lock);
+	pthread_spin_unlock(&dev->lock);
 	pthread_cleanup_pop(0);
 }
 
 static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			       int rc)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int wake_up;
 
 	tcmur_command_complete(dev, cmd, rc);
-	track_aio_request_finish(rdev, &wake_up);
+	track_aio_request_finish(dev, &wake_up);
 	while (wake_up) {
 		tcmulib_processing_complete(dev);
-		track_aio_wakeup_finish(rdev, &wake_up);
+		track_aio_wakeup_finish(dev, &wake_up);
 	}
 }
 
@@ -1652,16 +1650,13 @@ static void caw_free_readcmd(struct tcmulib_cmd *readcmd)
 static void handle_caw_write_cbk(struct tcmu_device *dev,
 				 struct tcmulib_cmd *cmd, int ret)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-
-	pthread_mutex_unlock(&rdev->caw_lock);
+	pthread_mutex_unlock(&dev->caw_lock);
 	aio_command_finish(dev, cmd, ret);
 }
 
 static void handle_caw_read_cbk(struct tcmu_device *dev,
 				struct tcmulib_cmd *readcmd, int ret)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	uint32_t cmp_offset;
 	struct caw_state *state = readcmd->cmdstate;
 	struct tcmulib_cmd *origcmd = state->origcmd;
@@ -1692,7 +1687,7 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 	return;
 
 finish_err:
-	pthread_mutex_unlock(&rdev->caw_lock);
+	pthread_mutex_unlock(&dev->caw_lock);
 	aio_command_finish(dev, origcmd, ret);
 	caw_free_readcmd(readcmd);
 }
@@ -1720,7 +1715,6 @@ int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	int ret;
 	struct tcmulib_cmd *readcmd;
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 
         ret = handle_caw_check(dev, cmd);
         if (ret)
@@ -1734,13 +1728,13 @@ int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	readcmd->done = handle_caw_read_cbk;
 
-	pthread_mutex_lock(&rdev->caw_lock);
+	pthread_mutex_lock(&dev->caw_lock);
 
 	ret = async_handle_cmd(dev, readcmd, read_work_fn);
 	if (ret == TCMU_STS_ASYNC_HANDLED)
 		return TCMU_STS_ASYNC_HANDLED;
 
-	pthread_mutex_unlock(&rdev->caw_lock);
+	pthread_mutex_unlock(&dev->caw_lock);
 	caw_free_readcmd(readcmd);
 out:
 	return ret;
@@ -1952,7 +1946,6 @@ static int format_unit_work_fn(struct tcmu_device *dev,
 
 static void handle_format_unit_cbk(struct tcmu_device *dev,
 				   struct tcmulib_cmd *writecmd, int ret) {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmulib_cmd *origcmd = writecmd->cmdstate;
 	struct format_unit_state *state = origcmd->cmdstate;
 	int rc;
@@ -1961,7 +1954,7 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 	state->offset += state->length;
 	state->done_blocks += state->length / dev->block_size;
 	if (state->done_blocks < dev->num_lbas)
-		rdev->format_progress = (0x10000 * state->done_blocks) /
+		dev->format_progress = (0x10000 * state->done_blocks) /
 				       dev->num_lbas;
 
 	/* Check for last commmand */
@@ -2008,14 +2001,14 @@ free_iovec:
 free_cmd:
 	free(writecmd);
 	free(state);
-	pthread_mutex_lock(&rdev->format_lock);
-	rdev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
-	pthread_mutex_unlock(&rdev->format_lock);
+	pthread_mutex_lock(&dev->format_lock);
+	dev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
+	pthread_mutex_unlock(&dev->format_lock);
 	aio_command_finish(dev, origcmd, ret);
 }
 
-int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
 	struct tcmulib_cmd *writecmd;
 	struct format_unit_state *state;
 	size_t max_xfer_length, length = 1024 * 1024;
@@ -2023,16 +2016,16 @@ int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) {
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
 	int ret;
 
-	pthread_mutex_lock(&rdev->format_lock);
-	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING) {
-		pthread_mutex_unlock(&rdev->format_lock);
+	pthread_mutex_lock(&dev->format_lock);
+	if (dev->flags & TCMUR_DEV_FLAG_FORMATTING) {
+		pthread_mutex_unlock(&dev->format_lock);
 		tcmu_set_sense_key_specific_info(cmd->sense_buf,
-						 rdev->format_progress);
+						 dev->format_progress);
 		return TCMU_STS_FRMT_IN_PROGRESS;
 	}
-	rdev->format_progress = 0;
-	rdev->flags |= TCMUR_DEV_FLAG_FORMATTING;
-	pthread_mutex_unlock(&rdev->format_lock);
+	dev->format_progress = 0;
+	dev->flags |= TCMUR_DEV_FLAG_FORMATTING;
+	pthread_mutex_unlock(&dev->format_lock);
 
 	writecmd = calloc(1, sizeof(*writecmd));
 	if (!writecmd)
@@ -2078,9 +2071,9 @@ free_state:
 free_cmd:
 	free(writecmd);
 clear_format:
-	pthread_mutex_lock(&rdev->format_lock);
-	rdev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
-	pthread_mutex_unlock(&rdev->format_lock);
+	pthread_mutex_lock(&dev->format_lock);
+	dev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
+	pthread_mutex_unlock(&dev->format_lock);
 	return TCMU_STS_NO_RESOURCE;
 }
 
@@ -2139,11 +2132,9 @@ int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 void tcmur_set_pending_ua(struct tcmu_device *dev, int ua)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-
-	pthread_mutex_lock(&rdev->state_lock);
-	rdev->pending_uas |= (1 << ua);
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_lock(&dev->state_lock);
+	dev->pending_uas |= (1 << ua);
+	pthread_mutex_unlock(&dev->state_lock);
 }
 
 int tcmur_dev_update_size(struct tcmu_device *dev, unsigned long new_size)
@@ -2168,7 +2159,7 @@ int tcmur_dev_update_size(struct tcmu_device *dev, unsigned long new_size)
 /*
  * TODO - coordinate with the kernel.
  */
-int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
+int handle_pending_ua(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
 	int ret = TCMU_STS_NOT_HANDLED, ua;
@@ -2179,22 +2170,22 @@ int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
 		/* The kernel will handle REPORT_LUNS */
 		return TCMU_STS_NOT_HANDLED;
 	}
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&dev->state_lock);
 
-	if (!rdev->pending_uas) {
+	if (!dev->pending_uas) {
 		ret = TCMU_STS_NOT_HANDLED;
 		goto unlock;
 	}
 
-	ua = ffs(rdev->pending_uas) - 1;
+	ua = ffs(dev->pending_uas) - 1;
 	switch (ua) {
 	case TCMUR_UA_DEV_SIZE_CHANGED:
 		ret = TCMU_STS_CAPACITY_CHANGED;
 		break;
 	}
-	rdev->pending_uas &= ~(1 << ua);
+	dev->pending_uas &= ~(1 << ua);
 
 unlock:
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&dev->state_lock);
 	return ret;
 }

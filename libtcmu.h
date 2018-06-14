@@ -62,11 +62,8 @@ struct tcmulib_handler {
 	 */
 	bool (*check_config)(const char *cfgstring, char **reason);
 
-	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
-
+	int (*handle_cmds)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 	/* Per-device added/removed callbacks */
-	int (*added)(struct tcmu_device *dev);
-	void (*removed)(struct tcmu_device *dev);
 
 	void *hm_private; /* private ptr for handler module */
 	void *connection; /* private, dbus connection for this subtype */

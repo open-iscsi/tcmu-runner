@@ -39,6 +39,26 @@ struct tcmulib_context {
 	GDBusConnection *connection;
 };
 
+#define TCMUR_DEV_FLAG_FORMATTING	(1 << 0)
+#define TCMUR_DEV_FLAG_IN_RECOVERY	(1 << 1)
+#define TCMUR_DEV_FLAG_IS_OPEN		(1 << 2)
+#define TCMUR_DEV_FLAG_STOPPING		(1 << 3)
+#define TCMUR_DEV_FLAG_STOPPED		(1 << 4)
+
+#define TCMUR_UA_DEV_SIZE_CHANGED	0
+
+enum {
+	TMCUR_DEV_FAILOVER_ALL_ACTIVE,
+	TMCUR_DEV_FAILOVER_IMPLICIT,
+	TMCUR_DEV_FAILOVER_EXPLICIT,
+};
+
+enum {
+	TCMUR_DEV_LOCK_UNLOCKED,
+	TCMUR_DEV_LOCK_LOCKED,
+	TCMUR_DEV_LOCK_LOCKING,
+};
+
 struct tcmu_device {
 	int fd;
 
@@ -62,6 +82,37 @@ struct tcmu_device {
 
 	struct tcmulib_handler *handler;
 	struct tcmulib_context *ctx;
+
+	pthread_t cmdproc_thread;
+
+	/* TCMUR_DEV flags */
+	uint32_t flags;
+	uint8_t failover_type;
+
+	pthread_t recovery_thread;
+	struct list_node recovery_entry;
+
+	uint8_t lock_state;
+	pthread_t lock_thread;
+	pthread_cond_t lock_cond;
+
+	/* General lock for lock state, thread, dev state, etc */
+	pthread_mutex_t state_lock;
+	int pending_uas;
+
+	/*
+	 * lock order:
+	 *  work_queue->aio_lock
+	 *    track_queue->track_lock
+	 */
+        struct tcmu_io_queue work_queue;
+        struct tcmu_track_aio track_queue;
+
+	pthread_spinlock_t lock; /* protects concurrent updates to mailbox */
+	pthread_mutex_t caw_lock; /* for atomic CAW operation */
+
+	uint32_t format_progress;
+	pthread_mutex_t format_lock; /* for atomic format operations */
 
 	void *d_private; /* private ptr for the daemon */
 	void *hm_private; /* private ptr for handler module */
