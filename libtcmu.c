@@ -1023,6 +1023,7 @@ static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 	case TCMU_STS_BUSY:
 		return SAM_STAT_BUSY;
 	case TCMU_STS_PASSTHROUGH_ERR:
+	case TCMU_STS_UNIT_ATTENTION:
 		break;
 	/* Check Conditions below */
 	case TCMU_STS_RANGE:
@@ -1072,10 +1073,6 @@ static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 	case TCMU_STS_INVALID_CP_TGT_DEV_TYPE:
 		/* Invalid copy target device type */
 		tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D03);
-		break;
-	case TCMU_STS_CAPACITY_CHANGED:
-		/* Device capacity has changed */
-		tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A09);
 		break;
 	case TCMU_STS_TRANSITION:
 		/* ALUA state transition */

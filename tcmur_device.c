@@ -21,6 +21,7 @@
 #include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
 #include "target.h"
+#include "scsi/scsi.h"
 
 bool tcmu_dev_in_recovery(struct tcmu_device *dev)
 {
@@ -385,5 +386,54 @@ done:
 
 	tcmu_unblock_device(dev);
 
+	return ret;
+}
+
+void tcmu_dev_set_pending_ua(struct tcmu_device *dev, int ua)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+
+	pthread_mutex_lock(&rdev->state_lock);
+	rdev->pending_uas |= (1 << ua);
+	pthread_mutex_unlock(&rdev->state_lock);
+}
+
+/*
+ * TODO - coordinate with the kernel.
+ */
+int tcmu_dev_handle_pending_ua(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	uint8_t *cdb = cmd->cdb;
+	int ret = TCMU_STS_NOT_HANDLED, ua;
+
+	switch (cdb[0]) {
+	case INQUIRY:
+	case REQUEST_SENSE:
+		/* The kernel will handle REPORT_LUNS */
+		return TCMU_STS_NOT_HANDLED;
+	}
+	pthread_mutex_lock(&rdev->state_lock);
+
+	if (!rdev->pending_uas) {
+		ret = TCMU_STS_NOT_HANDLED;
+		goto unlock;
+	}
+
+	ua = ffs(rdev->pending_uas) - 1;
+	switch (ua) {
+	case TCMUR_UA_DEV_SIZE_CHANGED:
+		/* Device capacity has changed */
+		tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION, 0x2A09);
+		break;
+	default:
+		tcmu_dev_err(dev, "Unhandled UA %d\n", ua);
+		goto unlock;
+	}
+	ret = TCMU_STS_UNIT_ATTENTION;
+	rdev->pending_uas &= ~(1 << ua);
+
+unlock:
+	pthread_mutex_unlock(&rdev->state_lock);
 	return ret;
 }

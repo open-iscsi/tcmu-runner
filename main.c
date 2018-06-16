@@ -482,7 +482,7 @@ static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 
 	ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
 	if (!ret)
-		tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+		tcmu_dev_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
 
 	return ret;
 }

@@ -2359,52 +2359,9 @@ int tcmur_dev_update_size(struct tcmu_device *dev, unsigned long new_size)
 		if (ret)
 			tcmu_update_num_lbas(dev, old_size); /* Rolling back */
 		else
-			tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+			tcmu_dev_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
 	}
 
-	return ret;
-}
-
-void tcmur_set_pending_ua(struct tcmu_device *dev, int ua)
-{
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-
-	pthread_mutex_lock(&rdev->state_lock);
-	rdev->pending_uas |= (1 << ua);
-	pthread_mutex_unlock(&rdev->state_lock);
-}
-
-/*
- * TODO - coordinate with the kernel.
- */
-static int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
-{
-	uint8_t *cdb = cmd->cdb;
-	int ret = TCMU_STS_NOT_HANDLED, ua;
-
-	switch (cdb[0]) {
-	case INQUIRY:
-	case REQUEST_SENSE:
-		/* The kernel will handle REPORT_LUNS */
-		return TCMU_STS_NOT_HANDLED;
-	}
-	pthread_mutex_lock(&rdev->state_lock);
-
-	if (!rdev->pending_uas) {
-		ret = TCMU_STS_NOT_HANDLED;
-		goto unlock;
-	}
-
-	ua = ffs(rdev->pending_uas) - 1;
-	switch (ua) {
-	case TCMUR_UA_DEV_SIZE_CHANGED:
-		ret = TCMU_STS_CAPACITY_CHANGED;
-		break;
-	}
-	rdev->pending_uas &= ~(1 << ua);
-
-unlock:
-	pthread_mutex_unlock(&rdev->state_lock);
 	return ret;
 }
 
@@ -2413,7 +2370,7 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int ret;
 
-	ret = handle_pending_ua(rdev, cmd);
+	ret = tcmu_dev_handle_pending_ua(dev, cmd);
 	if (ret != TCMU_STS_NOT_HANDLED)
 		return ret;
 

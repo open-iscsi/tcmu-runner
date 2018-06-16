@@ -84,4 +84,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync, uint16_t tag);
 void tcmu_release_dev_lock(struct tcmu_device *dev);
 int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag);
 
+void tcmu_dev_set_pending_ua(struct tcmu_device *dev, int ua);
+int tcmu_dev_handle_pending_ua(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+;
 #endif
