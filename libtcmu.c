@@ -141,6 +141,22 @@ lookup_dev_by_name(struct tcmulib_context *ctx, char *dev_name, int *index)
 	return NULL;
 }
 
+struct tcmu_device *
+tcmulib_lookup_dev_by_tcmu_name(struct tcmulib_context *ctx, char *tcmu_name)
+{
+	struct tcmu_device **dev_ptr;
+	struct tcmu_device *dev;
+
+	darray_foreach(dev_ptr, ctx->devices) {
+		dev = *dev_ptr;
+
+		if (!strcmp(dev->tcm_dev_name, tcmu_name))
+			return dev;
+	}
+
+	return NULL;
+}
+
 static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 			   struct genl_info *info)
 {
