@@ -125,15 +125,6 @@ struct tcmur_handler {
 	 * indicating success/failure.
 	 */
 	int (*get_lock_tag)(struct tcmu_device *dev, uint16_t *tag);
-
-	/*
-	 * internal field, don't touch this
-	 *
-	 * indicates to tcmu-runner whether this is an internal handler loaded
-	 * via dlopen or an external handler registered via dbus. In the
-	 * latter case opaque will point to a struct dbus_info.
-	 */
-	bool _is_dbus_handler;
 };
 
 /*
@@ -147,7 +138,6 @@ struct tcmur_handler {
  * APIs for tcmur only
  */
 int tcmur_register_handler(struct tcmur_handler *handler);
-bool tcmur_unregister_handler(struct tcmur_handler *handler);
 
 /*
  * Misc
