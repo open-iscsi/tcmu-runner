@@ -2134,6 +2134,10 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	if (!rhandler->handle_cmd)
 		return TCMU_STS_NOT_HANDLED;
 
+	ret = tcmu_dev_handle_pending_ua(dev, cmd);
+	if (ret != TCMU_STS_NOT_HANDLED)
+		return ret;
+
 	/*
 	 * Support handlers that implement their own threading/AIO
 	 * and only use runner's main event loop.
