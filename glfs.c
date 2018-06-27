@@ -481,6 +481,7 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 	struct stat st;
 	int ret = -EIO;
 	long long dev_size;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
 
 	gfsp = calloc(1, sizeof(*gfsp));
 	if (!gfsp)
@@ -513,8 +514,16 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 		goto close;
 	}
 
-	dev_size = tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev);
+	dev_size = tcmu_get_dev_num_lbas(dev) * block_size;
 	if (st.st_size != dev_size) {
+		/*
+		 * The glfs allows the backend file size not to align
+		 * to the block_size. But the dev_size here in tcmu-runner
+		 * will round down and align it to the block_size.
+		 */
+		if (round_down(st.st_size, block_size) == dev_size)
+			goto out;
+
 		if (!reopen) {
 			ret = -EINVAL;
 			goto close;
@@ -534,6 +543,7 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 			goto close;
 	}
 
+out:
 	return 0;
 close:
 	glfs_close(gfsp->gfd);
