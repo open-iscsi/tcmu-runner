@@ -22,7 +22,7 @@ tcmu-runner is LGPLv2.1 or Apache License 2.0.
 
 ### Releases
 
-Tarballs are available from https://fedorahosted.org/released/tcmu-runner/ .
+Tarballs are available from https://github.com/open-iscsi/tcmu-runner/releases.
 
 ### Development
 
