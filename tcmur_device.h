@@ -1,18 +1,10 @@
 /*
- * Copyright 2017, Red Hat, Inc.
+ * Copyright (c) 2017 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
-*/
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
 
 #ifndef __TCMUR_DEVICE_H
 #define __TCMUR_DEVICE_H
@@ -34,13 +26,13 @@
 enum {
 	TMCUR_DEV_FAILOVER_ALL_ACTIVE,
 	TMCUR_DEV_FAILOVER_IMPLICIT,
+	TMCUR_DEV_FAILOVER_EXPLICIT,
 };
 
 enum {
 	TCMUR_DEV_LOCK_UNLOCKED,
 	TCMUR_DEV_LOCK_LOCKED,
 	TCMUR_DEV_LOCK_LOCKING,
-	TCMUR_DEV_LOCK_UNKNOWN,
 };
 
 struct tcmur_device {
@@ -85,10 +77,11 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev);
 void tcmu_notify_conn_lost(struct tcmu_device *dev);
 void tcmu_notify_lock_lost(struct tcmu_device *dev);
 
-int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread);
-int tcmu_reopen_dev(struct tcmu_device *dev);
+int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries);
+int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries);
 
-int tcmu_acquire_dev_lock(struct tcmu_device *dev);
-void tcmu_update_dev_lock_state(struct tcmu_device *dev);
+int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync, uint16_t tag);
+void tcmu_release_dev_lock(struct tcmu_device *dev);
+int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag);
 
 #endif

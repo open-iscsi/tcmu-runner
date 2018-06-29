@@ -1,18 +1,10 @@
 /*
- * Copyright 2014, Red Hat, Inc.
+ * Copyright (c) 2014 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
-*/
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
 
 /*
  * Example code to demonstrate how a TCMU handler might work.
@@ -48,7 +40,7 @@ struct file_state {
 	int fd;
 };
 
-static int file_open(struct tcmu_device *dev)
+static int file_open(struct tcmu_device *dev, bool reopen)
 {
 	struct file_state *state;
 	char *config;
@@ -103,8 +95,7 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = preadv(state->fd, iov, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_READ_ERROR, NULL);
+			ret = TCMU_STS_RD_ERR;
 			goto done;
 		}
 
@@ -118,10 +109,10 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -136,18 +127,17 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = pwritev(state->fd, iov, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_WRITE_ERROR, NULL);
+			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
 		tcmu_seek_in_iovec(iov, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -157,14 +147,13 @@ static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	if (fsync(state->fd)) {
 		tcmu_err("sync failed\n");
-		ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-					  ASC_WRITE_ERROR, NULL);
+		ret = TCMU_STS_WR_ERR;
 		goto done;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)

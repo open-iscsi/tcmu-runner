@@ -1,17 +1,9 @@
 /*
  * Copyright 2016, China Mobile, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 #define _GNU_SOURCE
@@ -74,6 +66,10 @@
 #endif
 #endif
 
+#define TCMU_RBD_LOCKER_TAG_KEY "tcmu_rbd_locker_tag"
+#define TCMU_RBD_LOCKER_TAG_FMT "tcmu_tag=%hu,rbd_client=%s"
+#define TCMU_RBD_LOCKER_BUF_LEN 256
+
 struct tcmu_rbd_state {
 	rados_t cluster;
 	rados_ioctx_t io_ctx;
@@ -83,29 +79,32 @@ struct tcmu_rbd_state {
 	char *pool_name;
 	char *osd_op_timeout;
 	char *conf_path;
+	char *id;
 };
 
 enum rbd_aio_type {
-        RBD_AIO_TYPE_WRITE = 0,
-        RBD_AIO_TYPE_READ,
-        RBD_AIO_TYPE_CAW
+	RBD_AIO_TYPE_WRITE = 0,
+	RBD_AIO_TYPE_READ,
+	RBD_AIO_TYPE_CAW
 };
 
 struct rbd_aio_cb {
-        struct tcmu_device *dev;
-        struct tcmulib_cmd *tcmulib_cmd;
+	struct tcmu_device *dev;
+	struct tcmulib_cmd *tcmulib_cmd;
 
-        enum rbd_aio_type type;
-        union {
-                struct {
-                        int64_t length;
-                } read;
-                struct {
-                        uint64_t offset;
-                        uint64_t miscompare_offset;
-                } caw;
-        };
-        char *bounce_buffer;
+	enum rbd_aio_type type;
+	union {
+		struct {
+			int64_t length;
+		} read;
+		struct {
+			uint64_t offset;
+			uint64_t miscompare_offset;
+		} caw;
+	};
+	char *bounce_buffer;
+	struct iovec *iov;
+	size_t iov_cnt;
 };
 
 #ifdef LIBRADOS_SUPPORTS_SERVICES
@@ -269,7 +268,7 @@ static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 	rados_buffer_free(mon_status_buf);
 
 	/* expected JSON output: "{..."crush_rule":"<rule name>"...}" */
-	mon_buf[mon_buf_len] = '\0';
+	mon_buf[mon_buf_len - 1] = '\0';
 	crush_rule = strstr(mon_buf, "\"crush_rule\":\"");
 	if (!crush_rule) {
 		tcmu_dev_warn(dev, "Could not locate crush rule key\n");
@@ -316,7 +315,7 @@ static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 	rados_buffer_free(mon_status_buf);
 
 	/* expected JSON output: ["<rule name>",["<rule name>"...]] */
-	mon_buf[mon_buf_len] = '\0';
+	mon_buf[mon_buf_len - 1] = '\0';
 	if (strstr(mon_buf, crush_rule)) {
 		tcmu_dev_dbg(dev, "Pool %s associated to SSD device class.\n",
 			     state->pool_name);
@@ -417,7 +416,7 @@ static int tcmu_rbd_image_open(struct tcmu_device *dev)
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	int ret;
 
-	ret = rados_create(&state->cluster, NULL);
+	ret = rados_create(&state->cluster, state->id);
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not create cluster. (Err %d)\n", ret);
 		return ret;
@@ -511,35 +510,16 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	return 0;
 }
 
-static int tcmu_rbd_get_lock_state(struct tcmu_device *dev)
-{
-	int ret;
-
-	ret = tcmu_rbd_has_lock(dev);
-	if (ret == 1)
-		return TCMUR_DEV_LOCK_LOCKED;
-	else if (ret == 0 || ret == -ESHUTDOWN)
-		return TCMUR_DEV_LOCK_UNLOCKED;
-	else
-		return TCMUR_DEV_LOCK_UNKNOWN;
-}
-
 /**
  * tcmu_rbd_lock_break - break rbd exclusive lock if needed
  * @dev: device to break the lock for.
- * @orig_owner: if non null, only break the lock if get owners matches
- *
- * If orig_owner is null and tcmu_rbd_lock_break fails to break the lock
- * for a retryable error (-EAGAIN) the owner of the lock will be returned.
- * The caller must free the string returned.
  *
  * Returns:
  * 0 = lock has been broken.
- * -EAGAIN = retryable error
  * -ETIMEDOUT = could not complete operation in rados osd op timeout seconds.
- * -EIO = hard failure.
+ * -Ezyx = misc failure.
  */
-static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
+static int tcmu_rbd_lock_break(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	rbd_lock_mode_t lock_mode;
@@ -553,11 +533,9 @@ static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
 		return 0;
 
 	if (ret < 0) {
-		tcmu_dev_err(dev, "Could not get lock owners %d\n", ret);
-		if (ret == -ETIMEDOUT)
-			return ret;
-		else
-			return -EAGAIN;
+		tcmu_dev_err(dev, "Could not get lock owners to break lock %d\n",
+			     ret);
+		return ret;
 	}
 
 	if (lock_mode != RBD_LOCK_MODE_EXCLUSIVE) {
@@ -566,89 +544,193 @@ static int tcmu_rbd_lock_break(struct tcmu_device *dev, char **orig_owner)
 		goto free_owners;
 	}
 
-	if (*orig_owner && strcmp(*orig_owner, owners[0])) {
-		/* someone took the lock while we were retrying */
-		ret = -EIO;
-		goto free_owners;
-	}
-
 	tcmu_dev_dbg(dev, "Attempting to break lock from %s.\n", owners[0]);
 
 	ret = rbd_lock_break(state->image, lock_mode, owners[0]);
-	if (ret < 0) {
+	if (ret < 0)
 		tcmu_dev_err(dev, "Could not break lock from %s. (Err %d)\n",
 			     owners[0], ret);
-		if (ret == -ETIMEDOUT)
-			goto free_owners;
-
-		ret = -EAGAIN;
-		if (!*orig_owner) {
-			*orig_owner = strdup(owners[0]);
-			if (!*orig_owner)
-				ret = -EIO;
-		}
-	}
-
 free_owners:
 	rbd_lock_get_owners_cleanup(owners, num_owners);
 	return ret;
 }
 
-static int tcmu_rbd_lock(struct tcmu_device *dev)
+static int tcmu_rbd_to_sts(int rc)
+{
+	switch (rc) {
+	case 0:
+		return TCMU_STS_OK;
+	case -ESHUTDOWN:
+		return TCMU_STS_FENCED;
+	case -ENOENT:
+		return TCMU_STS_NO_LOCK_HOLDERS;
+	case -ETIMEDOUT:
+		return TCMU_STS_TIMEOUT;
+	case -ENOMEM:
+		return TCMU_STS_NO_RESOURCE;
+	default:
+		return TCMU_STS_HW_ERR;
+	}
+}
+
+static int tcmu_rbd_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
-	int ret = 0, attempts = 0;
-	char *orig_owner = NULL;
+	char *metadata_owner, *owners[1];
+	size_t num_owners = 1;
+	rbd_lock_mode_t lock_mode;
+	char buf[TCMU_RBD_LOCKER_BUF_LEN];
+	size_t buf_len = TCMU_RBD_LOCKER_BUF_LEN;
+	int ret;
 
-	/*
-	 * TODO: Add retry/timeout settings to handle windows/ESX.
-	 * Or, set to transitioning and grab the lock in the background.
-	 */
-	while (attempts++ < 5) {
-		ret = tcmu_rbd_has_lock(dev);
-		if (ret == 1) {
-			ret = 0;
-			break;
-		} else if (ret == -ETIMEDOUT ||  ret == -ESHUTDOWN) {
-			break;
-		} else if (ret < 0) {
-			sleep(1);
-			continue;
-		}
+	memset(buf, 0, buf_len);
 
-		ret = tcmu_rbd_lock_break(dev, &orig_owner);
-		if (ret == -EIO || ret == -ETIMEDOUT) {
-			break;
-		} else if (ret == -EAGAIN) {
-			sleep(1);
-			continue;
-		}
+	ret = rbd_metadata_get(state->image, TCMU_RBD_LOCKER_TAG_KEY,
+			      buf, &buf_len);
+	tcmu_dev_dbg(dev, "get meta got %d %s\n", ret, buf);
+	if (ret)
+		goto done;
 
-		ret = rbd_lock_acquire(state->image, RBD_LOCK_MODE_EXCLUSIVE);
-		if (!ret) {
-			tcmu_dev_warn(dev, "Acquired exclusive lock.\n");
-			break;
-		} else if (ret == -ETIMEDOUT) {
-			break;
-		}
-
-		tcmu_dev_err(dev, "Unknown error %d while trying to acquire lock.\n",
-			     ret);
+	ret = rbd_lock_get_owners(state->image, &lock_mode, owners,
+				  &num_owners);
+	tcmu_dev_dbg(dev, "get lockowner got %d\n", ret);
+	if (ret)
+		goto done;
+	if (!num_owners) {
+		/* there would be stale metadata due to a crash */
+		ret = -ENOENT;
+		goto done;
 	}
 
-	if (orig_owner)
-		free(orig_owner);
+	metadata_owner = strstr(buf, "rbd_client=");
+	if (!metadata_owner) {
+		tcmu_dev_err(dev, "Invalid lock tag %s.\n", buf);
+		/* Force initiator to retry STPG */
+		ret = -ENOENT;
+		goto free_owners;
+	}
 
-	if (ret == -ETIMEDOUT || ret == -ESHUTDOWN)
-		ret = TCMUR_LOCK_NOTCONN;
-	else if (ret)
-		ret = TCMUR_LOCK_FAILED;
-	else
-		ret = TCMUR_LOCK_SUCCESS;
+	metadata_owner += 11;
+	if (strcmp(metadata_owner, owners[0])) {
+		tcmu_dev_dbg(dev, "owner mismatch %s %s\n", metadata_owner,
+			     owners[0]);
+		/*
+		 * A node could be in the middle of grabbing the lock or it
+		 * failed midway. Force tcmu to report all standby so the
+		 * initiator retries the STPG for the failure case.
+		 */
+		ret = -ENOENT;
+		goto free_owners;
+	}
 
-	tcmu_rbd_service_status_update(dev, ret == TCMUR_LOCK_SUCCESS ?
-				       true : false);
+	ret = sscanf(buf, "tcmu_tag=%hu,%*s", tag);
+	if (ret != 1) {
+		tcmu_dev_err(dev, "Invalid lock tag %s.\n", buf);
+		/* Force initiator to retry STPG */
+		ret = -ENOENT;
+		goto free_owners;
+	}
+	ret = 0;
+
+free_owners:
+	if (num_owners)
+		rbd_lock_get_owners_cleanup(owners, num_owners);
+
+done:
+	return tcmu_rbd_to_sts(ret);
+}
+
+static int tcmu_rbd_set_lock_tag(struct tcmu_device *dev, uint16_t tcmu_tag)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	rbd_lock_mode_t lock_mode;
+	char *owners[1];
+	size_t num_owners = 1;
+	char *tcmu_rbd_tag;
+	int ret;
+
+	/*
+	 * We cannot take the lock and set the tag atomically. In case
+	 * we fail here and are in an inconsistent state, we attach the rbd
+	 * client lock info along with the tcmu locker tag so remote nodes
+	 * can check the rbd info against rbd_lock_get_owners to determine if
+	 * the tcmu locker tag is current/valid.
+	 */
+	ret = rbd_lock_get_owners(state->image, &lock_mode, owners,
+				  &num_owners);
+	tcmu_dev_dbg(dev, "set tag get lockowner got %d %d\n", ret, num_owners);
+	if (ret)
+		return ret;
+
+	if (!num_owners)
+		return -ENOENT;
+
+	ret = asprintf(&tcmu_rbd_tag, TCMU_RBD_LOCKER_TAG_FMT, tcmu_tag,
+		       owners[0]);
+	if (ret < 0) {
+		ret = -ENOMEM;
+		goto free_owners;
+	}
+
+	ret = rbd_metadata_set(state->image, TCMU_RBD_LOCKER_TAG_KEY,
+			       tcmu_rbd_tag);
+	free(tcmu_rbd_tag);
+	if (ret)
+		tcmu_dev_err(dev, "Could not store lock tag. Err %d.\n", ret);
+
+free_owners:
+	if (num_owners)
+		rbd_lock_get_owners_cleanup(owners, num_owners);
 	return ret;
+}
+
+static int tcmu_rbd_unlock(struct tcmu_device *dev)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	int ret;
+
+	if (tcmu_rbd_has_lock(dev) != 1)
+		return TCMU_STS_OK;
+
+	ret = rbd_lock_release(state->image);
+	if (!ret)
+		return TCMU_STS_OK;
+
+	tcmu_dev_err(dev, "Could not release lock. Err %d.\n", ret);
+	return tcmu_rbd_to_sts(ret);
+}
+
+static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	int ret;
+
+	ret = tcmu_rbd_has_lock(dev);
+	if (ret == 1) {
+		ret = 0;
+		/*
+		 * We might have failed after getting the lock, but
+		 * before we set the meta data.
+		 */
+		goto set_lock_tag;
+	} else if (ret)
+		goto done;
+
+	ret = tcmu_rbd_lock_break(dev);
+	if (ret)
+		goto done;
+
+	ret = rbd_lock_acquire(state->image, RBD_LOCK_MODE_EXCLUSIVE);
+	if (ret)
+		goto done;
+
+set_lock_tag:
+	tcmu_dev_warn(dev, "Acquired exclusive lock.\n");
+	ret = tcmu_rbd_set_lock_tag(dev, tag);
+
+done:
+	tcmu_rbd_service_status_update(dev, ret == 0 ? true : false);
+	return tcmu_rbd_to_sts(ret);
 }
 
 static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
@@ -687,6 +769,8 @@ static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 		free(state->image_name);
 	if (state->pool_name)
 		free(state->pool_name);
+	if (state->id)
+		free(state->id);
 	free(state);
 }
 
@@ -712,7 +796,7 @@ static int tcmu_rbd_check_image_size(struct tcmu_device *dev, uint64_t new_size)
 	return 0;
 }
 
-static int tcmu_rbd_open(struct tcmu_device *dev)
+static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 {
 	rbd_image_info_t image_info;
 	char *pool, *name, *next_opt;
@@ -773,7 +857,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 
 	/* The next options are optional */
 	next_opt = strtok(NULL, ";");
-	if (next_opt) {
+	while (next_opt) {
 		if (!strncmp(next_opt, "osd_op_timeout=", 15)) {
 			state->osd_op_timeout = strdup(next_opt + 15);
 			if (!state->osd_op_timeout ||
@@ -782,14 +866,22 @@ static int tcmu_rbd_open(struct tcmu_device *dev)
 				tcmu_dev_err(dev, "Could not copy osd op timeout.\n");
 				goto free_config;
 			}
-		} else if (strncmp(next_opt, "conf=", 5)) {
+		} else if (!strncmp(next_opt, "conf=", 5)) {
 			state->conf_path = strdup(next_opt + 5);
 			if (!state->conf_path || !strlen(state->conf_path)) {
 				ret = -ENOMEM;
 				tcmu_dev_err(dev, "Could not copy conf path.\n");
 				goto free_config;
 			}
+		} else if (!strncmp(next_opt, "id=", 3)) {
+			state->id = strdup(next_opt + 3);
+			if (!state->id || !strlen(state->id)) {
+				ret = -ENOMEM;
+				tcmu_dev_err(dev, "Could not copy id.\n");
+				goto free_config;
+			}
 		}
+		next_opt = strtok(NULL, ";");
 	}
 
 	ret = tcmu_rbd_image_open(dev);
@@ -842,8 +934,7 @@ static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,
 	 * running IO is failed due to librbd's immediate blacklisting
 	 * during lock acquisition on a higher priority path.
 	 */
-	return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
-				   ASC_STATE_TRANSITION, NULL);
+	return TCMU_STS_TRANSITION;
 }
 
 /*
@@ -869,7 +960,7 @@ static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev,
 	 * result in us getting blacklisted, so fail with a retryable
 	 * error.
 	 */
-	return SAM_STAT_BUSY;
+	return TCMU_STS_TIMEOUT;
 }
 
 #ifdef RBD_IOVEC_SUPPORT
@@ -943,10 +1034,9 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 {
 	struct tcmu_device *dev = aio_cb->dev;
 	struct tcmulib_cmd *tcmulib_cmd = aio_cb->tcmulib_cmd;
-	struct iovec *iovec = tcmulib_cmd->iovec;
-	size_t iov_cnt = tcmulib_cmd->iov_cnt;
+	struct iovec *iov = aio_cb->iov;
+	size_t iov_cnt = aio_cb->iov_cnt;
 	uint32_t cmp_offset;
-	uint16_t asc_ascq;
 	int64_t ret;
 	int tcmu_r;
 
@@ -961,29 +1051,23 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		cmp_offset = aio_cb->caw.miscompare_offset - aio_cb->caw.offset;
 		tcmu_dev_dbg(dev, "CAW miscompare at offset %u.\n", cmp_offset);
 
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     MISCOMPARE,
-					     ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					     &cmp_offset);
+		tcmu_r = TCMU_STS_MISCOMPARE;
+		tcmu_set_sense_info(tcmulib_cmd->sense_buf, cmp_offset);
 	} else if (ret == -EINVAL) {
 		tcmu_dev_err(dev, "Invalid IO request.\n");
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     ILLEGAL_REQUEST,
-					     ASC_INVALID_FIELD_IN_CDB, NULL);
+		tcmu_r = TCMU_STS_INVALID_CDB;
 	} else if (ret < 0) {
 		tcmu_dev_err(dev, "Got fatal IO error %d.\n", ret);
 
 		if (aio_cb->type == RBD_AIO_TYPE_READ)
-			asc_ascq = ASC_READ_ERROR;
+			tcmu_r = TCMU_STS_RD_ERR;
 		else
-			asc_ascq = ASC_WRITE_ERROR;
-		tcmu_r = tcmu_set_sense_data(tcmulib_cmd->sense_buf,
-					     MEDIUM_ERROR, asc_ascq, NULL);
+			tcmu_r = TCMU_STS_WR_ERR;
 	} else {
-		tcmu_r = SAM_STAT_GOOD;
+		tcmu_r = TCMU_STS_OK;
 		if (aio_cb->type == RBD_AIO_TYPE_READ &&
 		    aio_cb->bounce_buffer) {
-			tcmu_memcpy_into_iovec(iovec, iov_cnt,
+			tcmu_memcpy_into_iovec(iov, iov_cnt,
 					       aio_cb->bounce_buffer,
 					       aio_cb->read.length);
 		}
@@ -1014,6 +1098,8 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	aio_cb->type = RBD_AIO_TYPE_READ;
 	aio_cb->read.length = length;
 	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->iov = iov;
+	aio_cb->iov_cnt = iov_cnt;
 
 	ret = rbd_aio_create_completion
 		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
@@ -1026,14 +1112,14 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (ret < 0)
 		goto out_release_tracked_aio;
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_release_tracked_aio:
 	rbd_aio_release(completion);
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -1066,14 +1152,14 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		goto out_release_tracked_aio;
 	}
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_release_tracked_aio:
 	rbd_aio_release(completion);
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 #ifdef RBD_DISCARD_SUPPORT
@@ -1105,14 +1191,14 @@ static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (ret < 0)
 		goto out_remove_tracked_aio;
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 #endif /* RBD_DISCARD_SUPPORT */
 
@@ -1123,7 +1209,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
-	ssize_t ret = -ENOMEM;
+	ssize_t ret;
 
 	aio_cb = calloc(1, sizeof(*aio_cb));
 	if (!aio_cb) {
@@ -1147,14 +1233,14 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		goto out_remove_tracked_aio;
 	}
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 #endif
@@ -1201,7 +1287,7 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 	if (ret < 0)
 		goto out_remove_tracked_aio;
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
@@ -1210,7 +1296,7 @@ out_free_bounce_buffer:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 #endif /* RBD_WRITE_SAME_SUPPORT */
 
@@ -1260,7 +1346,7 @@ static int tcmu_rbd_aio_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (ret < 0)
 		goto out_remove_tracked_aio;
 
-	return 0;
+	return TCMU_STS_OK;
 
 out_remove_tracked_aio:
 	rbd_aio_release(completion);
@@ -1269,12 +1355,12 @@ out_free_bounce_buffer:
 out_free_aio_cb:
 	free(aio_cb);
 out:
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 #endif /* RBD_COMPARE_AND_WRITE_SUPPORT */
 
 /*
- * Return scsi status or TCMU_NOT_HANDLED
+ * Return scsi status or TCMU_STS_NOT_HANDLED
  */
 static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
@@ -1294,7 +1380,7 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		break;
 #endif
 	default:
-		ret = TCMU_NOT_HANDLED;
+		ret = TCMU_STS_NOT_HANDLED;
 	}
 
 	return ret;
@@ -1336,7 +1422,8 @@ static const char tcmu_rbd_cfg_desc[] =
 	"poolname:	Existing RADOS pool\n"
 	"devicename:	Name of the RBD image\n"
 	"optionN:	Like: \"osd_op_timeout=30\" in secs\n"
-	"                     \"conf=/etc/ceph/cluster.conf\"\n";
+	"                     \"conf=/etc/ceph/cluster.conf\"\n"
+	"                     \"id=user\"\n";
 
 struct tcmur_handler tcmu_rbd_handler = {
 	.name	       = "Ceph RBD handler",
@@ -1356,7 +1443,8 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.handle_cmd    = tcmu_rbd_handle_cmd,
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
 	.lock          = tcmu_rbd_lock,
-	.get_lock_state = tcmu_rbd_get_lock_state,
+	.unlock        = tcmu_rbd_unlock,
+	.get_lock_tag  = tcmu_rbd_get_lock_tag,
 #endif
 };
 

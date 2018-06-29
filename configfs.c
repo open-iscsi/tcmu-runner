@@ -1,18 +1,10 @@
 /*
- * Copyright 2017, Red Hat, Inc.
+ * Copyright (c) 2017 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
-*/
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
 
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -68,6 +60,17 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 	return tcmu_get_cfgfs_int(path);
 }
 
+int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val)
+{
+	char path[PATH_MAX];
+	char buf[CFGFS_BUF_SIZE];
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/control",
+		 dev->tcm_hba_name, dev->tcm_dev_name);
+	snprintf(buf, sizeof(buf), "%s=%lu", key, val);
+
+	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
+}
 
 /*
  * Return a string that contains the device's WWN, or NULL.
@@ -115,7 +118,16 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 	return ret_buf;
 }
 
-long long tcmu_get_device_size(struct tcmu_device *dev)
+int tcmu_set_dev_size(struct tcmu_device *dev)
+{
+	long long dev_size;
+
+	dev_size = tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev);
+
+	return tcmu_set_control(dev, "dev_size", dev_size);
+}
+
+long long tcmu_get_dev_size(struct tcmu_device *dev)
 {
 	int fd;
 	char path[PATH_MAX];
@@ -162,7 +174,7 @@ long long tcmu_get_device_size(struct tcmu_device *dev)
 
 char *tcmu_get_cfgfs_str(const char *path)
 {
-	int fd;
+	int fd, n;
 	char buf[CFGFS_BUF_SIZE];
 	ssize_t ret;
 	char *val;
@@ -185,6 +197,18 @@ char *tcmu_get_cfgfs_str(const char *path)
 
 	if (ret == 0)
 		return NULL;
+
+	/*
+	 * Some files like members will terminate each member/line with a null
+	 * char. Except for the last one, replace it with '\n' so parsers will
+	 * just see an empty member.
+	 */
+	if (ret != strlen(buf)) {
+		do {
+			n = strlen(buf);
+			buf[n] = '\n';
+		} while (n < ret);
+	}
 
 	/*
 	 * Some files like members ends with a null char, but other files like
@@ -245,6 +269,19 @@ int tcmu_set_cfgfs_ul(const char *path, unsigned long val)
 
 	sprintf(buf, "%lu", val);
 	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
+}
+
+bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name)
+{
+	char path[PATH_MAX];
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/%s",
+		 dev->tcm_hba_name, dev->tcm_dev_name, name);
+
+	if (access(path, F_OK) == -1)
+		return false;
+
+	return true;
 }
 
 int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,

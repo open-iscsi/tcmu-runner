@@ -1,17 +1,9 @@
 /*
- * Copyright 2017, Red Hat, Inc.
+ * Copyright (c) 2017 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 #define _GNU_SOURCE
@@ -57,12 +49,15 @@ void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			       int rc)
 {
-	int wakeup;
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	int wake_up;
 
-	track_aio_request_finish(tcmu_get_daemon_dev_private(dev), &wakeup);
 	tcmur_command_complete(dev, cmd, rc);
-	if (wakeup)
+	track_aio_request_finish(rdev, &wake_up);
+	while (wake_up) {
 		tcmulib_processing_complete(dev);
+		track_aio_wakeup_finish(rdev, &wake_up);
+	}
 }
 
 static int alloc_iovec(struct tcmulib_cmd *cmd, size_t length)
@@ -105,16 +100,13 @@ static inline int check_iovec_length(struct tcmu_device *dev,
 				     struct tcmulib_cmd *cmd, uint32_t sectors)
 {
         size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
-	uint8_t *sense = cmd->sense_buf;
 
         if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
                 tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
                              iov_length, sectors, tcmu_get_dev_block_size(dev));
-
-                return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-                                           ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_HW_ERR;
         }
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static inline int check_lbas(struct tcmu_device *dev,
@@ -125,10 +117,10 @@ static inline int check_lbas(struct tcmu_device *dev,
 	if (start_lba + lba_cnt > dev_last_lba || start_lba + lba_cnt < start_lba) {
 		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %llu, xfer len %lu)\n",
 			     dev_last_lba, start_lba, lba_cnt);
-		return -1;
+		return TCMU_STS_RANGE;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int check_lba_and_length(struct tcmu_device *dev,
@@ -136,7 +128,6 @@ static int check_lba_and_length(struct tcmu_device *dev,
 {
 	uint8_t *cdb = cmd->cdb;
 	uint64_t start_lba = tcmu_get_lba(cdb);
-	uint8_t *sense = cmd->sense_buf;
 	int ret;
 
 	ret = check_iovec_length(dev, cmd, sectors);
@@ -145,10 +136,9 @@ static int check_lba_and_length(struct tcmu_device *dev,
 
 	ret = check_lbas(dev, start_lba, sectors);
 	if (ret)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return ret;
 
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static void handle_generic_cbk(struct tcmu_device *dev,
@@ -196,7 +186,6 @@ static struct unmap_state *unmap_state_alloc(struct tcmu_device *dev,
 					     struct tcmulib_cmd *cmd,
 					     int *return_err)
 {
-	uint8_t *sense = cmd->sense_buf;
 	struct unmap_state *state;
 	int ret;
 
@@ -205,18 +194,14 @@ static struct unmap_state *unmap_state_alloc(struct tcmu_device *dev,
 	state = calloc(1, sizeof(*state));
 	if (!state) {
 		tcmu_dev_err(dev, "Failed to calloc memory for unmap_state!\n");
-		*return_err = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
+		*return_err = TCMU_STS_NO_RESOURCE;
 		return NULL;
 	}
 
 	ret = pthread_mutex_init(&state->lock, NULL);
 	if (ret == -1) {
 		tcmu_dev_err(dev, "Failed to init spin lock in state!\n");
-		*return_err = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
+		*return_err = TCMU_STS_HW_ERR;
 		goto out_free_state;
 	}
 
@@ -250,10 +235,9 @@ static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd,
 	pthread_mutex_lock(&state->lock);
 	error = state->error;
 	/*
-	 * Make sure to only copy the first scsi status and/or sense.
+	 * Make sure to only copy the first error
 	 */
 	if (!error && ret) {
-		tcmu_copy_cmd_sense_data(origcmd, ucmd);
 		state->error = true;
 		state->status = ret;
 	}
@@ -290,10 +274,9 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 {
 	struct unmap_state *state = origcmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint8_t *sense = origcmd->sense_buf;
 	uint64_t opt_unmap_gran;
 	uint64_t unmap_gran_align, mask;
-	int ret = TCMU_NOT_HANDLED;
+	int ret = TCMU_STS_NOT_HANDLED;
 	int j = 0;
 	struct unmap_descriptor *desc;
 	struct tcmulib_cmd *ucmd;
@@ -325,17 +308,13 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 		desc = calloc(1, sizeof(*desc));
 		if (!desc) {
 			tcmu_dev_err(dev, "Failed to calloc desc!\n");
-			return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						   ASC_INTERNAL_TARGET_FAILURE,
-						   NULL);
+			return TCMU_STS_NO_RESOURCE;
 		}
 
 		ucmd = calloc(1, sizeof(*ucmd));
 		if (!ucmd) {
 			tcmu_dev_err(dev, "Failed to calloc unmapcmd!\n");
-			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
+			ret = TCMU_STS_NO_RESOURCE;
 			goto free_desc;
 		}
 
@@ -357,10 +336,8 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 		}
 
 		ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
-		if (ret != TCMU_ASYNC_HANDLED) {
-			tcmu_copy_cmd_sense_data(origcmd, ucmd);
+		if (ret != TCMU_STS_ASYNC_HANDLED)
 			goto free_ucmd;
-		}
 
 		nlbas -= lbas;
 		lba += lbas;
@@ -383,9 +360,8 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 				 uint16_t bddl, uint8_t *par)
 {
 	struct unmap_state *state = origcmd->cmdstate;
-	uint8_t *sense = origcmd->sense_buf;
 	uint16_t offset = 0;
-	int ret = SAM_STAT_GOOD, i = 0, refcount;
+	int ret = TCMU_STS_OK, i = 0, refcount;
 
 	/* The first descriptor list offset is 8 in Data-Out buffer */
 	par += 8;
@@ -404,22 +380,17 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
 			tcmu_dev_err(dev, "Illegal parameter list LBA count %lu exceeds:%u\n",
 				     nlbas, VPD_MAX_UNMAP_LBA_COUNT);
-			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-						  NULL);
+			ret = TCMU_STS_INVALID_PARAM_LIST;
 			goto state_unlock;
 		}
 
 		ret = check_lbas(dev, lba, nlbas);
-		if (ret) {
-			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						  ASC_LBA_OUT_OF_RANGE, NULL);
+		if (ret)
 			goto state_unlock;
-		}
 
 		if (nlbas) {
 			ret = align_and_split_unmap(dev, origcmd, lba, nlbas);
-			if (ret != TCMU_ASYNC_HANDLED)
+			if (ret != TCMU_STS_ASYNC_HANDLED)
 				goto state_unlock;
 		}
 
@@ -430,13 +401,13 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 state_unlock:
 	/*
 	 * If all calls are successful and nlbas > 0 for all bddls, the
-	 * status should be set to TCMU_ASYNC_HANDLED, or will be the error
+	 * status should be set to TCMU_STS_ASYNC_HANDLED, or will be the error
 	 * code. If all nlbas = 0 for all bddls, then we can just return
 	 * GOOD status.
 	 */
 	state->status = ret;
 
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		state->error = true;
 
 	refcount = state->refcount;
@@ -447,7 +418,7 @@ state_unlock:
 		 * Some unmaps have been dispatched, so the cbk will handle
 		 * releasing of resources and returning the error.
 		 */
-		return TCMU_ASYNC_HANDLED;
+		return TCMU_STS_ASYNC_HANDLED;
 
 	/*
 	 * No unmaps have been dispatched, so return the error and free
@@ -462,7 +433,6 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 {
 	uint8_t *cdb = origcmd->cdb;
 	size_t copied, data_length = tcmu_get_xfer_length(cdb);
-	uint8_t *sense = origcmd->sense_buf;
 	struct unmap_state *state;
 	uint8_t *par;
 	uint16_t dl, bddl;
@@ -476,9 +446,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	 */
 	if (cdb[1] & 0x01) {
 		tcmu_dev_err(dev, "Illegal request: anchor is not supported for now!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB,
-					   NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
 	/*
@@ -493,7 +461,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	 */
 	if (!data_length) {
 		tcmu_dev_dbg(dev, "Data-Out Buffer length is zero, just return okay\n");
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 
 	/*
@@ -504,26 +472,19 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	if (data_length < 8) {
 		tcmu_dev_err(dev, "Illegal parameter list length %llu and it should be >= 8\n",
 			     data_length);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 	}
 
 	par = calloc(1, data_length);
 	if (!par) {
 		tcmu_dev_err(dev, "The state parameter is NULL!\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
-
+		return TCMU_STS_NO_RESOURCE;
 	}
 	copied = tcmu_memcpy_from_iovec(par, data_length, origcmd->iovec,
 					origcmd->iov_cnt);
 	if (copied != data_length) {
 		tcmu_dev_err(dev, "Failed to copy the Data-Out Buffer !\n");
-		ret = tcmu_set_sense_data(origcmd->sense_buf, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto out_free_par;
 	}
 
@@ -553,16 +514,14 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	 * list.
 	 */
 	if (!bddl) {
-		ret = SAM_STAT_GOOD;
+		ret = TCMU_STS_OK;
 		goto out_free_par;
 	}
 
 	if (bddl / 16 > VPD_MAX_UNMAP_BLOCK_DESC_COUNT) {
 		tcmu_dev_err(dev, "Illegal parameter list count %hu exceeds :%u\n",
 			     bddl / 16, VPD_MAX_UNMAP_BLOCK_DESC_COUNT);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST;
 		goto out_free_par;
 	}
 
@@ -616,13 +575,12 @@ static void handle_writesame_cbk(struct tcmu_device *dev,
 {
 	struct write_same *write_same = cmd->cmdstate;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
-	uint8_t *sense = cmd->sense_buf;
 	uint64_t write_lbas = write_same->iov_len / block_size;
 	uint64_t left_lbas;
 	int rc;
 
 	/* write failed - bail out */
-	if (ret != SAM_STAT_GOOD)
+	if (ret != TCMU_STS_OK)
 		goto finish_err;
 
 	write_same->cur_lba += write_lbas;
@@ -643,11 +601,9 @@ static void handle_writesame_cbk(struct tcmu_device *dev,
 	}
 
 	rc = async_handle_cmd(dev, cmd, writesame_work_fn);
-	if (rc != TCMU_ASYNC_HANDLED) {
+	if (rc != TCMU_STS_ASYNC_HANDLED) {
 		tcmu_dev_err(dev, "Write same async handle cmd failure\n");
-		ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
-					  ASC_WRITE_ERROR,
-					  NULL);
+		ret = TCMU_STS_WR_ERR;
 		goto finish_err;
 	}
 
@@ -662,7 +618,6 @@ finish_err:
 static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
-	uint8_t *sense = cmd->sense_buf;
 	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t start_lba = tcmu_get_lba(cdb);
@@ -671,9 +626,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	if (cmd->iov_cnt != 1 || cmd->iovec->iov_len != block_size) {
 		tcmu_dev_err(dev, "Illegal Data-Out: iov_cnt %u length: %u\n",
 			     cmd->iov_cnt, cmd->iovec->iov_len);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB,
-					   NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
 	/*
@@ -684,9 +637,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	 */
 	if (!lba_cnt) {
 		tcmu_dev_err(dev, "The WSNZ = 1 & WRITE_SAME blocks = 0 is not supported!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB,
-					   NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
 	/*
@@ -696,9 +647,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	if (lba_cnt > VPD_MAX_WRITE_SAME_LENGTH) {
 		tcmu_dev_err(dev, "blocks: %u exceeds MAXIMUM WRITE SAME LENGTH: %u\n",
 			     lba_cnt, VPD_MAX_WRITE_SAME_LENGTH);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB,
-					   NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
 	/*
@@ -707,13 +656,12 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	 */
 	ret = check_lbas(dev, start_lba, lba_cnt);
 	if (ret)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return ret;
 
 	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba:: %hu, last lba: %llu\n",
 		     start_lba, lba_cnt, start_lba + lba_cnt - 1);
 
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int handle_unmap_in_writesame(struct tcmu_device *dev,
@@ -734,7 +682,7 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 
 	pthread_mutex_lock(&state->lock);
 	ret = align_and_split_unmap(dev, cmd, lba, nlbas);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		state->error = true;
 
 	refcount = state->refcount;
@@ -751,7 +699,6 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint8_t *cdb = cmd->cdb;
-	uint8_t *sense = cmd->sense_buf;
 	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t start_lba = tcmu_get_lba(cdb);
@@ -770,9 +717,7 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	write_same = calloc(1, sizeof(struct write_same));
 	if (!write_same) {
 		tcmu_dev_err(dev, "Failed to calloc write_same data!\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	max_xfer_length = tcmu_get_dev_max_xfer_len(dev) * block_size;
@@ -784,9 +729,7 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (!write_same->iov_base) {
 		tcmu_dev_err(dev, "Failed to calloc iov_base data!\n");
 		free(write_same);
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	write_lbas = length / block_size;
@@ -825,31 +768,13 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 	return write_same_fn(dev, cmd, off, len, cmd->iovec, cmd->iov_cnt);
 }
 
-static inline int tcmur_alua_implicit_transition(struct tcmu_device *dev,
-					  struct tcmulib_cmd *cmd)
-{
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	int ret;
-
-	if (!failover_is_supported(dev))
-		return 0;
-
-	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
-		ret = alua_implicit_transition(dev, cmd);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
-}
-
 int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			   tcmur_writesame_fn_t write_same_fn)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
-	ret = tcmur_alua_implicit_transition(dev, cmd);
+	ret = alua_check_state(dev, cmd);
 	if (ret)
 		return ret;
 
@@ -944,20 +869,16 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 	uint8_t *sense = writecmd->sense_buf;
 
 	/* failed read - bail out */
-	if (ret != SAM_STAT_GOOD) {
-		memcpy(writecmd->sense_buf, readcmd->sense_buf,
-		       sizeof(writecmd->sense_buf));
+	if (ret != TCMU_STS_OK)
 		goto done;
-	}
 
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 	cmp_offset = tcmu_compare_with_iovec(state->read_buf, state->w_iovec,
 					     state->requested);
 	if (cmp_offset != -1) {
 		tcmu_dev_err(dev, "Verify failed at offset %lu\n", cmp_offset);
-		ret =  tcmu_set_sense_data(sense, MISCOMPARE,
-					   ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					   &cmp_offset);
+		ret =  TCMU_STS_MISCOMPARE;
+		tcmu_set_sense_info(sense, cmp_offset);
 	}
 
 done:
@@ -972,12 +893,12 @@ static void handle_write_verify_write_cbk(struct tcmu_device *dev,
 	struct write_verify_state *state = writecmd->cmdstate;
 
 	/* write error - bail out */
-	if (ret != SAM_STAT_GOOD)
+	if (ret != TCMU_STS_OK)
 		goto finish_err;
 
 	state->readcmd->done = handle_write_verify_read_cbk;
 	ret = async_handle_cmd(dev, state->readcmd, read_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto finish_err;
 	return;
 
@@ -988,7 +909,7 @@ finish_err:
 
 static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	int ret = SAM_STAT_TASK_SET_FULL;
+	int ret;
 	uint8_t *cdb = cmd->cdb;
 	size_t length = tcmu_get_xfer_length(cdb) * tcmu_get_dev_block_size(dev);
 
@@ -997,17 +918,17 @@ static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return ret;
 
 	if (write_verify_init(cmd, length)) {
-		ret = SAM_STAT_TASK_SET_FULL;
+		ret = TCMU_STS_NO_RESOURCE;
 		goto out;
 	}
 
 	cmd->done = handle_write_verify_write_cbk;
 
 	ret = async_handle_cmd(dev, cmd, write_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto free_write_verify;
 
-	return TCMU_ASYNC_HANDLED;
+	return TCMU_STS_ASYNC_HANDLED;
 
 free_write_verify:
 	write_verify_free(cmd);
@@ -1043,7 +964,7 @@ struct xcopy {
 
 /* For now only supports block -> block type */
 static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
-				     uint8_t sdll, uint8_t *sense)
+				     uint8_t sdll)
 {
 	uint8_t *seg_desc = seg_descs;
 	uint8_t desc_len;
@@ -1057,27 +978,21 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 	if (sdll % XCOPY_SEGMENT_DESC_B2B_LEN != 0) {
 		tcmu_err("Illegal block --> block type segment descriptor length %u\n",
 			 sdll);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	if (sdll > RCR_OP_MAX_SEGMENT_DESC_COUNT * XCOPY_SEGMENT_DESC_B2B_LEN) {
 		tcmu_err("Only %u segment descriptor(s) supported, but there are %u\n",
 			 RCR_OP_MAX_SEGMENT_DESC_COUNT,
 			 sdll / XCOPY_SEGMENT_DESC_B2B_LEN);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/* EXTENDED COPY segment descriptor type codes block --> block */
 	if (seg_desc[0] != XCOPY_SEG_DESC_TYPE_CODE_B2B) {
 		tcmu_err("Unsupport segment descriptor type code 0x%x\n",
 			 seg_desc[0]);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_UNSUPPORTED_SEGMENT_DESC_TYPE_CODE,
-					   NULL);
+		return TCMU_STS_NOTSUPP_SEG_DESC_TYPE;
 	}
 
 	/*
@@ -1088,9 +1003,7 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 	if (desc_len != 0x18) {
 		tcmu_err("Invalid length for block->block type 0x%x\n",
 			 desc_len);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1113,7 +1026,7 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 	tcmu_dbg("Segment descriptor: lba_cnt: %hu src_lba: %llu dst_lba: %llu\n",
 		 xcopy->lba_cnt, xcopy->src_lba, xcopy->dst_lba);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int xcopy_gen_naa_ieee(struct tcmu_device *udev, uint8_t *wwn)
@@ -1158,7 +1071,7 @@ static int xcopy_gen_naa_ieee(struct tcmu_device *udev, uint8_t *wwn)
 	}
 
 	free(buf);
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int xcopy_locate_udev(struct tcmulib_context *ctx,
@@ -1192,8 +1105,7 @@ static int xcopy_locate_udev(struct tcmulib_context *ctx,
 static int xcopy_parse_target_id(struct tcmu_device *udev,
 				  struct xcopy *xcopy,
 				  uint8_t *tgt_desc,
-				  int32_t index,
-				  uint8_t *sense)
+				  int32_t index)
 {
 	uint8_t wwn[XCOPY_NAA_IEEE_REGEX_LEN];
 
@@ -1203,18 +1115,14 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	 */
 	memset(wwn, 0, XCOPY_NAA_IEEE_REGEX_LEN);
 	if (xcopy_gen_naa_ieee(udev, wwn))
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_HW_ERR;
 
 	/*
 	 * CODE SET: for now only binary type code is supported.
 	 */
 	if ((tgt_desc[4] & 0x0f) != 0x1) {
 		tcmu_dev_err(udev, "Id target CODE DET only support binary type!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1222,9 +1130,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	 */
 	if ((tgt_desc[5] & 0x30) != 0x00) {
 		tcmu_dev_err(udev, "Id target ASSOCIATION other than LUN not supported!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1236,9 +1142,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	 */
 	if ((tgt_desc[5] & 0x0f) != 0x3) {
 		tcmu_dev_err(udev, "Id target DESIGNATOR TYPE other than NAA not supported!\n");
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 	/*
 	 * Check for matching 16 byte length for NAA IEEE Registered Extended
@@ -1247,9 +1151,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	if (tgt_desc[7] != 16) {
 		tcmu_dev_err(udev, "Id target DESIGNATOR LENGTH should be 16, but it's: %d\n",
 			     tgt_desc[7]);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1258,9 +1160,7 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 	if ((tgt_desc[8] >> 4) != 0x06) {
 		tcmu_dev_err(udev, "Id target NAA designator type: 0x%x\n",
 			     tgt_desc[8] >> 4);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	/*
@@ -1285,23 +1185,20 @@ static int xcopy_parse_target_id(struct tcmu_device *udev,
 			xcopy->dst_dev = udev;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int xcopy_parse_target_descs(struct tcmu_device *udev,
 				    struct xcopy *xcopy,
 				    uint8_t *tgt_desc,
-				    uint16_t tdll,
-				    uint8_t *sense)
+				    uint16_t tdll)
 {
 	int i, ret;
 
 	if (tdll > RCR_OP_MAX_TARGET_DESC_COUNT * XCOPY_TARGET_DESC_LEN) {
 		tcmu_dev_err(udev, "Only %u target descriptor(s) supported, but there are %u\n",
 			     RCR_OP_MAX_TARGET_DESC_COUNT, tdll / XCOPY_TARGET_DESC_LEN);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
 	for (i = 0; i < RCR_OP_MAX_TARGET_DESC_COUNT; i++) {
@@ -1310,17 +1207,15 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 		 * for now.
 		 */
 		if (tgt_desc[0] == XCOPY_TARGET_DESC_TYPE_CODE_ID) {
-			ret = xcopy_parse_target_id(udev, xcopy, tgt_desc, i, sense);
-			if (ret != SAM_STAT_GOOD)
+			ret = xcopy_parse_target_id(udev, xcopy, tgt_desc, i);
+			if (ret != TCMU_STS_OK)
 				return ret;
 
 			tgt_desc += XCOPY_TARGET_DESC_LEN;
 		} else {
 			tcmu_dev_err(udev, "Unsupport target descriptor type code 0x%x\n",
 				     tgt_desc[0]);
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_UNSUPPORTED_TARGET_DESC_TYPE_CODE,
-						   NULL);
+			return TCMU_STS_NOTSUPP_TGT_DESC_TYPE;
 		}
 	}
 
@@ -1334,9 +1229,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 	if (ret) {
 		tcmu_err("Target device not found, the index are %hu and %hu\n",
 			 xcopy->stdi, xcopy->dtdi);
-		return tcmu_set_sense_data(sense, COPY_ABORTED,
-					   ASC_COPY_TARGET_DEVICE_NOT_REACHABLE,
-					   NULL);
+		return TCMU_STS_CP_TGT_DEV_NOTCONN;
 	}
 
 	tcmu_dev_dbg(xcopy->src_dev, "Source device NAA IEEE WWN: 0x%16phN\n",
@@ -1344,7 +1237,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 	tcmu_dev_dbg(xcopy->dst_dev, "Destination device NAA IEEE WWN: 0x%16phN\n",
 		     xcopy->dst_tid_wwn);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int xcopy_parse_parameter_list(struct tcmu_device *dev,
@@ -1355,7 +1248,6 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	size_t data_length = tcmu_get_xfer_length(cdb);
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
-	uint8_t *sense = cmd->sense_buf;
 	uint32_t inline_dl;
 	uint8_t *seg_desc, *tgt_desc, *par;
 	uint16_t sdll, tdll;
@@ -1370,9 +1262,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	par = calloc(1, data_length);
 	if (!par) {
 		tcmu_dev_err(dev, "calloc parameter list buffer error\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	tcmu_memcpy_from_iovec(par, data_length, iovec, iov_cnt);
@@ -1396,9 +1286,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	if ((par[1] & 0x18) != 0x18 || par[0]) {
 		tcmu_dev_err(dev, "LIST ID USAGE: 0x%x, LIST IDENTIFIER: 0x%x\n",
 			     (par[1] & 0x18) >> 3, par[0]);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST;
 		goto err;
 	}
 
@@ -1412,9 +1300,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	if (tdll % 32 != 0) {
 		tcmu_dev_err(dev, "Illegal target descriptor length %u\n",
 			     tdll);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto err;
 	}
 
@@ -1427,9 +1313,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	if (sdll < 8) {
 		tcmu_dev_err(dev, "Illegal segment descriptor length %u\n",
 			     tdll);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto err;
 	}
 
@@ -1441,9 +1325,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	if (tdll + sdll > RCR_OP_MAX_DESC_LIST_LEN) {
 		tcmu_dev_err(dev, "descriptor list length %u exceeds maximum %u\n",
 			     tdll + sdll, RCR_OP_MAX_DESC_LIST_LEN);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto err;
 	}
 
@@ -1465,9 +1347,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(dev, "Illegal list length: length from CDB is %u,"
 			     " but here the length is %u\n",
 			     data_length, tdll + sdll + inline_dl);
-		ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					  ASC_PARAMETER_LIST_LENGTH_ERROR,
-					  NULL);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
 		goto err;
 	}
 
@@ -1481,8 +1361,8 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	 * The max seg_desc number support is 1(see RCR_OP_MAX_SG_DESC_COUNT)
 	 */
 	seg_desc = par + XCOPY_HDR_LEN + tdll;
-	ret = xcopy_parse_segment_descs(seg_desc, xcopy, sdll, sense);
-	if (ret != SAM_STAT_GOOD)
+	ret = xcopy_parse_segment_descs(seg_desc, xcopy, sdll);
+	if (ret != TCMU_STS_OK)
 		goto err;
 
 	/*
@@ -1491,8 +1371,8 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	 * The max seg_desc number support is 2(see RCR_OP_MAX_TARGET_DESC_COUNT)
 	 */
 	tgt_desc = par + XCOPY_HDR_LEN;
-	ret = xcopy_parse_target_descs(dev, xcopy, tgt_desc, tdll, sense);
-	if (ret != SAM_STAT_GOOD)
+	ret = xcopy_parse_target_descs(dev, xcopy, tgt_desc, tdll);
+	if (ret != TCMU_STS_OK)
 		goto err;
 
 	if (tcmu_get_dev_block_size(xcopy->src_dev) !=
@@ -1500,9 +1380,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(dev, "The block size of src dev %u != dst dev %u\n",
 			     tcmu_get_dev_block_size(xcopy->src_dev),
 			     tcmu_get_dev_block_size(xcopy->dst_dev));
-		ret = tcmu_set_sense_data(sense, COPY_ABORTED,
-					  ASC_INCORRECT_COPY_TARGET_DEVICE_TYPE,
-					  NULL);
+		ret = TCMU_STS_INVALID_CP_TGT_DEV_TYPE;
 		goto err;
 	}
 
@@ -1511,8 +1389,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(xcopy->src_dev,
 			     "src target exceeds last lba %lld (lba %lld, copy len %lld)\n",
 			     num_lbas, xcopy->src_lba, xcopy->lba_cnt);
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return TCMU_STS_RANGE;
 	}
 
 	num_lbas = tcmu_get_dev_num_lbas(xcopy->dst_dev);
@@ -1520,11 +1397,10 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(xcopy->dst_dev,
 			     "dst target exceeds last lba %lld (lba %lld, copy len %lld)\n",
 			     num_lbas, xcopy->dst_lba, xcopy->lba_cnt);
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return TCMU_STS_RANGE;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 
 err:
 	free(par);
@@ -1545,7 +1421,7 @@ static void handle_xcopy_write_cbk(struct tcmu_device *dst_dev,
 	struct tcmu_device *src_dev = xcopy->src_dev;
 
 	/* write failed - bail out */
-	if (ret != SAM_STAT_GOOD) {
+	if (ret != TCMU_STS_OK) {
 		tcmu_dev_err(src_dev, "Failed to write to dst device!\n");
 		goto out;
 	}
@@ -1560,7 +1436,7 @@ static void handle_xcopy_write_cbk(struct tcmu_device *dst_dev,
 
 	cmd->done = handle_xcopy_read_cbk;
 	ret = async_handle_cmd(xcopy->src_dev, cmd, xcopy_read_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto out;
 
 	return;
@@ -1594,7 +1470,7 @@ static void handle_xcopy_read_cbk(struct tcmu_device *src_dev,
 	struct xcopy *xcopy = cmd->cmdstate;
 
 	/* read failed - bail out */
-	if (ret != SAM_STAT_GOOD) {
+	if (ret != TCMU_STS_OK) {
 		tcmu_dev_err(src_dev, "Failed to read from src device!\n");
 		goto err;
 	}
@@ -1602,7 +1478,7 @@ static void handle_xcopy_read_cbk(struct tcmu_device *src_dev,
 	cmd->done = handle_xcopy_write_cbk;
 
 	ret = async_handle_cmd(xcopy->dst_dev, cmd, xcopy_write_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto err;
 
 	return;
@@ -1640,7 +1516,6 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	size_t data_length = tcmu_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint32_t max_sectors, src_max_sectors, copy_lbas, dst_max_sectors;
-	uint8_t *sense = cmd->sense_buf;
 	struct xcopy *xcopy;
 	int ret;
 
@@ -1649,7 +1524,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	 * shall not transfer any data or alter any internal state.
 	 */
 	if (data_length == 0)
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	/*
 	 * The EXTENDED COPY parameter list begins with a 16 byte header
@@ -1658,17 +1533,13 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (data_length < XCOPY_HDR_LEN) {
 		tcmu_dev_err(dev, "Illegal parameter list: length %u < hdr_len %u\n",
 			     data_length, XCOPY_HDR_LEN);
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 	}
 
 	xcopy = calloc(1, sizeof(struct xcopy));
 	if (!xcopy) {
 		tcmu_dev_err(dev, "calloc xcopy data error\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE,
-					   NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	/* Parse and check the parameter list */
@@ -1678,7 +1549,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	/* Nothing to do with BLOCK DEVICE NUMBER OF BLOCKS set to zero */
 	if (!xcopy->lba_cnt) {
-		ret = SAM_STAT_GOOD;
+		ret = TCMU_STS_OK;
 		goto finish_err;
 	}
 
@@ -1694,9 +1565,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	xcopy->iov_base = calloc(1, xcopy->iov_len);
 	if (!xcopy->iov_base) {
 		tcmu_dev_err(dev, "calloc iovec data error\n");
-		ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					  ASC_INTERNAL_TARGET_FAILURE,
-					  NULL);
+		ret = TCMU_STS_NO_RESOURCE;
 		goto finish_err;
 	}
 
@@ -1705,7 +1574,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	cmd->cmdstate = xcopy;
 
 	ret = async_handle_cmd(xcopy->src_dev, cmd, xcopy_read_work_fn);
-	if (ret == TCMU_ASYNC_HANDLED)
+	if (ret == TCMU_STS_ASYNC_HANDLED)
 		return ret;
 
 	free(xcopy->iov_base);
@@ -1785,28 +1654,24 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 	uint8_t *sense = origcmd->sense_buf;
 
 	/* read failed - bail out */
-	if (ret != SAM_STAT_GOOD) {
-		memcpy(origcmd->sense_buf, readcmd->sense_buf,
-		       sizeof(origcmd->sense_buf));
+	if (ret != TCMU_STS_OK)
 		goto finish_err;
-	}
 
 	cmp_offset = tcmu_compare_with_iovec(state->read_buf, origcmd->iovec,
 					     state->requested);
 	if (cmp_offset != -1) {
 		/* verify failed - bail out */
-		ret = tcmu_set_sense_data(sense, MISCOMPARE,
-					  ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					  &cmp_offset);
+		ret = TCMU_STS_MISCOMPARE;
+		tcmu_set_sense_info(sense, cmp_offset);
 		goto finish_err;
 	}
 
 	/* perform write */
-	tcmu_seek_in_iovec(origcmd->iovec, state->requested);
+	tcmu_seek_in_cmd_iovec(origcmd, state->requested);
 	origcmd->done = handle_caw_write_cbk;
 
 	ret = async_handle_cmd(dev, origcmd, write_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto finish_err;
 
 	caw_free_readcmd(readcmd);
@@ -1822,7 +1687,6 @@ static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
 	uint64_t start_lba = tcmu_get_lba(cmd->cdb);
-	uint8_t *sense = cmd->sense_buf;
 	uint8_t sectors = cmd->cdb[13];
 
 	/* double sectors since we have two buffers */
@@ -1832,10 +1696,9 @@ static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	ret = check_lbas(dev, start_lba, sectors);
 	if (ret)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return ret;
 
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -1851,7 +1714,7 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	readcmd = caw_init_readcmd(cmd, half);
 	if (!readcmd) {
-		ret = SAM_STAT_TASK_SET_FULL;
+		ret = TCMU_STS_NO_RESOURCE;
 		goto out;
 	}
 
@@ -1860,8 +1723,8 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	pthread_mutex_lock(&rdev->caw_lock);
 
 	ret = async_handle_cmd(dev, readcmd, read_work_fn);
-	if (ret == TCMU_ASYNC_HANDLED)
-		return TCMU_ASYNC_HANDLED;
+	if (ret == TCMU_STS_ASYNC_HANDLED)
+		return TCMU_STS_ASYNC_HANDLED;
 
 	pthread_mutex_unlock(&rdev->caw_lock);
 	caw_free_readcmd(readcmd);
@@ -1886,7 +1749,7 @@ int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 {
         int ret;
 
-        ret = tcmur_alua_implicit_transition(dev, cmd);
+        ret = alua_check_state(dev, cmd);
         if (ret)
                 return ret;
 
@@ -2025,7 +1888,7 @@ static int handle_recv_copy_result(struct tcmu_device *dev, struct tcmulib_cmd *
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 /* async write */
@@ -2078,7 +1941,6 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmulib_cmd *origcmd = writecmd->cmdstate;
 	struct format_unit_state *state = origcmd->cmdstate;
-	uint8_t *sense = origcmd->sense_buf;
 	int rc;
 
 	writecmd->iovec->iov_base = state->write_buf;
@@ -2104,9 +1966,7 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 		if ((dev->num_lbas - state->done_blocks) * dev->block_size < state->length)
 		    state->length = (dev->num_lbas - state->done_blocks) * dev->block_size;
 		if (alloc_iovec(writecmd, state->length)) {
-			ret = tcmu_set_sense_data(sense, HARDWARE_ERROR,
-						  ASC_INTERNAL_TARGET_FAILURE,
-						  NULL);
+			ret = TCMU_STS_NO_RESOURCE;
 			goto free_cmd;
 		}
 
@@ -2120,11 +1980,9 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 			     state->done_blocks, dev->num_lbas, dev->block_size);
 
 		rc = async_handle_cmd(dev, writecmd, format_unit_work_fn);
-		if (rc != TCMU_ASYNC_HANDLED) {
+		if (rc != TCMU_STS_ASYNC_HANDLED) {
 			tcmu_dev_err(dev, " async handle cmd failure\n");
-			ret = tcmu_set_sense_data(sense, MEDIUM_ERROR,
-						  ASC_WRITE_ERROR,
-						  NULL);
+			ret = TCMU_STS_WR_ERR;
 			goto free_iovec;
 		}
 	}
@@ -2147,7 +2005,6 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	struct tcmulib_cmd *writecmd;
 	struct format_unit_state *state;
 	size_t max_xfer_length, length = 1024 * 1024;
-	uint8_t *sense = cmd->sense_buf;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
 	int ret;
@@ -2155,9 +2012,9 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	pthread_mutex_lock(&rdev->format_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING) {
 		pthread_mutex_unlock(&rdev->format_lock);
-		return tcmu_set_sense_data(sense, NOT_READY,
-					  ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					  &rdev->format_progress);
+		tcmu_set_sense_key_specific_info(cmd->sense_buf,
+						 rdev->format_progress);
+		return TCMU_STS_FRMT_IN_PROGRESS;
 	}
 	rdev->format_progress = 0;
 	rdev->flags |= TCMUR_DEV_FLAG_FORMATTING;
@@ -2195,10 +2052,10 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	state->write_buf = writecmd->iovec->iov_base;
 
 	ret = async_handle_cmd(dev, writecmd, format_unit_work_fn);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto free_iov;
 
-	return TCMU_ASYNC_HANDLED;
+	return TCMU_STS_ASYNC_HANDLED;
 
 free_iov:
 	free_iovec(writecmd);
@@ -2210,10 +2067,25 @@ clear_format:
 	pthread_mutex_lock(&rdev->format_lock);
 	rdev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
 	pthread_mutex_unlock(&rdev->format_lock);
-	return SAM_STAT_TASK_SET_FULL;
+	return TCMU_STS_NO_RESOURCE;
 }
 
 /* ALUA */
+static int handle_stpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	struct list_head group_list;
+	int ret;
+
+	list_head_init(&group_list);
+
+	if (tcmu_get_alua_grps(dev, &group_list))
+		return TCMU_STS_HW_ERR;
+
+	ret = tcmu_emulate_set_tgt_port_grps(dev, &group_list, cmd);
+	tcmu_release_alua_grps(&group_list);
+	return ret;
+}
+
 static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct list_head group_list;
@@ -2221,10 +2093,8 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	list_head_init(&group_list);
 
-	ret = tcmu_get_alua_grps(dev, &group_list);
-	if (ret)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+	if (tcmu_get_alua_grps(dev, &group_list))
+		return TCMU_STS_HW_ERR;
 
 	ret = tcmu_emulate_report_tgt_port_grps(dev, &group_list, cmd);
 	tcmu_release_alua_grps(&group_list);
@@ -2262,7 +2132,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	int ret;
 
 	if (!rhandler->handle_cmd)
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 
 	/*
 	 * Support handlers that implement their own threading/AIO
@@ -2279,7 +2149,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	 */
 	track_aio_request_start(rdev);
 	ret = handle_passthrough(dev, cmd);
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 
 	return ret;
@@ -2287,7 +2157,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 
 static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	int ret = TCMU_NOT_HANDLED;
+	int ret = TCMU_STS_NOT_HANDLED;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	uint8_t *cdb = cmd->cdb;
@@ -2295,7 +2165,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	track_aio_request_start(rdev);
 
 	if (tcmu_dev_in_recovery(dev)) {
-		ret = SAM_STAT_BUSY;
+		ret = TCMU_STS_BUSY;
 		goto untrack;
 	}
 
@@ -2319,7 +2189,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case WRITE_SAME:
 	case WRITE_SAME_16:
 	case FORMAT_UNIT:
-		ret = tcmur_alua_implicit_transition(dev, cmd);
+		ret = alua_check_state(dev, cmd);
 		if (ret)
 			goto untrack;
 		break;
@@ -2366,11 +2236,11 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = handle_format_unit(dev, cmd);
 		break;
 	default:
-		ret = TCMU_NOT_HANDLED;
+		ret = TCMU_STS_NOT_HANDLED;
 	}
 
 untrack:
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 	return ret;
 }
@@ -2383,20 +2253,16 @@ static int handle_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	list_head_init(&group_list);
 
-	ret = tcmu_get_alua_grps(dev, &group_list);
-	if (ret)
-		return tcmu_set_sense_data(cmd->sense_buf, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+	if (tcmu_get_alua_grps(dev, &group_list))
+		return TCMU_STS_HW_ERR;
 
 	port = tcmu_get_enabled_port(&group_list);
 	if (!port) {
 		tcmu_dev_dbg(dev, "no enabled ports found. Skipping ALUA support\n");
-	} else {
-		tcmu_update_dev_lock_state(dev);
 	}
 
 	ret = tcmu_emulate_inquiry(dev, port, cmd->cdb, cmd->iovec,
-				   cmd->iov_cnt, cmd->sense_buf);
+				   cmd->iov_cnt);
 	tcmu_release_alua_grps(&group_list);
 	return ret;
 }
@@ -2406,7 +2272,6 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint8_t *cdb = cmd->cdb;
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
-	uint8_t *sense = cmd->sense_buf;
 	uint32_t block_size = tcmu_get_dev_block_size(dev);
 	uint64_t num_lbas = tcmu_get_dev_num_lbas(dev);
 
@@ -2414,44 +2279,46 @@ static int handle_sync_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case INQUIRY:
 		return handle_inquiry(dev, cmd);
 	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt);
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
 			return tcmu_emulate_read_capacity_16(num_lbas,
 							     block_size,
 							     cdb, iovec,
-							     iov_cnt, sense);
+							     iov_cnt);
 		else
-			return TCMU_NOT_HANDLED;
+			return TCMU_STS_NOT_HANDLED;
 	case READ_CAPACITY:
 		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
 			/* Reserved bits for MM logical units */
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB,
-						   NULL);
+			return TCMU_STS_INVALID_CDB;
 		else
 			return tcmu_emulate_read_capacity_10(num_lbas,
 							     block_size,
 							     cdb, iovec,
-							     iov_cnt, sense);
+							     iov_cnt);
 	case MODE_SENSE:
 	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt);
 	case START_STOP:
-		return tcmu_emulate_start_stop(dev, cdb, sense);
+		return tcmu_emulate_start_stop(dev, cdb);
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt);
 	case RECEIVE_COPY_RESULTS:
 		if ((cdb[1] & 0x1f) == RCR_SA_OPERATING_PARAMETERS)
 			return handle_recv_copy_result(dev, cmd);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
+	case MAINTENANCE_OUT:
+		if (cdb[1] == MO_SET_TARGET_PGS)
+			return handle_stpg(dev, cmd);
+		return TCMU_STS_NOT_HANDLED;
 	case MAINTENANCE_IN:
 		if ((cdb[1] & 0x1f) == MI_REPORT_TARGET_PGS)
 			return handle_rtpg(dev, cmd);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	default:
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	}
 }
 
@@ -2463,18 +2330,37 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 	int ret;
 
 	if (!rhandler->handle_cmd)
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 
 	track_aio_request_start(rdev);
 
 	if (tcmu_dev_in_recovery(dev)) {
-		ret = SAM_STAT_BUSY;
+		ret = TCMU_STS_BUSY;
 	} else {
 		ret = rhandler->handle_cmd(dev, cmd);
 	}
 
-	if (ret != TCMU_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
+
+	return ret;
+}
+
+int tcmur_dev_update_size(struct tcmu_device *dev, unsigned long new_size)
+{
+	unsigned long old_size;
+	int ret;
+
+	old_size = tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev);
+
+	ret = tcmu_update_num_lbas(dev, new_size);
+	if (!ret) {
+		ret = tcmu_set_dev_size(dev);
+		if (ret)
+			tcmu_update_num_lbas(dev, old_size); /* Rolling back */
+		else
+			tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+	}
 
 	return ret;
 }
@@ -2494,26 +2380,25 @@ void tcmur_set_pending_ua(struct tcmu_device *dev, int ua)
 static int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
-	int ret = TCMU_NOT_HANDLED, ua;
+	int ret = TCMU_STS_NOT_HANDLED, ua;
 
 	switch (cdb[0]) {
 	case INQUIRY:
 	case REQUEST_SENSE:
 		/* The kernel will handle REPORT_LUNS */
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	}
 	pthread_mutex_lock(&rdev->state_lock);
 
 	if (!rdev->pending_uas) {
-		ret = TCMU_NOT_HANDLED;
+		ret = TCMU_STS_NOT_HANDLED;
 		goto unlock;
 	}
 
 	ua = ffs(rdev->pending_uas) - 1;
 	switch (ua) {
 	case TCMUR_UA_DEV_SIZE_CHANGED:
-		ret = tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION,
-					  ASC_CAPACITY_HAS_CHANGED, NULL);
+		ret = TCMU_STS_CAPACITY_CHANGED;
 		break;
 	}
 	rdev->pending_uas &= ~(1 << ua);
@@ -2529,25 +2414,26 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	int ret;
 
 	ret = handle_pending_ua(rdev, cmd);
-	if (ret == SAM_STAT_CHECK_CONDITION)
+	if (ret != TCMU_STS_NOT_HANDLED)
 		return ret;
 
-	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING && cmd->cdb[0] != INQUIRY)
-		return tcmu_set_sense_data(cmd->sense_buf, NOT_READY,
-					   ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					   &rdev->format_progress);
+	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING && cmd->cdb[0] != INQUIRY) {
+		tcmu_set_sense_key_specific_info(cmd->sense_buf,
+						 rdev->format_progress);
+		return TCMU_STS_FRMT_IN_PROGRESS;
+	}
 
 	/*
 	 * The handler want to handle some commands by itself,
 	 * try to passthrough it first
 	 */
 	ret = handle_try_passthrough(dev, cmd);
-	if (ret != TCMU_NOT_HANDLED)
+	if (ret != TCMU_STS_NOT_HANDLED)
 		return ret;
 
 	/* Falls back to the runner's generic handle callout */
 	ret = handle_sync_cmd(dev, cmd);
-	if (ret == TCMU_NOT_HANDLED)
+	if (ret == TCMU_STS_NOT_HANDLED)
 		ret = tcmur_cmd_handler(dev, cmd);
 	return ret;
 }

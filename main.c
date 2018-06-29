@@ -1,18 +1,10 @@
 /*
- * Copyright 2014, Red Hat, Inc.
+ * Copyright (c) 2014 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
-*/
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
 
 /*
  * A daemon that supports a simplified interface for writing TCMU
@@ -55,6 +47,8 @@
 #include "version.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+
+# define TCMU_LOCK_FILE   "/var/run/lock/tcmu.lock"
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
 
@@ -190,6 +184,8 @@ static int open_handlers(void)
 
 static gboolean sighandler(gpointer user_data)
 {
+	tcmu_dbg("Have received signal!\n");
+
 	g_main_loop_quit((GMainLoop*)user_data);
 
 	return G_SOURCE_CONTINUE;
@@ -273,7 +269,7 @@ struct dbus_info {
 	GDBusConnection *connection;
 };
 
-static int dbus_handler_open(struct tcmu_device *dev)
+static int dbus_handler_open(struct tcmu_device *dev, bool reopen)
 {
 	return -1;
 }
@@ -590,8 +586,10 @@ static void tcmur_stop_device(void *arg)
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	if (is_open)
+	if (is_open) {
+		tcmu_release_dev_lock(dev);
 		rhandler->close(dev);
+	}
 
 	pthread_mutex_lock(&rdev->state_lock);
 	rdev->flags |= TCMUR_DEV_FLAG_STOPPED;
@@ -620,15 +618,15 @@ static void *tcmur_cmdproc_thread(void *arg)
 		while (!dev_stopping && (cmd = tcmulib_get_next_command(dev)) != NULL) {
 
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
-				tcmu_cdb_debug_info(dev, cmd);
+				tcmu_print_cdb_info(dev, cmd, NULL);
 
 			if (tcmur_handler_is_passthrough_only(rhandler))
 				ret = tcmur_cmd_passthrough_handler(dev, cmd);
 			else
 				ret = tcmur_generic_handle_cmd(dev, cmd);
 
-			if (ret == TCMU_NOT_HANDLED)
-				tcmu_dev_warn(dev, "Command 0x%x not supported\n", cmd->cdb[0]);
+			if (ret == TCMU_STS_NOT_HANDLED)
+				tcmu_print_cdb_info(dev, cmd, "is not supported");
 
 			/*
 			 * command (processing) completion is called in the following
@@ -637,7 +635,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			 *   - generic_handle_cmd: non tcmur handler calls (see generic_cmd())
 			 *			   and on errors when calling tcmur handler.
 			 */
-			if (ret != TCMU_ASYNC_HANDLED) {
+			if (ret != TCMU_STS_ASYNC_HANDLED) {
 				completed = 1;
 				tcmur_command_complete(dev, cmd, ret);
 			}
@@ -747,7 +745,7 @@ static int dev_added(struct tcmu_device *dev)
 	}
 	tcmu_set_dev_block_size(dev, block_size);
 
-	dev_size = tcmu_get_device_size(dev);
+	dev_size = tcmu_get_dev_size(dev);
 	if (dev_size < 0) {
 		tcmu_dev_err(dev, "Could not get device size\n");
 		goto free_rdev;
@@ -786,7 +784,7 @@ static int dev_added(struct tcmu_device *dev)
 	if (ret < 0)
 		goto cleanup_io_work_queue;
 
-	ret = rhandler->open(dev);
+	ret = rhandler->open(dev, false);
 	if (ret)
 		goto cleanup_aio_tracking;
 	/*
@@ -801,7 +799,7 @@ static int dev_added(struct tcmu_device *dev)
 
 	ret = pthread_cond_init(&rdev->lock_cond, NULL);
 	if (ret < 0)
-		goto cleanup_lock_cond;
+		goto close_dev;
 
 	/*
 	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
@@ -814,14 +812,14 @@ static int dev_added(struct tcmu_device *dev)
 	ret = pthread_create(&rdev->cmdproc_thread, NULL, tcmur_cmdproc_thread,
 			     dev);
 	if (ret < 0)
-		goto close_dev;
+		goto cleanup_lock_cond;
 
 	return 0;
 
-close_dev:
-	rhandler->close(dev);
 cleanup_lock_cond:
 	pthread_cond_destroy(&rdev->lock_cond);
+close_dev:
+	rhandler->close(dev);
 cleanup_aio_tracking:
 	cleanup_aio_tracking(rdev);
 cleanup_io_work_queue:
@@ -990,6 +988,8 @@ int main(int argc, char **argv)
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
 	bool new_path = false;
+	struct flock lock_fd = {0, };
+	int fd;
 	int ret;
 
 	while (1) {
@@ -1009,7 +1009,7 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			if (!tcmu_logdir_create(optarg))
+			if (!tcmu_logdir_create(optarg, false))
 				goto free_opt;
 			break;
 		case 'f':
@@ -1053,18 +1053,34 @@ int main(int argc, char **argv)
 	if (tcmu_setup_log())
 		goto destroy_config;
 
-	tcmu_dbg("handler path: %s\n", handler_path);
+	fd = creat(TCMU_LOCK_FILE, S_IRUSR | S_IWUSR);
+	if (fd == -1) {
+		tcmu_err("creat(%s) failed: [%m]\n", TCMU_LOCK_FILE);
+		goto destroy_log;
+	}
+
+	lock_fd.l_type = F_WRLCK;
+	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
+		if (errno == EAGAIN) {
+			tcmu_err("tcmu-runner is already running...\n");
+		} else {
+			tcmu_err("fcntl(F_SETLK) on lockfile %s failed: [%m]\n",
+			         TCMU_LOCK_FILE);
+		}
+		goto close_fd;
+	}
 
 	ret = load_our_module();
 	if (ret < 0) {
 		tcmu_err("couldn't load module\n");
-		goto destroy_log;
+		goto close_fd;
 	}
 
+	tcmu_dbg("handler path: %s\n", handler_path);
 	ret = open_handlers();
 	if (ret < 0) {
 		tcmu_err("couldn't open handlers\n");
-		goto destroy_log;
+		goto close_fd;
 	}
 	tcmu_dbg("%d runner handlers found\n", ret);
 
@@ -1126,11 +1142,19 @@ int main(int argc, char **argv)
 
 	g_main_loop_run(loop);
 
-	tcmu_dbg("Exiting...\n");
+	tcmu_info("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
 	g_io_channel_shutdown(libtcmu_gio, TRUE, NULL);
+	g_object_unref(manager);
 	tcmulib_close(tcmulib_context);
+
+	lock_fd.l_type = F_UNLCK;
+	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
+		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",
+		         TCMU_LOCK_FILE);
+	}
+	close(fd);
 
 	tcmu_destroy_config(tcmu_cfg);
 	tcmu_destroy_log();
@@ -1141,6 +1165,13 @@ err_tcmulib_close:
 	tcmulib_close(tcmulib_context);
 err_free_handlers:
 	darray_free(handlers);
+close_fd:
+	lock_fd.l_type = F_UNLCK;
+	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
+		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",
+		         TCMU_LOCK_FILE);
+	}
+	close(fd);
 destroy_log:
 	tcmu_destroy_log();
 destroy_config:

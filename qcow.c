@@ -1,17 +1,9 @@
 /*
- * Copyright 2016, Red Hat, Inc.
+ * Copyright (c) 2016 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 /* Based on QEMU block/qcow{2}.c, which has this license: */
@@ -1390,7 +1382,7 @@ static struct bdev_ops raw_ops = {
 
 /* TCMU QCOW Handler */
 
-static int qcow_open(struct tcmu_device *dev)
+static int qcow_open(struct tcmu_device *dev, bool reopen)
 {
 	struct bdev *bdev;
 	char *config;
@@ -1402,7 +1394,7 @@ static int qcow_open(struct tcmu_device *dev)
 	tcmu_set_dev_private(dev, bdev);
 
 	bdev->block_size = tcmu_get_dev_block_size(dev);
-	bdev->size = tcmu_get_device_size(dev);
+	bdev->size = tcmu_get_dev_size(dev);
 	if (bdev->size < 0) {
 		tcmu_err("Could not get device size\n");
 		goto err;
@@ -1451,18 +1443,17 @@ static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = bdev->ops->preadv(bdev, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_READ_ERROR, NULL);
+			ret = TCMU_STS_RD_ERR;
 			goto done;
 		}
 		tcmu_seek_in_iovec(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -1477,18 +1468,17 @@ static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = bdev->ops->pwritev(bdev, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_WRITE_ERROR, NULL);
+			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
 		tcmu_seek_in_iovec(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -1498,14 +1488,13 @@ static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	if (fsync(bdev->fd)) {
 		tcmu_dev_err(dev, "sync failed\n");
-		ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-					  ASC_WRITE_ERROR, NULL);
+		ret = TCMU_STS_WR_ERR;
 		goto done;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
 	cmd->done(dev, cmd, ret);
-	return 0;
+	return TCMU_STS_OK;
 }
 
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";

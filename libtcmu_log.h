@@ -1,17 +1,9 @@
 /*
- * Copyright 2016,2017 China Mobile, Inc.
+ * Copyright 2016-2017 China Mobile, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 #ifndef __TCMU_LOG_H
@@ -64,8 +56,10 @@ void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, in
 char *tcmu_get_logdir(void);
 void tcmu_logdir_destroy(void);
 bool tcmu_logdir_getenv(void);
-bool tcmu_logdir_create(const char *path);
+bool tcmu_logdir_create(const char *path, bool reloading);
 int tcmu_make_absolute_logfile(char *path, const char *filename);
+int tcmu_create_file_output(int pri, const char *filename, bool reloading);
+int tcmu_logdir_resetup(char *log_dir_path);
 
 
 #define tcmu_dev_err(dev, ...)  {tcmu_err_message(dev, __func__, __LINE__, __VA_ARGS__);}

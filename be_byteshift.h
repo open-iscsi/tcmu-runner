@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2017 Red Hat, Inc.
+ *
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
+
 #ifndef _TCMU_BE_BYTESHIFT_H
 #define _TCMU_BE_BYTESHIFT_H
 

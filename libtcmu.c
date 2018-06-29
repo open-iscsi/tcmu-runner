@@ -1,15 +1,7 @@
 /*
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 #define _GNU_SOURCE
@@ -40,6 +32,7 @@
 #include "tcmur_aio.h"
 #include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 
 #define TCMU_NL_VERSION 2
 
@@ -390,6 +383,11 @@ void tcmu_block_device(struct tcmu_device *dev)
 {
 	int rc;
 
+	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
+		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
+		return;
+	}
+
 	/*
 	 * Afer we set block_dev=1 the kernel will have freed
 	 * cmds in the qfull queue and no new commands will be sent to
@@ -397,10 +395,7 @@ void tcmu_block_device(struct tcmu_device *dev)
 	 */
 	tcmu_dev_dbg(dev, "blocking kernel device\n");
 	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 1);
-	if (rc == -ENOENT) {
-		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
-		return;
-	} else if (rc) {
+	if (rc) {
 		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
 		return;
 	}
@@ -411,12 +406,14 @@ void tcmu_unblock_device(struct tcmu_device *dev)
 {
 	int rc;
 
-	tcmu_dev_dbg(dev, "unblocking kernel device\n");
-	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 0);
-	if (rc == -ENOENT) {
+	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
 		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
 		return;
-	} else if (rc) {
+	}
+
+	tcmu_dev_dbg(dev, "unblocking kernel device\n");
+	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 0);
+	if (rc) {
 		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
 		return;
 	}
@@ -506,9 +503,11 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		/*
 		 * Force a retry of the outstanding commands.
 		 */
-		ret = tcmu_exec_cfgfs_dev_action(dev, "reset_ring", 1);
-		if (ret)
-			tcmu_dev_err(dev, "Could not reset ring %d.\n", ret);
+		if (tcmu_cfgfs_file_is_supported(dev, "action")) {
+			ret = tcmu_exec_cfgfs_dev_action(dev, "reset_ring", 1);
+			if (ret)
+				tcmu_dev_err(dev, "Could not reset ring %d.\n", ret);
+		}
 	}
 
 	snprintf(str_buf, sizeof(str_buf), "/dev/%s", dev_name);
@@ -948,7 +947,7 @@ device_cmd_tail(struct tcmu_device *dev)
 #define TCMU_UPDATE_DEV_TAIL(dev, mb, ent) \
 do { \
 	dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
-} while (0);
+} while (0)
 
 struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 {
@@ -1009,11 +1008,121 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 	return NULL;
 }
 
+static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
+{
+	switch (tcmu_sts) {
+	case TCMU_STS_OK:
+		return SAM_STAT_GOOD;
+	case TCMU_STS_NO_RESOURCE:
+		return SAM_STAT_TASK_SET_FULL;
+	/*
+	 * We drop the session during timeout handling so force
+	 * a retry to have it handled during session level recovery.
+	 */
+	case TCMU_STS_TIMEOUT:
+	case TCMU_STS_BUSY:
+		return SAM_STAT_BUSY;
+	case TCMU_STS_PASSTHROUGH_ERR:
+		break;
+	/* Check Conditions below */
+	case TCMU_STS_RANGE:
+		/* LBA out of range */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2100);
+		break;
+	case TCMU_STS_HW_ERR:
+		/* Internal target failure */
+		tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x4400);
+		break;
+	case TCMU_STS_MISCOMPARE:
+		/* Miscompare during verify operation */
+		__tcmu_set_sense_data(sense, MISCOMPARE, 0x1d00);
+		break;
+	case TCMU_STS_RD_ERR:
+		/* Read medium error */
+		tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x1100);
+		break;
+	case TCMU_STS_WR_ERR:
+		/* Write medium error */
+		tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x0C00);
+		break;
+	case TCMU_STS_INVALID_CDB:
+		/* Invalid field in CDB */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2400);
+		break;
+	case TCMU_STS_INVALID_PARAM_LIST:
+		/* Invalid field in parameter list */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2600);
+		break;
+	case TCMU_STS_INVALID_PARAM_LIST_LEN:
+		/* Invalid list parameter list length */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x1a00);
+		break;
+	case TCMU_STS_NOTSUPP_SEG_DESC_TYPE:
+		/* Unsupported segment descriptor type code */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2609);
+		break;
+	case TCMU_STS_NOTSUPP_TGT_DESC_TYPE:
+		/* Unsupported target descriptor type code */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2607);
+		break;
+	case TCMU_STS_CP_TGT_DEV_NOTCONN:
+		/* Copy target device not reachable */
+		tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D02);
+		break;
+	case TCMU_STS_INVALID_CP_TGT_DEV_TYPE:
+		/* Invalid copy target device type */
+		tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D03);
+		break;
+	case TCMU_STS_CAPACITY_CHANGED:
+		/* Device capacity has changed */
+		tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A09);
+		break;
+	case TCMU_STS_TRANSITION:
+		/* ALUA state transition */
+		tcmu_set_sense_data(sense, NOT_READY, 0x040A);
+		break;
+	case TCMU_STS_IMPL_TRANSITION_ERR:
+		/* Implicit ALUA state transition failed */
+		tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A07);
+		break;
+	case TCMU_STS_EXPL_TRANSITION_ERR:
+		/* STPG failed */
+		tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x670A);
+		break;
+	case TCMU_STS_FENCED:
+		/* ALUA state in standby */
+		tcmu_set_sense_data(sense, NOT_READY, 0x040B);
+		break;
+	case TCMU_STS_WR_ERR_INCOMPAT_FRMT:
+		/* Can't write - incompatible format */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3005);
+		break;
+	case TCMU_STS_NOTSUPP_SAVE_PARAMS:
+		/* Saving params not supported */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3900);
+		break;
+	case TCMU_STS_FRMT_IN_PROGRESS:
+		/* Format in progress */
+		__tcmu_set_sense_data(sense, NOT_READY, 0x0404);
+		break;
+	case TCMU_STS_NOT_HANDLED:
+	case TCMU_STS_INVALID_CMD:
+		/* Invalid op code */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2000);
+		break;
+	default:
+		tcmu_err("Invalid tcmu status code %d\n", tcmu_sts);
+		/* Fall through. Kernel will translate to LUN comm failure */
+	}
+
+	return SAM_STAT_CHECK_CONDITION;
+}
+
 /* update the ring buffer's tail */
 #define TCMU_UPDATE_RB_TAIL(mb, ent) \
 do { \
 	mb->cmd_tail = (mb->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
-} while (0);
+} while (0)
 
 void tcmulib_command_complete(
 	struct tcmu_device *dev,
@@ -1036,23 +1145,10 @@ void tcmulib_command_complete(
 		ent->hdr.cmd_id = cmd->cmd_id;
 	}
 
-	if (result == TCMU_NOT_HANDLED) {
-		/* Tell the kernel we didn't handle it */
-		char *buf = ent->rsp.sense_buffer;
-
-		ent->rsp.scsi_status = SAM_STAT_CHECK_CONDITION;
-
-		buf[0] = 0x70;	/* fixed, current */
-		buf[2] = 0x5;	/* illegal request */
-		buf[7] = 0xa;
-		buf[12] = 0x20; /* ASC: invalid command operation code */
-		buf[13] = 0x0;	/* ASCQ: (none) */
-	} else {
-		if (result != SAM_STAT_GOOD) {
-			memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
-			       TCMU_SENSE_BUFFERSIZE);
-		}
-		ent->rsp.scsi_status = result;
+	ent->rsp.scsi_status = tcmu_sts_to_scsi(result, cmd->sense_buf);
+	if (ent->rsp.scsi_status == SAM_STAT_CHECK_CONDITION) {
+		memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
+		       TCMU_SENSE_BUFFERSIZE);
 	}
 
 	TCMU_UPDATE_RB_TAIL(mb, ent);

@@ -1,17 +1,9 @@
 /*
- * Copyright 2017, Red Hat, Inc.
+ * Copyright (c) 2017 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 #define _GNU_SOURCE
@@ -53,7 +45,7 @@ void track_aio_request_start(struct tcmur_device *rdev)
 	pthread_cleanup_pop(0);
 }
 
-void track_aio_request_finish(struct tcmur_device *rdev, int *is_idle)
+void track_aio_request_finish(struct tcmur_device *rdev, int *wake_up)
 {
 	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 	pthread_cond_t *cond;
@@ -62,16 +54,37 @@ void track_aio_request_finish(struct tcmur_device *rdev, int *is_idle)
 	pthread_mutex_lock(&aio_track->track_lock);
 
 	assert(aio_track->tracked_aio_ops > 0);
-
 	--aio_track->tracked_aio_ops;
-	if (is_idle) {
-		*is_idle = (aio_track->tracked_aio_ops == 0) ? 1 : 0;
+
+	if (wake_up) {
+		++aio_track->pending_wakeups;
+		*wake_up = (aio_track->pending_wakeups == 1) ? 1 : 0;
 	}
 
 	if (!aio_track->tracked_aio_ops && aio_track->is_empty_cond) {
 		cond = aio_track->is_empty_cond;
 		aio_track->is_empty_cond = NULL;
 		pthread_cond_signal(cond);
+	}
+
+	pthread_mutex_unlock(&aio_track->track_lock);
+	pthread_cleanup_pop(0);
+}
+
+void track_aio_wakeup_finish(struct tcmur_device *rdev, int *wake_up)
+{
+	struct tcmu_track_aio *aio_track = &rdev->track_queue;
+
+	pthread_cleanup_push(_cleanup_mutex_lock, (void *)&aio_track->track_lock);
+	pthread_mutex_lock(&aio_track->track_lock);
+
+	if (aio_track->pending_wakeups > 1) {
+		aio_track->pending_wakeups = 1;
+		*wake_up = 1;
+	} else {
+		assert(aio_track->pending_wakeups > 0);
+		aio_track->pending_wakeups = 0;
+		*wake_up = 0;
 	}
 
 	pthread_mutex_unlock(&aio_track->track_lock);
@@ -172,7 +185,7 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	work = malloc(sizeof(*work));
 	if (!work)
-		return SAM_STAT_TASK_SET_FULL;
+		return TCMU_STS_NO_RESOURCE;
 
 	work->fn = fn;
 	work->dev = dev;
@@ -189,7 +202,7 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	pthread_mutex_unlock(&io_wq->io_lock);
 	pthread_cleanup_pop(0);
 
-	return TCMU_ASYNC_HANDLED;
+	return TCMU_STS_ASYNC_HANDLED;
 }
 
 int async_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -201,7 +214,7 @@ int async_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (!rhandler->nr_threads) {
 		ret = work_fn(dev, cmd);
 		if (!ret)
-			ret = TCMU_ASYNC_HANDLED;
+			ret = TCMU_STS_ASYNC_HANDLED;
 	} else {
 		ret = aio_schedule(dev, cmd, work_fn);
 	}
@@ -214,6 +227,7 @@ int setup_aio_tracking(struct tcmur_device *rdev)
 	int ret;
 	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 
+	aio_track->pending_wakeups = 0;
 	aio_track->tracked_aio_ops = 0;
 	ret = pthread_mutex_init(&aio_track->track_lock, NULL);
 	if (ret != 0) {

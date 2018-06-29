@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
 project (tcmu-runner C)
-set(VERSION 1.3.0)
+set(VERSION 1.4.0-rc1)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement -std=c99")
 
 include(GNUInstallDirs)
@@ -60,7 +60,7 @@ target_link_libraries(tcmu
   ${LIBNL_GENL_LIB}
   ${GLIB_LIBRARIES}
   )
-install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} NAMELINK_SKIP)
 
 # Stuff for building the static library
 add_library(tcmu_static
@@ -72,6 +72,7 @@ add_library(tcmu_static
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
+  libtcmu_time.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
@@ -179,7 +180,7 @@ set_target_properties(handler_file_zbc
 target_include_directories(handler_file_zbc
   PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
-
+install(TARGETS handler_file_zbc DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 
 # The minimal library consumer
 add_executable(consumer

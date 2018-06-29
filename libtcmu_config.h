@@ -1,17 +1,9 @@
 /*
- * Copyright 2016, China Mobile, Inc.
+ * Copyright 2016 China Mobile, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 #ifndef __TCMU_CONFIG_H
@@ -39,7 +31,6 @@ struct tcmu_config {
  *    4: DEBUG
  *    5: DEBUG SCSI CMD
  */
-
 enum {
 	TCMU_CONF_LOG_LEVEL_MIN = 1,
 	TCMU_CONF_LOG_ERROR = 1,
@@ -48,26 +39,6 @@ enum {
 	TCMU_CONF_LOG_DEBUG,
 	TCMU_CONF_LOG_DEBUG_SCSI_CMD,
 	TCMU_CONF_LOG_LEVEL_MAX = TCMU_CONF_LOG_DEBUG_SCSI_CMD,
-};
-
-typedef enum {
-	TCMU_OPT_NONE = 0,
-	TCMU_OPT_INT, /* type int */
-	TCMU_OPT_STR, /* type string */
-	TCMU_OPT_BOOL, /* type boolean */
-	TCMU_OPT_MAX,
-} tcmu_option_type;
-
-struct tcmu_conf_option {
-	struct list_node list;
-
-	char *key;
-	tcmu_option_type type;
-	union {
-		int opt_int;
-		bool opt_bool;
-		char *opt_str;
-	};
 };
 
 void tcmu_destroy_config(struct tcmu_config *cfg);
