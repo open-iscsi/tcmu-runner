@@ -1045,7 +1045,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 
 	if (ret == -ETIMEDOUT) {
 		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev, tcmulib_cmd);
-	} else if (ret == -ESHUTDOWN) {
+	} else if (ret == -ESHUTDOWN || ret == -EROFS) {
 		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
 	} else if (ret == -EILSEQ && aio_cb->type == RBD_AIO_TYPE_CAW) {
 		cmp_offset = aio_cb->caw.miscompare_offset - aio_cb->caw.offset;
