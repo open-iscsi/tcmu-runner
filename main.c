@@ -486,11 +486,12 @@ static int load_our_module(void)
 			} else {
 				tcmu_info("no modules directory '/lib/modules/%s', checking module target_core_user entry in '/sys/modules/'\n",
 					  u.release);
-				ret = stat("/sys/module/target_core_user", &sb);
+				ret = stat(CFGFS_TARGET_MOD, &sb);
 				if (!ret) {
 					tcmu_dbg("Module target_core_user already loaded\n");
 				} else {
-					tcmu_err("stat() on '/sys/module/target_core_user' failed: %m\n");
+					tcmu_err("stat() on '%s' failed: %m\n",
+						 CFGFS_TARGET_MOD);
 				}
 			}
 		} else {

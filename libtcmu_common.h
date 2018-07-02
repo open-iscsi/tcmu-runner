@@ -65,6 +65,8 @@ enum {
 #define CFGFS_ROOT "/sys/kernel/config/target"
 #define CFGFS_CORE CFGFS_ROOT"/core"
 
+#define CFGFS_TARGET_MOD "/sys/module/target_core_user"
+
 /* Temporarily limit this to 32M */
 #define VPD_MAX_UNMAP_LBA_COUNT            (32 * 1024 * 1024)
 #define VPD_MAX_UNMAP_BLOCK_DESC_COUNT     0x04
