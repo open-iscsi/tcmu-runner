@@ -62,16 +62,16 @@ int tcmu_create_file_output(int pri, const char *filename, bool reloading);
 int tcmu_logdir_resetup(char *log_dir_path);
 
 
-#define tcmu_dev_err(dev, ...)  {tcmu_err_message(dev, __func__, __LINE__, __VA_ARGS__);}
-#define tcmu_dev_warn(dev, ...) {tcmu_warn_message(dev, __func__, __LINE__, __VA_ARGS__);}
-#define tcmu_dev_info(dev, ...) {tcmu_info_message(dev, __func__, __LINE__, __VA_ARGS__);}
-#define tcmu_dev_dbg(dev, ...)  {tcmu_dbg_message(dev, __func__, __LINE__, __VA_ARGS__);}
-#define tcmu_dev_dbg_scsi_cmd(dev, ...)  {tcmu_dbg_scsi_cmd_message(dev, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_dev_err(dev, ...)  do { tcmu_err_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
+#define tcmu_dev_warn(dev, ...) do { tcmu_warn_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
+#define tcmu_dev_info(dev, ...) do { tcmu_info_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
+#define tcmu_dev_dbg(dev, ...)  do { tcmu_dbg_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
+#define tcmu_dev_dbg_scsi_cmd(dev, ...)  do { tcmu_dbg_scsi_cmd_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 
 
-#define tcmu_err(...)  {tcmu_err_message(NULL, __func__, __LINE__, __VA_ARGS__);}
-#define tcmu_warn(...) {tcmu_warn_message(NULL, __func__, __LINE__, __VA_ARGS__);}
-#define tcmu_info(...) {tcmu_info_message(NULL, __func__, __LINE__, __VA_ARGS__);}
-#define tcmu_dbg(...)  {tcmu_dbg_message(NULL, __func__, __LINE__, __VA_ARGS__);}
-#define tcmu_dbg_scsi_cmd(...)  {tcmu_dbg_scsi_cmd_message(NULL, __func__, __LINE__, __VA_ARGS__);}
+#define tcmu_err(...)  do { tcmu_err_message(NULL, __func__, __LINE__, __VA_ARGS__);} while (0)
+#define tcmu_warn(...) do { tcmu_warn_message(NULL, __func__, __LINE__, __VA_ARGS__);} while (0)
+#define tcmu_info(...) do { tcmu_info_message(NULL, __func__, __LINE__, __VA_ARGS__);} while (0)
+#define tcmu_dbg(...)  do { tcmu_dbg_message(NULL, __func__, __LINE__, __VA_ARGS__);} while (0)
+#define tcmu_dbg_scsi_cmd(...)  do { tcmu_dbg_scsi_cmd_message(NULL, __func__, __LINE__, __VA_ARGS__);} while (0)
 #endif /* __TCMU_LOG_H */
