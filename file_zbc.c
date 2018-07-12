@@ -2094,14 +2094,13 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint64_t lba = tcmu_get_lba(cdb);
 	size_t nr_lbas = tcmu_get_xfer_length(cdb);
 	size_t count, lba_count;
-	size_t iov_cnt = cmd->iov_cnt;
 	struct iovec *iovec = cmd->iovec;
 	struct zbc_zone *zone;
 	ssize_t ret;
 
 	tcmu_dev_dbg(dev, "Write LBA %llu+%u, %zu vectors\n",
 		     (unsigned long long)lba,
-		     tcmu_get_xfer_length(cdb), iov_cnt);
+		     tcmu_get_xfer_length(cdb), cmd->iov_cnt);
 
 	/* Check LBA and length */
 	ret = zbc_check_rdwr(dev, cmd);
@@ -2155,7 +2154,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 						   ASC_WRITE_ERROR);
 		}
 
-		tcmu_seek_in_iovec(iovec, ret);
+		iovec += tcmu_seek_in_iovec(iovec, ret);
 		count = ret / zdev->lba_size;
 
 		/* Adjust write pointer */
