@@ -25,6 +25,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
+#include "tcmu-runner.h"
 #include "target.h"
 #include "alua.h"
 #include "be_byteshift.h"
