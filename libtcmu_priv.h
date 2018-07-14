@@ -20,10 +20,7 @@
 #include <gio/gio.h>
 #include <pthread.h>
 
-#include "scsi_defs.h"
 #include "darray.h"
-#include "ccan/list/list.h"
-#include "tcmur_aio.h"
 
 #define KERN_IFACE_VER 2
 
