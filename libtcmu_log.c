@@ -22,6 +22,7 @@
 #include "libtcmu_config.h"
 #include "libtcmu_time.h"
 #include "libtcmu_priv.h"
+#include "tcmu-runner.h"
 #include "string_priv.h"
 
 /* tcmu ring buffer for log */

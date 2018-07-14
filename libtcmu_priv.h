@@ -24,7 +24,6 @@
 #include "darray.h"
 #include "ccan/list/list.h"
 #include "tcmur_aio.h"
-#include "tcmu-runner.h"
 
 #define KERN_IFACE_VER 2
 

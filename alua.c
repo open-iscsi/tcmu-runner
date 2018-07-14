@@ -23,6 +23,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
+#include "tcmu-runner.h"
 #include "tcmur_device.h"
 #include "target.h"
 #include "alua.h"
