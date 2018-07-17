@@ -399,7 +399,7 @@ void tcmu_block_device(struct tcmu_device *dev)
 		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
 		return;
 	}
-	tcmu_dev_dbg(dev, "block done\n")
+	tcmu_dev_dbg(dev, "block done\n");
 }
 
 void tcmu_unblock_device(struct tcmu_device *dev)

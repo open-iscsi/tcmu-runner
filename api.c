@@ -193,7 +193,7 @@ void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 
 int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 {
-	memset(sense_buf, 0, 18);
+	memset(sense_buf, 0, SENSE_BUFFERSIZE);
 	__tcmu_set_sense_data(sense_buf, key, asc_ascq);
 	return TCMU_STS_PASSTHROUGH_ERR;
 }
