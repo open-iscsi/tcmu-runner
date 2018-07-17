@@ -85,7 +85,8 @@ typedef struct glfs_cbk_cookie {
 	enum {
 		TCMU_GLFS_READ  = 1,
 		TCMU_GLFS_WRITE = 2,
-		TCMU_GLFS_FLUSH = 3
+		TCMU_GLFS_FLUSH = 3,
+		TCMU_GLFS_DISCARD = 4
 	} op;
 } glfs_cbk_cookie;
 
@@ -581,6 +582,7 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 			break;
 		case TCMU_GLFS_WRITE:
 		case TCMU_GLFS_FLUSH:
+		case TCMU_GLFS_DISCARD:
 			ret = TCMU_STS_WR_ERR;
 			break;
 		}
@@ -715,6 +717,37 @@ out:
 	return TCMU_STS_NO_RESOURCE;
 }
 
+static int tcmu_glfs_discard(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+                             uint64_t offset, uint64_t length)
+{
+	struct glfs_state *state = tcmu_get_dev_private(dev);
+	glfs_cbk_cookie *cookie;
+	ssize_t ret;
+
+	cookie = calloc(1, sizeof(*cookie));
+	if (!cookie) {
+		tcmu_dev_err(dev, "Could not allocate cookie: %m\n");
+		goto out;
+	}
+	cookie->dev = dev;
+	cookie->cmd = cmd;
+	cookie->length = 0;
+	cookie->op = TCMU_GLFS_DISCARD;
+
+	ret = glfs_discard_async(state->gfd, offset, length, glfs_async_cbk, cookie);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "glfs_discard_async(vol=%s, file=%s) failed: %m\n",
+		             state->hosts->volname, state->hosts->path);
+		goto out;
+	}
+
+	return TCMU_STS_OK;
+
+out:
+	free(cookie);
+	return TCMU_STS_NO_RESOURCE;
+}
+
 /*
  * For backstore creation
  *
@@ -746,6 +779,7 @@ struct tcmur_handler glfs_handler = {
 	.write          = tcmu_glfs_write,
 	.reconfig       = tcmu_glfs_reconfig,
 	.flush          = tcmu_glfs_flush,
+	.unmap          = tcmu_glfs_discard,
 };
 
 /* Entry point must be named "handler_init". */
