@@ -102,7 +102,7 @@ void tcmu_block_netlink(void)
 		tcmu_warn("Could not block netlink %d.\n", rc);
 		return;
 	}
-	tcmu_dbg("block netlink done\n")
+	tcmu_dbg("block netlink done\n");
 }
 
 void tcmu_unblock_netlink(void)
@@ -123,7 +123,7 @@ void tcmu_unblock_netlink(void)
 		tcmu_warn("Could not unblock netlink %d.\n", rc);
 		return;
 	}
-	tcmu_dbg("unblock netlink done\n")
+	tcmu_dbg("unblock netlink done\n");
 }
 
 /*
@@ -156,7 +156,7 @@ void tcmu_reset_netlink(void)
 		return;
 	}
 
-	tcmu_dbg("reset netlink done\n")
+	tcmu_dbg("reset netlink done\n");
 }
 
 /*
