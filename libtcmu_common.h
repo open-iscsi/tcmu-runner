@@ -65,6 +65,9 @@ enum {
 #define CFGFS_ROOT "/sys/kernel/config/target"
 #define CFGFS_CORE CFGFS_ROOT"/core"
 
+#define CFGFS_TARGET_MOD "/sys/module/target_core_user"
+#define CFGFS_MOD_PARAM CFGFS_TARGET_MOD"/parameters"
+
 /* Temporarily limit this to 32M */
 #define VPD_MAX_UNMAP_LBA_COUNT            (32 * 1024 * 1024)
 #define VPD_MAX_UNMAP_BLOCK_DESC_COUNT     0x04
@@ -155,6 +158,9 @@ int tcmu_set_dev_size(struct tcmu_device *dev);
 long long tcmu_get_dev_size(struct tcmu_device *dev);
 char *tcmu_get_wwn(struct tcmu_device *dev);
 int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val);
+void tcmu_reset_netlink(void);
+void tcmu_block_netlink(void);
+void tcmu_unblock_netlink(void);
 int tcmu_get_cdb_length(uint8_t *cdb);
 uint64_t tcmu_get_lba(uint8_t *cdb);
 uint32_t tcmu_get_xfer_length(uint8_t *cdb);
