@@ -34,7 +34,7 @@
 
 #include "scsi_defs.h"
 #include "libtcmu.h"
-#include "tcmu-runner.h"
+#include "libtcmu_log.h"
 
 struct file_state {
 	int fd;
@@ -176,7 +176,7 @@ static int file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 static const char file_cfg_desc[] =
 	"The path to the file to use as a backstore.";
 
-static struct tcmur_handler file_handler = {
+static struct tcmulib_backstore_handler file_handler = {
 	.cfg_desc = file_cfg_desc,
 
 	.reconfig = file_reconfig,
@@ -194,5 +194,5 @@ static struct tcmur_handler file_handler = {
 /* Entry point must be named "handler_init". */
 int handler_init(void)
 {
-	return tcmur_register_handler(&file_handler);
+	return tcmulib_register_backstore_handler(&file_handler);
 }

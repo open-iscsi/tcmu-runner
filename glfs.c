@@ -22,10 +22,11 @@
 #include <glusterfs/api/glfs.h>
 #include "darray.h"
 
-#include "tcmu-runner.h"
 #include "libtcmu.h"
-#include "tcmur_device.h"
+#include "libtcmu_device.h"
 #include "tcmur_cmd_handler.h"
+#include "libtcmu_scsi.h"
+#include "libtcmu_log.h"
 
 #define ALLOWED_BSOFLAGS (O_DIRECT | O_RDWR | O_LARGEFILE)
 
@@ -768,7 +769,7 @@ static const char glfs_cfg_desc[] =
 	"  hostname:  The server's hostname\n"
 	"  filepath:  The path of the backing file";
 
-struct tcmur_handler glfs_handler = {
+struct tcmulib_backstore_handler glfs_handler = {
 	.name           = "Gluster glfs handler",
 	.subtype        = "glfs",
 	.cfg_desc       = glfs_cfg_desc,
@@ -792,7 +793,7 @@ int handler_init(void)
 		return -1;
 	}
 
-	ret = tcmur_register_handler(&glfs_handler);
+	ret = tcmulib_register_backstore_handler(&glfs_handler);
 	if (ret != 0) {
 		pthread_mutex_destroy(&glfs_lock);
 	}

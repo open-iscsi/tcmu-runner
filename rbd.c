@@ -25,10 +25,10 @@
 
 #include <scsi/scsi.h>
 
-#include "tcmu-runner.h"
 #include "tcmur_cmd_handler.h"
 #include "libtcmu.h"
-#include "tcmur_device.h"
+#include "libtcmu_device.h"
+#include "libtcmu_log.h"
 
 #include <rbd/librbd.h>
 #include <rados/librados.h>
@@ -1425,7 +1425,7 @@ static const char tcmu_rbd_cfg_desc[] =
 	"                     \"conf=/etc/ceph/cluster.conf\"\n"
 	"                     \"id=user\"\n";
 
-struct tcmur_handler tcmu_rbd_handler = {
+struct tcmulib_backstore_handler tcmu_rbd_handler = {
 	.name	       = "Ceph RBD handler",
 	.subtype       = "rbd",
 	.cfg_desc      = tcmu_rbd_cfg_desc,
@@ -1450,5 +1450,5 @@ struct tcmur_handler tcmu_rbd_handler = {
 
 int handler_init(void)
 {
-	return tcmur_register_handler(&tcmu_rbd_handler);
+	return tcmulib_register_backstore_handler(&tcmu_rbd_handler);
 }

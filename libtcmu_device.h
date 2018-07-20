@@ -6,15 +6,16 @@
  * later), or the Apache License 2.0.
  */
 
-#ifndef __TCMUR_DEVICE_H
-#define __TCMUR_DEVICE_H
+#ifndef __LIBTCMU_FAILOVER_H
+#define __LIBTCMU_FAILOVER_H
 
 #include "pthread.h"
 
 #include "ccan/list/list.h"
 
-#include "tcmur_aio.h"
-
+#include "libtcmu_aio.h"
+#include "libtcmu.h"
+#if 0
 #define TCMUR_DEV_FLAG_FORMATTING	(1 << 0)
 #define TCMUR_DEV_FLAG_IN_RECOVERY	(1 << 1)
 #define TCMUR_DEV_FLAG_IS_OPEN		(1 << 2)
@@ -69,7 +70,7 @@ struct tcmur_device {
 	uint32_t format_progress;
 	pthread_mutex_t format_lock; /* for atomic format operations */
 };
-
+#endif
 bool tcmu_dev_in_recovery(struct tcmu_device *dev);
 void tcmu_cancel_recovery(struct tcmu_device *dev);
 int tcmu_cancel_lock_thread(struct tcmu_device *dev);
@@ -83,5 +84,8 @@ int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries);
 int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync, uint16_t tag);
 void tcmu_release_dev_lock(struct tcmu_device *dev);
 int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag);
+int tcmu_dev_added(struct tcmu_device *dev);
+void tcmu_dev_removed(struct tcmu_device *dev);
+int tcmu_dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
 #endif

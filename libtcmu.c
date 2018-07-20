@@ -29,10 +29,9 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
-#include "tcmur_aio.h"
+#include "libtcmu_aio.h"
 #include "tcmur_cmd_handler.h"
-#include "tcmu-runner.h"
-#include "tcmur_device.h"
+#include "libtcmu_device.h"
 
 #define TCMU_NL_VERSION 2
 
@@ -157,11 +156,6 @@ static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 		return -ENODEV;
 	}
 
-	if (!dev->handler->reconfig) {
-		tcmu_dev_err(dev, "Reconfiguration is not supported with this device.\n");
-		return -EOPNOTSUPP;
-	}
-
 	if (info->attrs[TCMU_ATTR_DEV_CFG]) {
 		cfg.type = TCMULIB_CFG_DEV_CFGSTR;
 		cfg.data.dev_cfgstring =
@@ -179,7 +173,7 @@ static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 		return -EOPNOTSUPP;
 	}
 
-	ret = dev->handler->reconfig(dev, &cfg);
+	ret = tcmu_dev_reconfig(dev, &cfg);
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Handler reconfig failed with error %d.\n",
 			     ret);
@@ -555,7 +549,7 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 	dev->cmd_tail = mb->cmd_tail;
 	dev->ctx = ctx;
 
-	ret = dev->handler->added(dev);
+	ret = tcmu_dev_added(dev);
 	if (ret != 0) {
 		tcmu_err("handler open failed for %s\n", dev->dev_name);
 		goto err_munmap;
@@ -617,7 +611,7 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 
 	darray_remove(ctx->devices, i);
 
-	dev->handler->removed(dev);
+	tcmu_dev_removed(dev);
 
 	ret = close(dev->fd);
 	if (ret != 0) {
@@ -920,7 +914,7 @@ struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)
 	return dev->handler;
 }
 
-struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
+struct tcmulib_backstore_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
 {
 	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
 

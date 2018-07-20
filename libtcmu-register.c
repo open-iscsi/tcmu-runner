@@ -11,13 +11,59 @@
 #include <errno.h>
 #include <assert.h>
 
+#include "darray.h"
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
 #include "tcmuhandler-generated.h"
 
+darray(struct tcmulib_backstore_handler *) g_runner_handlers = darray_new();
+
+int tcmulib_register_backstore_handler(struct tcmulib_backstore_handler *handler)
+{
+	struct tcmulib_backstore_handler *h;
+	int i;
+
+	for (i = 0; i < darray_size(g_runner_handlers); i++) {
+		h = darray_item(g_runner_handlers, i);
+		if (!strcmp(h->subtype, handler->subtype)) {
+			tcmu_err("Handler %s has already been registered\n",
+				 handler->subtype);
+			return -1;
+		}
+	}
+
+	darray_append(g_runner_handlers, handler);
+	return 0;
+}
+
+bool tcmulib_unregister_backstore_handler(struct tcmulib_backstore_handler *handler)
+{
+	int i;
+	for (i = 0; i < darray_size(g_runner_handlers); i++) {
+		if (darray_item(g_runner_handlers, i) == handler) {
+			darray_remove(g_runner_handlers, i);
+			return true;
+		}
+	}
+	return false;
+}
+
+struct tcmulib_backstore_handler *tcmulib_next_backstore_handler(int *ind)
+{
+	int i;
+
+	if (!ind || *ind < 0 || *ind >= darray_size(g_runner_handlers))
+		return NULL;
+
+	i = *ind;
+	*ind = i + 1;
+
+	return darray_item(g_runner_handlers, i);
+}
+
 static bool
-tcmulib_register_handler(struct tcmulib_context *ctx,
+register_tcmulib_handler(struct tcmulib_context *ctx,
 			 struct tcmulib_handler *handler)
 {
 	GError *error = NULL;
@@ -62,10 +108,10 @@ static void tcmulib_reg_fail(struct tcmulib_context *ctx)
 }
 
 static gboolean
-tcmulib_check_config(TCMUService1 *interface,
-		     GDBusMethodInvocation *invocation,
-		     gchar *cfgstring,
-		     gpointer user_data)
+check_config(TCMUService1 *interface,
+	     GDBusMethodInvocation *invocation,
+	     gchar *cfgstring,
+	     gpointer user_data)
 {
 	struct tcmulib_handler *handler = user_data;
 	char *reason = NULL;
@@ -81,9 +127,9 @@ tcmulib_check_config(TCMUService1 *interface,
 }
 
 static void
-tcmulib_reg_bus_acquired(GDBusConnection *connection,
-			 const gchar *name,
-			 gpointer user_data)
+dbus_reg_bus_acquired(GDBusConnection *connection,
+		      const gchar *name,
+		      gpointer user_data)
 {
 	struct tcmulib_handler *handler = user_data;
 	struct tcmulib_context *ctx = handler->ctx;
@@ -99,7 +145,7 @@ tcmulib_reg_bus_acquired(GDBusConnection *connection,
 
 	g_signal_connect(interface,
 			 "handle-check-config",
-			 G_CALLBACK(tcmulib_check_config),
+			 G_CALLBACK(check_config),
 			 handler); /* user_data */
 
 	/* Export our object with org.kernel.TCMUService1 interface. */
@@ -114,9 +160,9 @@ tcmulib_reg_bus_acquired(GDBusConnection *connection,
 }
 
 static void
-tcmulib_reg_name_acquired(GDBusConnection *connection,
-			  const gchar     *name,
-			  gpointer         user_data)
+dbus_reg_name_acquired(GDBusConnection *connection,
+		       const gchar     *name,
+		       gpointer         user_data)
 {
 	struct tcmulib_handler *handler = user_data;
 	struct tcmulib_context *ctx = handler->ctx;
@@ -125,20 +171,20 @@ tcmulib_reg_name_acquired(GDBusConnection *connection,
 
 	if (ctx->connection) {
 		/* The primary service is already available.  Register immediately. */
-		tcmulib_register_handler(ctx, handler);
+		register_tcmulib_handler(ctx, handler);
 	}
 }
 
 static void
-tcmulib_reg_name_lost(GDBusConnection *connection,
-		      const gchar     *name,
-		      gpointer         user_data)
+dbus_reg_name_lost(GDBusConnection *connection,
+		   const gchar     *name,
+		   gpointer         user_data)
 {
 	struct tcmulib_handler *handler = user_data;
 	handler->connection = NULL;
 }
 
-static void tcmulib_handler_own_bus(struct tcmulib_handler *handler)
+static void dbus_handler_own_bus(struct tcmulib_handler *handler)
 {
 	char *bus_name;
 	bus_name = g_strdup_printf("org.kernel.TCMUService1.HandlerManager1.%s",
@@ -146,18 +192,18 @@ static void tcmulib_handler_own_bus(struct tcmulib_handler *handler)
 	g_bus_own_name(G_BUS_TYPE_SYSTEM,
 		       bus_name,
 		       G_BUS_NAME_OWNER_FLAGS_NONE,
-		       tcmulib_reg_bus_acquired,
-		       tcmulib_reg_name_acquired,
-		       tcmulib_reg_name_lost,
+		       dbus_reg_bus_acquired,
+		       dbus_reg_name_acquired,
+		       dbus_reg_name_lost,
 		       handler, NULL);
 	g_free(bus_name);
 }
 
 static void
-tcmulib_reg_name_appeared(GDBusConnection *connection,
-			  const gchar     *name,
-			  const gchar     *name_owner,
-			  gpointer         user_data)
+on_reg_name_appeared(GDBusConnection *connection,
+		     const gchar     *name,
+		     const gchar     *name_owner,
+		     gpointer         user_data)
 {
 	struct tcmulib_context *ctx = user_data;
 	struct tcmulib_handler *handler;
@@ -167,15 +213,15 @@ tcmulib_reg_name_appeared(GDBusConnection *connection,
 	   registered, so register all handlers that have acquired their bus name */
 	darray_foreach(handler, ctx->handlers) {
 		if (handler->connection) {
-			tcmulib_register_handler(ctx, handler);
+			register_tcmulib_handler(ctx, handler);
 		}
 	}
 }
 
 static void
-tcmulib_reg_name_vanished(GDBusConnection *connection,
-			  const gchar     *name,
-			  gpointer         user_data)
+on_reg_name_vanished(GDBusConnection *connection,
+		     const gchar     *name,
+		     gpointer         user_data)
 {
 	struct tcmulib_context *ctx = user_data;
 
@@ -188,15 +234,15 @@ void tcmulib_register(struct tcmulib_context *ctx)
 
 	/* Start acquiring buses for each subtype owned by this context. */
 	darray_foreach(handler, ctx->handlers) {
-		tcmulib_handler_own_bus(handler);
+		dbus_handler_own_bus(handler);
 	}
 
 	/* Start waiting for the primary service to become available */
 	g_bus_watch_name(G_BUS_TYPE_SYSTEM,
 			 "org.kernel.TCMUService1",
 			 G_BUS_NAME_WATCHER_FLAGS_NONE,
-			 tcmulib_reg_name_appeared,
-			 tcmulib_reg_name_vanished,
+			 on_reg_name_appeared,
+			 on_reg_name_vanished,
 			 ctx,
 			 NULL);
 

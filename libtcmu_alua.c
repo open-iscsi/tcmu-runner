@@ -21,11 +21,12 @@
 #include <scsi/scsi.h>
 
 #include "libtcmu_log.h"
+#include "libtcmu.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
-#include "tcmur_device.h"
-#include "target.h"
-#include "alua.h"
+#include "libtcmu_device.h"
+#include "libtcmu_tpg.h"
+#include "libtcmu_alua.h"
 
 #define TCMU_ALUA_INVALID_GROUP_ID USHRT_MAX
 
@@ -84,7 +85,6 @@ static void tcmu_free_alua_grp(struct alua_grp *group)
 static struct alua_grp *
 tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct alua_grp *group;
 	struct tgt_port *port;
 	char *str_val, *orig_str_val, *member;
@@ -199,11 +199,11 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 		 * can manually change states, so report this as
 		 * implicit.
 		 */
-		rdev->failover_type = TMCUR_DEV_FAILOVER_ALL_ACTIVE;
+		dev->failover_type = TMCUR_DEV_FAILOVER_ALL_ACTIVE;
 
 		group->tpgs = TPGS_ALUA_IMPLICIT;
 	} else if (!strcmp(str_val, "Implicit")) {
-		rdev->failover_type = TMCUR_DEV_FAILOVER_IMPLICIT;
+		dev->failover_type = TMCUR_DEV_FAILOVER_IMPLICIT;
 
 		group->tpgs = TPGS_ALUA_IMPLICIT;
 	} else if (!strcmp(str_val, "Explicit")) {
@@ -220,7 +220,7 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 		 * We only need implicit enabled in the kernel so we can
 		 * interact with the alua configfs interface.
 		 */
-		rdev->failover_type = TMCUR_DEV_FAILOVER_EXPLICIT;
+		dev->failover_type = TMCUR_DEV_FAILOVER_EXPLICIT;
 
 		group->tpgs = TPGS_ALUA_EXPLICIT;
 	} else {
@@ -394,14 +394,13 @@ static int alua_sync_state(struct tcmu_device *dev,
 			   struct list_head *group_list,
 			   uint16_t enabled_group_id)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct alua_grp *group;
 	uint16_t ao_group_id;
 	uint8_t alua_state;
 	int ret;
 
-	if (rdev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT ||
+	if (dev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT ||
 	    !rhandler->get_lock_tag)
 		return TCMU_STS_OK;
 
@@ -423,12 +422,12 @@ static int alua_sync_state(struct tcmu_device *dev,
 				 * the first command sent to us so clear
 				 * lock state to avoid later blacklist errors.
 				 */
-				pthread_mutex_lock(&rdev->state_lock);
-				if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED) {
+				pthread_mutex_lock(&dev->state_lock);
+				if (dev->lock_state == TCMUR_DEV_LOCK_LOCKED) {
 					tcmu_dev_dbg(dev, "Dropping lock\n");
-					rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+					dev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 				}
-				pthread_mutex_unlock(&rdev->state_lock);
+				pthread_mutex_unlock(&dev->state_lock);
 			}
 		}
 
@@ -529,7 +528,7 @@ free_buf:
 
 bool lock_is_required(struct tcmu_device *dev)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
 
 	return !!rhandler->lock;
 }
@@ -543,17 +542,16 @@ static void *alua_lock_thread_fn(void *arg)
 
 int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	pthread_attr_t attr;
 	int ret = TCMU_STS_OK;
 
 	if (!lock_is_required(dev))
 		return ret;
 
-	pthread_mutex_lock(&rdev->state_lock);
-	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED) {
+	pthread_mutex_lock(&dev->state_lock);
+	if (dev->lock_state == TCMUR_DEV_LOCK_LOCKED) {
 		goto done;
-	} else if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKING) {
+	} else if (dev->lock_state == TCMUR_DEV_LOCK_LOCKING) {
 		tcmu_dev_info(dev, "Lock acquisition operation is already in process.");
 		ret = TCMU_STS_TRANSITION;
 		goto done;
@@ -561,7 +559,7 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	tcmu_dev_info(dev, "Starting lock acquisition operation.");
 
-	rdev->lock_state = TCMUR_DEV_LOCK_LOCKING;
+	dev->lock_state = TCMUR_DEV_LOCK_LOCKING;
 
 	/*
 	 * Make the lock_thread as detached to fix the memory leakage bug.
@@ -573,18 +571,18 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	 * The initiator is going to be queueing commands, so do this
 	 * in the background to avoid command timeouts.
 	 */
-	if (pthread_create(&rdev->lock_thread, &attr, alua_lock_thread_fn,
+	if (pthread_create(&dev->lock_thread, &attr, alua_lock_thread_fn,
 			   dev)) {
 		tcmu_dev_err(dev, "Could not start implicit transition thread:%s\n",
 			     strerror(errno));
-		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+		dev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 		ret = TCMU_STS_IMPL_TRANSITION_ERR;
 	} else {
 		ret = TCMU_STS_TRANSITION;
 	}
 
 done:
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&dev->state_lock);
 	return ret;
 }
 
@@ -761,14 +759,12 @@ free_buf:
 
 int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-
-        if (rdev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
-		if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
+        if (dev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
+		if (dev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
 			tcmu_dev_dbg(dev, "device lock not held.\n");
 			return TCMU_STS_FENCED;
 		}
-	} else if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
+	} else if (dev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
 		return alua_implicit_transition(dev, cmd);
 	}
 

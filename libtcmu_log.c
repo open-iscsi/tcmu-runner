@@ -21,6 +21,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_config.h"
 #include "libtcmu_time.h"
+#include "libtcmu.h"
 #include "libtcmu_priv.h"
 #include "string_priv.h"
 
@@ -216,7 +217,7 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	unsigned int head;
 	char *msg, buf[LOG_MSG_LEN];
 	int n;
-	struct tcmur_handler *rhandler;
+	struct tcmulib_backstore_handler *rhandler;
 
 	if (pri > tcmu_log_level)
 		return;

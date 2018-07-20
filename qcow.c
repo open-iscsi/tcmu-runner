@@ -61,8 +61,8 @@
 #include <linux/falloc.h>
 #endif
 
-#include "tcmu-runner.h"
 #include "scsi_defs.h"
+#include "libtcmu.h"
 #include "qcow.h"
 #include "qcow2.h"
 
@@ -1499,7 +1499,7 @@ done:
 
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";
 
-static struct tcmur_handler qcow_handler = {
+static struct tcmulib_backstore_handler qcow_handler = {
 	.name = "QEMU Copy-On-Write image file",
 	.subtype = "qcow",
 	.cfg_desc = qcow_cfg_desc,
@@ -1515,5 +1515,5 @@ static struct tcmur_handler qcow_handler = {
 /* Entry point must be named "handler_init". */
 int handler_init(void)
 {
-	return tcmur_register_handler(&qcow_handler);
+	return tcmulib_register_backstore_handler(&qcow_handler);
 }

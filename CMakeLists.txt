@@ -45,6 +45,11 @@ add_library(tcmu
   libtcmu_log.c
   libtcmu_config.c
   libtcmu_time.c
+  libtcmu_scsi.c
+  libtcmu_aio.c
+  libtcmu_alua.c
+  libtcmu_device.c
+  libtcmu_tpg.c
   )
 set_target_properties(tcmu
   PROPERTIES
@@ -60,7 +65,7 @@ target_link_libraries(tcmu
   ${LIBNL_GENL_LIB}
   ${GLIB_LIBRARIES}
   )
-install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} NAMELINK_SKIP)
+install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Stuff for building the static library
 add_library(tcmu_static
@@ -73,6 +78,11 @@ add_library(tcmu_static
   libtcmu_log.c
   libtcmu_config.c
   libtcmu_time.c
+  libtcmu_scsi.c
+  libtcmu_aio.c
+  libtcmu_alua.c
+  libtcmu_device.c
+  libtcmu_tpg.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
@@ -86,10 +96,6 @@ target_link_libraries(tcmu_static
 # Stuff for building the main binary
 add_executable(tcmu-runner
   tcmur_cmd_handler.c
-  tcmur_aio.c
-  tcmur_device.c
-  target.c
-  alua.c
   main.c
   tcmuhandler-generated.c
   )
@@ -106,7 +112,6 @@ target_link_libraries(tcmu-runner
   ${DL}
   ${KMOD_LIBRARIES}
   -Wl,--no-export-dynamic
-  -Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/main-syms.txt
   )
 install(TARGETS tcmu-runner RUNTIME DESTINATION bin)
 
@@ -272,6 +277,9 @@ configure_file (
   )
 install(SCRIPT tcmu.conf_install.cmake)
 
+install(FILES libtcmu.h libtcmu_common.h libtcmu_scsi.h
+  DESTINATION include)
+install(DIRECTORY ccan/ccan  DESTINATION include)
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)

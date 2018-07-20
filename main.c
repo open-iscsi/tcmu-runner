@@ -38,15 +38,16 @@
 #include <sys/utsname.h>
 #include "target_core_user_local.h"
 #include "darray.h"
-#include "tcmu-runner.h"
-#include "tcmur_aio.h"
-#include "tcmur_device.h"
+#include "libtcmu_aio.h"
+#include "libtcmu_device.h"
 #include "tcmur_cmd_handler.h"
 #include "libtcmu.h"
 #include "tcmuhandler-generated.h"
 #include "version.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+#include "libtcmu_scsi.h"
+#include "libtcmu_alua.h"
 
 # define TCMU_LOCK_FILE   "/var/run/lock/tcmu.lock"
 
@@ -54,45 +55,13 @@ static char *handler_path = DEFAULT_HANDLER_PATH;
 
 static struct tcmu_config *tcmu_cfg;
 
-darray(struct tcmur_handler *) g_runner_handlers = darray_new();
-
-int tcmur_register_handler(struct tcmur_handler *handler)
-{
-	struct tcmur_handler *h;
-	int i;
-
-	for (i = 0; i < darray_size(g_runner_handlers); i++) {
-		h = darray_item(g_runner_handlers, i);
-		if (!strcmp(h->subtype, handler->subtype)) {
-			tcmu_err("Handler %s has already been registered\n",
-				 handler->subtype);
-			return -1;
-		}
-	}
-
-	darray_append(g_runner_handlers, handler);
-	return 0;
-}
-
-static int tcmur_register_dbus_handler(struct tcmur_handler *handler)
+static int tcmur_register_dbus_handler(struct tcmulib_backstore_handler *handler)
 {
 	assert(handler->_is_dbus_handler == true);
-	return tcmur_register_handler(handler);
+	return tcmulib_register_backstore_handler(handler);
 }
 
-bool tcmur_unregister_handler(struct tcmur_handler *handler)
-{
-	int i;
-	for (i = 0; i < darray_size(g_runner_handlers); i++) {
-		if (darray_item(g_runner_handlers, i) == handler) {
-			darray_remove(g_runner_handlers, i);
-			return true;
-		}
-	}
-	return false;
-}
-
-static void free_dbus_handler(struct tcmur_handler *handler)
+static void free_dbus_handler(struct tcmulib_backstore_handler *handler)
 {
 	g_free((char*)handler->opaque);
 	g_free((char*)handler->subtype);
@@ -100,12 +69,12 @@ static void free_dbus_handler(struct tcmur_handler *handler)
 	g_free(handler);
 }
 
-static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
+static bool tcmur_unregister_dbus_handler(struct tcmulib_backstore_handler *handler)
 {
 	bool ret = false;
 	assert(handler->_is_dbus_handler == true);
 
-	ret = tcmur_unregister_handler(handler);
+	ret = tcmulib_unregister_backstore_handler(handler);
 
 	if (ret == true) {
 		free_dbus_handler(handler);
@@ -210,7 +179,7 @@ on_check_config(TCMUService1 *interface,
 		gchar *cfgstring,
 		gpointer user_data)
 {
-	struct tcmur_handler *handler = user_data;
+	struct tcmulib_backstore_handler *handler = user_data;
 	char *reason = NULL;
 	bool str_ok = true;
 
@@ -230,7 +199,7 @@ on_check_config(TCMUService1 *interface,
 }
 
 static void
-dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
+dbus_export_handler(struct tcmulib_backstore_handler *handler, GCallback check_config)
 {
 	GDBusObjectSkeleton *object;
 	char obj_name[128];
@@ -251,7 +220,7 @@ dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
 }
 
 static bool
-dbus_unexport_handler(struct tcmur_handler *handler)
+dbus_unexport_handler(struct tcmulib_backstore_handler *handler)
 {
 	char obj_name[128];
 
@@ -292,7 +261,7 @@ on_dbus_check_config(TCMUService1 *interface,
 		     gpointer user_data)
 {
 	char *bus_name, *obj_name;
-	struct tcmur_handler *handler = user_data;
+	struct tcmulib_backstore_handler *handler = user_data;
 	GDBusConnection *connection;
 	GError *error = NULL;
 	GVariant *result;
@@ -326,7 +295,7 @@ on_handler_appeared(GDBusConnection *connection,
 		    const gchar     *name_owner,
 		    gpointer         user_data)
 {
-	struct tcmur_handler *handler = user_data;
+	struct tcmulib_backstore_handler *handler = user_data;
 	struct dbus_info *info = handler->opaque;
 
 	if (info->register_invocation) {
@@ -344,7 +313,7 @@ on_handler_vanished(GDBusConnection *connection,
 		    const gchar     *name,
 		    gpointer         user_data)
 {
-	struct tcmur_handler *handler = user_data;
+	struct tcmulib_backstore_handler *handler = user_data;
 	struct dbus_info *info = handler->opaque;
 
 	if (info->register_invocation) {
@@ -368,14 +337,14 @@ on_register_handler(TCMUService1HandlerManager1 *interface,
 		    gchar *cfg_desc,
 		    gpointer user_data)
 {
-	struct tcmur_handler *handler;
+	struct tcmulib_backstore_handler *handler;
 	struct dbus_info *info;
 	char *bus_name;
 
 	bus_name = g_strdup_printf("org.kernel.TCMUService1.HandlerManager1.%s",
 				   subtype);
 
-	handler               = g_new0(struct tcmur_handler, 1);
+	handler               = g_new0(struct tcmulib_backstore_handler, 1);
 	handler->subtype      = g_strdup(subtype);
 	handler->cfg_desc     = g_strdup(cfg_desc);
 	handler->open         = dbus_handler_open;
@@ -432,14 +401,15 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 			      const gchar *name,
 			      gpointer user_data)
 {
-	struct tcmur_handler **handler;
+	struct tcmulib_backstore_handler *handler;
+	int i = 0;
 
 	tcmu_dbg("bus %s acquired\n", name);
 
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
-	darray_foreach(handler, g_runner_handlers) {
-		dbus_export_handler(*handler, G_CALLBACK(on_check_config));
+	while ((handler = tcmulib_next_backstore_handler(&i))) {
+		dbus_export_handler(handler, G_CALLBACK(on_check_config));
 	}
 
 	dbus_handler_manager1_init(connection);
@@ -550,365 +520,14 @@ static int load_our_module(void)
 	return ret;
 }
 
-/*
- * tcmur_stop_device - stop device for removal
- * @arg: tcmu_device to stop
- *
- * Stop internal tcmur device operations like lock and recovery and close
- * the device. Running IO must be stopped before calling this.
- */
-static void tcmur_stop_device(void *arg)
+static int dev_handle_cmds(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmu_device *dev = arg;
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	bool is_open = false;
-
-	pthread_mutex_lock(&rdev->state_lock);
-	/* check if this was already called due to thread cancelation */
-	if (rdev->flags & TCMUR_DEV_FLAG_STOPPED) {
-		pthread_mutex_unlock(&rdev->state_lock);
-		return;
-	}
-	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
-	pthread_mutex_unlock(&rdev->state_lock);
-
-	/*
-	 * The lock thread can fire off the recovery thread, so make sure
-	 * it is done first.
-	 */
-	tcmu_cancel_lock_thread(dev);
-	tcmu_cancel_recovery(dev);
-
-	pthread_mutex_lock(&rdev->state_lock);
-	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {
-		rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
-		is_open = true;
-	}
-	pthread_mutex_unlock(&rdev->state_lock);
-
-	if (is_open) {
-		tcmu_release_dev_lock(dev);
-		rhandler->close(dev);
-	}
-
-	pthread_mutex_lock(&rdev->state_lock);
-	rdev->flags |= TCMUR_DEV_FLAG_STOPPED;
-	pthread_mutex_unlock(&rdev->state_lock);
-
-	tcmu_dev_dbg(dev, "cmdproc cleanup done\n");
-}
-
-static void *tcmur_cmdproc_thread(void *arg)
-{
-	struct tcmu_device *dev = arg;
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	struct pollfd pfd;
-	int ret;
-	bool dev_stopping = false;
-
-	pthread_cleanup_push(tcmur_stop_device, dev);
-
-	while (1) {
-		int completed = 0;
-		struct tcmulib_cmd *cmd;
-
-		tcmulib_processing_start(dev);
-
-		while (!dev_stopping && (cmd = tcmulib_get_next_command(dev)) != NULL) {
-
-			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
-				tcmu_print_cdb_info(dev, cmd, NULL);
-
-			if (tcmur_handler_is_passthrough_only(rhandler))
-				ret = tcmur_cmd_passthrough_handler(dev, cmd);
-			else
-				ret = tcmur_generic_handle_cmd(dev, cmd);
-
-			if (ret == TCMU_STS_NOT_HANDLED)
-				tcmu_print_cdb_info(dev, cmd, "is not supported");
-
-			/*
-			 * command (processing) completion is called in the following
-			 * scenarios:
-			 *   - handle_cmd: synchronous handlers
-			 *   - generic_handle_cmd: non tcmur handler calls (see generic_cmd())
-			 *			   and on errors when calling tcmur handler.
-			 */
-			if (ret != TCMU_STS_ASYNC_HANDLED) {
-				completed = 1;
-				tcmur_command_complete(dev, cmd, ret);
-			}
-		}
-
-		if (completed)
-			tcmulib_processing_complete(dev);
-
-		pfd.fd = tcmu_get_dev_fd(dev);
-		pfd.events = POLLIN;
-		pfd.revents = 0;
-
-		/* Use ppoll instead poll to avoid poll call reschedules during signal
-		 * handling. If we were removing a device, then the uio device's memory
-		 * could be freed, but the poll would be rescheduled and end up accessing
-		 * the released device. */
-		ret = ppoll(&pfd, 1, NULL, NULL);
-		if (ret == -1) {
-			tcmu_err("ppoll() returned %d\n", ret);
-			break;
-		}
-
-		if (pfd.revents != POLLIN) {
-			tcmu_err("ppoll received unexpected revent: 0x%x\n", pfd.revents);
-			break;
-		}
-
-		/*
-		 * LIO will wait for outstanding requests and prevent new ones
-		 * from being sent to runner during device removal, but if the
-		 * tcmu cmd_time_out has fired tcmu-runner may still be executing
-		 * requests that LIO has completed. We only need to wait for replies
-		 * for outstanding requests so throttle the cmdproc thread now.
-		 */
-		pthread_mutex_lock(&rdev->state_lock);
-		if (rdev->flags & TCMUR_DEV_FLAG_STOPPING)
-			dev_stopping = true;
-		pthread_mutex_unlock(&rdev->state_lock);
-	}
-
-	/*
-	 * If we are doing a clean shutdown via dev_removed the
-	 * removing thread will call the cleanup function when
-	 * it has stopped and flushed the device.
-	 */
-	pthread_cleanup_pop(0);
-	return NULL;
-}
-
-static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
-{
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	int ret;
-
-	if (tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev) ==
-	    cfg->data.dev_size)
-		return 0;
-
-	ret = rhandler->reconfig(dev, cfg);
-	if (ret)
-		return ret;
-
-	ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
-	if (!ret)
-		tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
-
-	return ret;
-}
-
-static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
-{
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-
-	if (!rhandler->reconfig)
-		return -EOPNOTSUPP;
-
-	switch (cfg->type) {
-	case TCMULIB_CFG_DEV_SIZE:
-		return dev_resize(dev, cfg);
-	default:
-		return rhandler->reconfig(dev, cfg);
-	}
-}
-
-static int dev_added(struct tcmu_device *dev)
-{
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct list_head group_list;
-	struct tcmur_device *rdev;
-	int32_t block_size, max_sectors;
-	uint32_t max_xfer_length;
-	int64_t dev_size;
-	int ret;
-
-	rdev = calloc(1, sizeof(*rdev));
-	if (!rdev)
-		return -ENOMEM;
-	tcmu_set_daemon_dev_private(dev, rdev);
-	list_node_init(&rdev->recovery_entry);
-	rdev->dev = dev;
-
-	ret = -EINVAL;
-	block_size = tcmu_get_attribute(dev, "hw_block_size");
-	if (block_size <= 0) {
-		tcmu_dev_err(dev, "Could not get hw_block_size\n");
-		goto free_rdev;
-	}
-	tcmu_set_dev_block_size(dev, block_size);
-
-	dev_size = tcmu_get_dev_size(dev);
-	if (dev_size < 0) {
-		tcmu_dev_err(dev, "Could not get device size\n");
-		goto free_rdev;
-	}
-	tcmu_set_dev_num_lbas(dev, dev_size / block_size);
-
-	max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
-	if (max_sectors < 0)
-		goto free_rdev;
-	tcmu_set_dev_max_xfer_len(dev, max_sectors);
-
-	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld\n",
-		     block_size, dev_size);
-
-	ret = pthread_spin_init(&rdev->lock, 0);
-	if (ret != 0)
-		goto free_rdev;
-
-	ret = pthread_mutex_init(&rdev->caw_lock, NULL);
-	if (ret != 0)
-		goto cleanup_dev_lock;
-
-	ret = pthread_mutex_init(&rdev->format_lock, NULL);
-	if (ret != 0)
-		goto cleanup_caw_lock;
-
-	ret = pthread_mutex_init(&rdev->state_lock, NULL);
-	if (ret != 0)
-		goto cleanup_format_lock;
-
-	ret = setup_io_work_queue(dev);
-	if (ret < 0)
-		goto cleanup_state_lock;
-
-	ret = setup_aio_tracking(rdev);
-	if (ret < 0)
-		goto cleanup_io_work_queue;
-
-	ret = rhandler->open(dev, false);
-	if (ret)
-		goto cleanup_aio_tracking;
-	/*
-	 * On the initial creation ALUA will probably not yet have been setup,
-	 * but for reopens it will be so we need to sync our failover state.
-	 */
-	list_head_init(&group_list);
-	tcmu_get_alua_grps(dev, &group_list);
-	tcmu_release_alua_grps(&group_list);
-
-	rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
-
-	ret = pthread_cond_init(&rdev->lock_cond, NULL);
-	if (ret < 0)
-		goto close_dev;
-
-	/*
-	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
-	 * alignment starts at the begining of the device.
-	 */
-	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
-	tcmu_set_dev_opt_unmap_gran(dev, max_xfer_length);
-	tcmu_set_dev_unmap_gran_align(dev, 0);
-
-	ret = pthread_create(&rdev->cmdproc_thread, NULL, tcmur_cmdproc_thread,
-			     dev);
-	if (ret < 0)
-		goto cleanup_lock_cond;
-
-	return 0;
-
-cleanup_lock_cond:
-	pthread_cond_destroy(&rdev->lock_cond);
-close_dev:
-	rhandler->close(dev);
-cleanup_aio_tracking:
-	cleanup_aio_tracking(rdev);
-cleanup_io_work_queue:
-	cleanup_io_work_queue(dev, true);
-cleanup_state_lock:
-	pthread_mutex_destroy(&rdev->state_lock);
-cleanup_format_lock:
-	pthread_mutex_destroy(&rdev->format_lock);
-cleanup_caw_lock:
-	pthread_mutex_destroy(&rdev->caw_lock);
-cleanup_dev_lock:
-	pthread_spin_destroy(&rdev->lock);
-free_rdev:
-	free(rdev);
-	return ret;
-}
-
-void tcmu_cancel_thread(pthread_t thread)
-{
-	void *join_retval;
-	int ret;
-
-	ret = pthread_cancel(thread);
-	if (ret) {
-		tcmu_err("pthread_cancel failed with value %d\n", ret);
-		return;
-	}
-
-	ret = pthread_join(thread, &join_retval);
-	if (ret) {
-		tcmu_err("pthread_join failed with value %d\n", ret);
-		return;
-	}
-
-	if (join_retval != PTHREAD_CANCELED)
-		tcmu_err("unexpected join retval: %p\n", join_retval);
-}
-
-static void dev_removed(struct tcmu_device *dev)
-{
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	int ret;
-
-	pthread_mutex_lock(&rdev->state_lock);
-	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
-	pthread_mutex_unlock(&rdev->state_lock);
-
-	/*
-	 * The order of cleaning up worker threads and calling ->removed()
-	 * is important: for sync handlers, the worker thread needs to be
-	 * terminated before removing the handler (i.e., calling handlers
-	 * ->close() callout) in order to ensure that no handler callouts
-	 * are getting invoked when shutting down the handler.
-	 */
-	cleanup_io_work_queue_threads(dev);
-
-	if (aio_wait_for_empty_queue(rdev))
-		tcmu_dev_err(dev, "could not flush queue.\n");
-
-	tcmu_cancel_thread(rdev->cmdproc_thread);
-	tcmur_stop_device(dev);
-
-	cleanup_io_work_queue(dev, false);
-	cleanup_aio_tracking(rdev);
-
-	ret = pthread_cond_destroy(&rdev->lock_cond);
-	if (ret != 0)
-		tcmu_err("could not cleanup lock cond %d\n", ret);
-
-	ret = pthread_mutex_destroy(&rdev->state_lock);
-	if (ret != 0)
-		tcmu_err("could not cleanup state lock %d\n", ret);
-
-	ret = pthread_mutex_destroy(&rdev->format_lock);
-	if (ret != 0)
-		tcmu_err("could not cleanup format lock %d\n", ret);
-
-	ret = pthread_mutex_destroy(&rdev->caw_lock);
-	if (ret != 0)
-		tcmu_err("could not cleanup caw lock %d\n", ret);
-
-	ret = pthread_spin_destroy(&rdev->lock);
-	if (ret != 0)
-		tcmu_err("could not cleanup mailbox lock %d\n", ret);
-
-	free(rdev);
-
-	tcmu_dev_dbg(dev, "removed from tcmu-runner\n");
+	struct tcmulib_backstore_handler *rhandler = tcmu_get_runner_handler(dev);
+
+	if (tcmulib_backstore_handler_is_passthrough_only(rhandler))
+		return tcmur_cmd_passthrough_handler(dev, cmd);
+	else
+		return tcmur_generic_handle_cmd(dev, cmd);
 }
 
 #define TCMUR_MIN_OPEN_FD 65536
@@ -984,7 +603,7 @@ int main(int argc, char **argv)
 {
 	darray(struct tcmulib_handler) handlers = darray_new();
 	struct tcmulib_context *tcmulib_context;
-	struct tcmur_handler **tmp_r_handler;
+	struct tcmulib_backstore_handler *tmp_r_handler;
 	GMainLoop *loop;
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
@@ -992,6 +611,7 @@ int main(int argc, char **argv)
 	struct flock lock_fd = {0, };
 	int fd;
 	int ret;
+	int i = 0;
 
 	while (1) {
 		int option_index = 0;
@@ -1093,24 +713,22 @@ int main(int argc, char **argv)
 	 * Convert from tcmu-runner's handler struct to libtcmu's
 	 * handler struct, an array of which we pass in, below.
 	 */
-	darray_foreach(tmp_r_handler, g_runner_handlers) {
+	while ((tmp_r_handler = tcmulib_next_backstore_handler(&i))) {
 		struct tcmulib_handler tmp_handler;
 
 		memset(&tmp_handler, 0, sizeof(tmp_handler));
-		tmp_handler.name = (*tmp_r_handler)->name;
-		tmp_handler.subtype = (*tmp_r_handler)->subtype;
-		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;
-		tmp_handler.check_config = (*tmp_r_handler)->check_config;
-		tmp_handler.reconfig = dev_reconfig;
-		tmp_handler.added = dev_added;
-		tmp_handler.removed = dev_removed;
+		tmp_handler.name = (tmp_r_handler)->name;
+		tmp_handler.subtype = (tmp_r_handler)->subtype;
+		tmp_handler.cfg_desc = (tmp_r_handler)->cfg_desc;
+		tmp_handler.check_config = (tmp_r_handler)->check_config;
+		tmp_handler.handle_cmds = dev_handle_cmds;
 
 		/*
 		 * Can hand out a ref to an internal pointer to the
 		 * darray b/c handlers will never be added or removed
 		 * once open_handlers() is done.
 		 */
-		tmp_handler.hm_private = *tmp_r_handler;
+		tmp_handler.hm_private = tmp_r_handler;
 
 		darray_append(handlers, tmp_handler);
 	}

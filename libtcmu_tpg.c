@@ -21,14 +21,15 @@
 
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
-#include "tcmur_device.h"
-#include "target.h"
-#include "alua.h"
+#include "libtcmu_device.h"
+#include "libtcmu_tpg.h"
+#include "libtcmu_priv.h"
+#include "libtcmu_alua.h"
 
 static struct list_head tpg_recovery_list = LIST_HEAD_INIT(tpg_recovery_list);
 /*
  * Locking ordering:
- * rdev->state_lock
+ * dev->state_lock
  * tpg_recovery_lock
  */
 static pthread_mutex_t tpg_recovery_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -215,7 +216,7 @@ fail:
 static void *tgt_port_grp_recovery_thread_fn(void *arg)
 {
 	struct tgt_port_grp *tpg = arg;
-	struct tcmur_device *rdev, *tmp_rdev;
+	struct tcmu_device *dev, *tmp_dev;
 	bool enable_tpg = false;
 	int ret;
 
@@ -249,12 +250,12 @@ done:
 	 * TODO - the transport is stopped, so we should use the
 	 * cmdproc thread to reopen all these in parallel.
 	 */
-	list_for_each_safe(&tpg->devs, rdev, tmp_rdev, recovery_entry) {
-		ret = __tcmu_reopen_dev(rdev->dev, false, -1);
+	list_for_each_safe(&tpg->devs, dev, tmp_dev, recovery_entry) {
+		ret = __tcmu_reopen_dev(dev, false, -1);
 		if (ret) {
-			tcmu_dev_err(rdev->dev, "Could not reinitialize device. (err %d).\n",
+			tcmu_dev_err(dev, "Could not reinitialize device. (err %d).\n",
 				     ret);
-			if (!(rdev->flags & TCMUR_DEV_FLAG_STOPPING))
+			if (!(dev->flags & TCMUR_DEV_FLAG_STOPPING))
 				/* assume fatal error so do not enable tpg */
 				enable_tpg = false;
 		}
@@ -277,7 +278,6 @@ done:
 
 int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct list_head alua_list;
 	struct alua_grp *group;
 	struct tgt_port_grp *tpg;
@@ -337,7 +337,7 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 	list_add(&tpg_recovery_list, &tpg->recovery_entry);
 
 add_to_list:
-	list_add(&tpg->devs, &rdev->recovery_entry);
+	list_add(&tpg->devs, &dev->recovery_entry);
 done:
 	tcmu_release_alua_grps(&alua_list);
 	pthread_mutex_unlock(&tpg_recovery_lock);

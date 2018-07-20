@@ -51,8 +51,9 @@
 #include <signal.h>
 
 #include "be_byteshift.h"
-#include "tcmu-runner.h"
 #include "libtcmu.h"
+#include "libtcmu_log.h"
+#include "scsi_defs.h"
 
 struct fbo_state {
 	int fd;
@@ -1550,7 +1551,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static const char fbo_cfg_desc[] =
 	"The path to the file to use as a backstore.";
 
-static struct tcmur_handler fbo_handler = {
+static struct tcmulib_backstore_handler fbo_handler = {
 	.cfg_desc = fbo_cfg_desc,
 
 	.open = fbo_open,
@@ -1564,6 +1565,6 @@ static struct tcmur_handler fbo_handler = {
 /* Entry point must be named "handler_init". */
 int handler_init(void)
 {
-	return tcmur_register_handler(&fbo_handler);
+	return tcmulib_register_backstore_handler(&fbo_handler);
 }
 
