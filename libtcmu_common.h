@@ -192,6 +192,9 @@ int tcmu_emulate_mode_select(struct tcmu_device *dev, uint8_t *cdb,
 /* SCSI helpers */
 void tcmu_print_cdb_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd, const char *info);
 
+/*TCMU thread manage*/
+void tcmu_cancel_thread(pthread_t thread);
+
 #ifdef __cplusplus
 }
 #endif

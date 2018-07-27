@@ -838,27 +838,6 @@ free_rdev:
 	return ret;
 }
 
-void tcmu_cancel_thread(pthread_t thread)
-{
-	void *join_retval;
-	int ret;
-
-	ret = pthread_cancel(thread);
-	if (ret) {
-		tcmu_err("pthread_cancel failed with value %d\n", ret);
-		return;
-	}
-
-	ret = pthread_join(thread, &join_retval);
-	if (ret) {
-		tcmu_err("pthread_join failed with value %d\n", ret);
-		return;
-	}
-
-	if (join_retval != PTHREAD_CANCELED)
-		tcmu_err("unexpected join retval: %p\n", join_retval);
-}
-
 static void dev_removed(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
