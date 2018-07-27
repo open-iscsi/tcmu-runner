@@ -22,6 +22,7 @@
 #include "darray.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+#include "tcmu-runner.h"
 
 #include "ccan/list/list.h"
 
@@ -522,24 +523,7 @@ free_cfg:
 
 static void tcmu_cancel_config_thread(struct tcmu_config *cfg)
 {
-	pthread_t thread_id = cfg->thread_id;
-	void *join_retval;
-	int ret;
-
-	ret = pthread_cancel(thread_id);
-	if (ret) {
-		tcmu_err("pthread_cancel failed with value %d\n", ret);
-		return;
-	}
-
-	ret = pthread_join(thread_id, &join_retval);
-	if (ret) {
-		tcmu_err("pthread_join failed with value %d\n", ret);
-		return;
-	}
-
-	if (join_retval != PTHREAD_CANCELED)
-		tcmu_err("unexpected join retval: %p\n", join_retval);
+	tcmu_cancel_thread(cfg->thread_id);
 }
 
 void tcmu_destroy_config(struct tcmu_config *cfg)
