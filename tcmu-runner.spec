@@ -65,7 +65,7 @@ userspace libraries they like.
 %dir %{_usr}/lib64/tcmu-runner/
 %{_usr}/lib64/tcmu-runner/*
 %{_mandir}/man8/*
-%doc README.md LICENSE
+%doc README.md LICENSE.LGPLv2.1 LICENSE.Apache2
 %{_usr}/lib64/*
 %dir %{_sysconfdir}/tcmu/
 %config %{_sysconfdir}/tcmu/tcmu.conf
