@@ -48,6 +48,8 @@ userspace libraries they like.
 
 %install
 %{__make} DESTDIR=%{buildroot} install
+%{__mkdir} -p %{buildroot}/etc/tcmu/
+%{__install} -m 644 tcmu.conf %{buildroot}/etc/tcmu/
 
 %clean
 %{__rm} -rf ${buldroot}
