@@ -236,6 +236,48 @@ static char *tcmu_rbd_find_quote(char *string)
 	return string;
 }
 
+static bool tcmu_rbd_match_device_class(struct tcmu_device *dev,
+					const char *crush_rule,
+					const char *device_class)
+{
+	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	char *mon_cmd_bufs[2] = {NULL, NULL};
+	char *mon_buf = NULL, *mon_status_buf = NULL;
+	size_t mon_buf_len = 0, mon_status_buf_len = 0;
+	int ret;
+	bool match = false;
+
+	/* request a list of crush rules associated to the device class */
+	ret = asprintf(&mon_cmd_bufs[0],
+		       "{\"prefix\": \"osd crush rule ls-by-class\", "
+		        "\"class\": \"%s\", \"format\": \"json\"}",
+		       device_class);
+	if (ret < 0) {
+		tcmu_dev_warn(dev, "Could not allocate crush rule ls-by-class command.\n");
+		return false;
+	}
+
+	ret = rados_mon_command(state->cluster, (const char **)mon_cmd_bufs, 1,
+				"", 0, &mon_buf, &mon_buf_len,
+				&mon_status_buf, &mon_status_buf_len);
+	free(mon_cmd_bufs[0]);
+	if (ret == -ENOENT) {
+		tcmu_dev_dbg(dev, "%s not a registered device class.\n", device_class);
+		return false;
+	} else if (ret < 0 || !mon_buf) {
+		tcmu_dev_warn(dev, "Could not retrieve pool crush rule ls-by-class (Err %d)\n",
+			      ret);
+		return false;
+	}
+	rados_buffer_free(mon_status_buf);
+
+	/* expected JSON output: ["<rule name>",["<rule name>"...]] */
+	mon_buf[mon_buf_len - 1] = '\0';
+	match = (strstr(mon_buf, crush_rule) != NULL);
+	rados_buffer_free(mon_buf);
+	return match;
+}
+
 static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 {
 	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
@@ -291,39 +333,13 @@ static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "Pool %s using crush rule %s\n", state->pool_name,
 		     crush_rule);
 
-	/* request a list of crush rules associated to SSD device class */
-	ret = asprintf(&mon_cmd_bufs[0],
-		       "{\"prefix\": \"osd crush rule ls-by-class\", "
-		        "\"class\": \"ssd\", \"format\": \"json\"}");
-	if (ret < 0) {
-		tcmu_dev_warn(dev, "Could not allocate crush rule ls-by-class command.\n");
-		goto free_crush_rule;
-	}
-
-	ret = rados_mon_command(state->cluster, (const char **)mon_cmd_bufs, 1,
-				"", 0, &mon_buf, &mon_buf_len,
-				&mon_status_buf, &mon_status_buf_len);
-	free(mon_cmd_bufs[0]);
-	if (ret == -ENOENT) {
-		tcmu_dev_dbg(dev, "SSD not a registered device class.\n");
-		goto free_crush_rule;
-	} else if (ret < 0 || !mon_buf) {
-		tcmu_dev_warn(dev, "Could not retrieve pool crush rule ls-by-class (Err %d)\n",
-			      ret);
-		goto free_crush_rule;
-	}
-	rados_buffer_free(mon_status_buf);
-
-	/* expected JSON output: ["<rule name>",["<rule name>"...]] */
-	mon_buf[mon_buf_len - 1] = '\0';
-	if (strstr(mon_buf, crush_rule)) {
-		tcmu_dev_dbg(dev, "Pool %s associated to SSD device class.\n",
+	if (tcmu_rbd_match_device_class(dev, crush_rule, "ssd") ||
+	    tcmu_rbd_match_device_class(dev, crush_rule, "nvme")) {
+		tcmu_dev_dbg(dev, "Pool %s associated to solid state device class.\n",
 			     state->pool_name);
 		tcmu_set_dev_solid_state_media(dev, true);
 	}
-	rados_buffer_free(mon_buf);
 
-free_crush_rule:
 	free(crush_rule);
 }
 
