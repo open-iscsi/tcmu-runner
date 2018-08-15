@@ -967,6 +967,7 @@ int main(int argc, char **argv)
 	GMainLoop *loop;
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
+	guint watch_id;
 	bool new_path = false;
 	struct flock lock_fd = {0, };
 	int fd;
@@ -1111,7 +1112,7 @@ int main(int argc, char **argv)
 
 	/* Set up event for libtcmu */
 	libtcmu_gio = g_io_channel_unix_new(tcmulib_get_master_fd(tcmulib_context));
-	g_io_add_watch(libtcmu_gio, G_IO_IN, tcmulib_callback, tcmulib_context);
+	watch_id = g_io_add_watch(libtcmu_gio, G_IO_IN, tcmulib_callback, tcmulib_context);
 
 	/* Set up DBus name, see callback */
 	reg_id = g_bus_own_name(G_BUS_TYPE_SYSTEM,
@@ -1130,7 +1131,9 @@ int main(int argc, char **argv)
 	tcmu_info("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
+	g_source_remove(watch_id);
 	g_io_channel_shutdown(libtcmu_gio, TRUE, NULL);
+	g_io_channel_unref (libtcmu_gio);
 	g_object_unref(manager);
 	tcmulib_close(tcmulib_context);
 
