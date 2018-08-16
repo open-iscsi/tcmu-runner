@@ -328,7 +328,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
-	int retries = 0, ret = TCMU_STS_OK;
+	int retries = 0, ret = TCMU_STS_HW_ERR;
 
 	/* Block the kernel device. */
 	tcmu_block_device(dev);
