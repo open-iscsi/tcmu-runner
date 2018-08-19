@@ -189,8 +189,62 @@ on_check_config(TCMUService1 *interface,
 	return TRUE;
 }
 
+static gboolean
+on_change_medium(TCMUService1 *interface,
+		 GDBusMethodInvocation *invocation,
+		 gchar *name,
+		 guint64 size,
+		 gchar *cfgstring,
+		 gpointer user_data)
+{
+	struct tcmulib_context *ctx = user_data;
+	struct tcmur_handler *rhandler;
+	struct tcmu_device *dev = NULL;
+	char *reason = NULL;
+	int ret = 0;
+
+	dev = tcmulib_lookup_dev_by_tcmu_name(ctx, name);
+	if (!dev) {
+		ret = ENODEV;
+		reason = "Device not found.";
+		goto exit;
+	}
+
+	rhandler = tcmu_get_runner_handler(dev);
+	if (!rhandler->medium_change_supp) {
+		ret = EOPNOTSUPP;
+		reason = "Handler does not support medium changes.";
+		goto exit;
+	}
+
+	tcmu_block_device(dev);
+	tcmu_flush_device(dev);
+
+	tcmu_set_cfgfs_ctrl_str(dev, "dev_config", cfgstring);
+	tcmu_update_num_lbas(dev, size);
+	tcmu_set_dev_size(dev);
+
+	ret = tcmu_reopen_dev(dev, false, 0);
+	if (ret == 0) {
+		reason = "success";
+	} else {
+		reason = strerror(ret);
+	}
+
+	tcmu_dev_set_pending_ua(dev, TCMUR_UA_DEV_MEDIUM_CHANGED);
+	tcmu_unblock_device(dev);
+
+exit:
+	g_dbus_method_invocation_return_value(invocation,
+		g_variant_new("(is)", ret, reason));
+
+	return TRUE;
+}
+
 static void
-dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
+dbus_export_handler(struct tcmulib_context *tcmulib_context,
+		    struct tcmur_handler *handler, GCallback check_config,
+		    GCallback change_medium)
 {
 	GDBusObjectSkeleton *object;
 	char obj_name[128];
@@ -205,6 +259,10 @@ dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
 			 "handle-check-config",
 			 check_config,
 			 handler); /* user_data */
+	g_signal_connect(interface,
+			 "handle-change-medium",
+			 change_medium,
+			 tcmulib_context);
 	tcmuservice1_set_config_desc(interface, handler->cfg_desc);
 	g_dbus_object_manager_server_export(manager, G_DBUS_OBJECT_SKELETON(object));
 	g_object_unref(object);
@@ -216,12 +274,14 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 {
 	struct tcmur_handler **handler;
 
-	tcmu_dbg("bus %s acquired\n", name);
+	tcmu_dbg("bus %s acquired %p\n", name, user_data);
 
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
 	darray_foreach(handler, g_runner_handlers) {
-		dbus_export_handler(*handler, G_CALLBACK(on_check_config));
+		dbus_export_handler(user_data, *handler,
+				    G_CALLBACK(on_check_config),
+				    G_CALLBACK(on_change_medium));
 	}
 
 	g_dbus_object_manager_server_set_connection(manager, connection);
@@ -902,7 +962,7 @@ int main(int argc, char **argv)
 				dbus_bus_acquired,
 				dbus_name_acquired, // name acquired
 				dbus_name_lost, // name lost
-				NULL, // user data
+				tcmulib_context, // user data
 				NULL  // user date free func
 		);
 

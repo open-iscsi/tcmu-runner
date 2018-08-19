@@ -59,6 +59,11 @@ struct tcmur_handler {
 
 	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
+	/*
+	 * True if handler supports medium changes via reopen calls.
+	 */
+	bool medium_change_supp;
+
 	/* Per-device added/removed callbacks */
 	int (*open)(struct tcmu_device *dev, bool reopen);
 	void (*close)(struct tcmu_device *dev);

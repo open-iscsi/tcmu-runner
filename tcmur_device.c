@@ -426,6 +426,10 @@ int tcmu_dev_handle_pending_ua(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		/* Device capacity has changed */
 		tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION, 0x2A09);
 		break;
+	case TCMUR_UA_DEV_MEDIUM_CHANGED:
+		/* medium changed */
+		tcmu_set_sense_data(cmd->sense_buf, UNIT_ATTENTION, 0x2800);
+		break;
 	default:
 		tcmu_dev_err(dev, "Unhandled UA %d\n", ua);
 		goto unlock;
