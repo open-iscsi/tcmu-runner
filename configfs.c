@@ -61,8 +61,8 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 }
 
 #define tcmu_set_cfgfs_ctrl(type_name, type, type_frmt)			\
-static int tcmu_set_cfgfs_ctrl_##type_name(struct tcmu_device *dev,	\
-					   const char *key, type val)	\
+int tcmu_set_cfgfs_ctrl_##type_name(struct tcmu_device *dev,		\
+				    const char *key, type val)		\
 {									\
 	char path[PATH_MAX];						\
 	char buf[CFGFS_BUF_SIZE];					\
@@ -75,6 +75,7 @@ static int tcmu_set_cfgfs_ctrl_##type_name(struct tcmu_device *dev,	\
 }
 
 tcmu_set_cfgfs_ctrl(ull, unsigned long long, "%llu");
+tcmu_set_cfgfs_ctrl(str, const char *, "%s");
 
 static bool tcmu_cfgfs_mod_param_is_supported(const char *name)
 {

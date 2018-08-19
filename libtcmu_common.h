@@ -152,6 +152,8 @@ int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len);
 int tcmu_get_cfgfs_int(const char *path);
 int tcmu_set_cfgfs_ul(const char *path, unsigned long val);
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
+int tcmu_set_cfgfs_ctrl_str(struct tcmu_device *dev, const char *key,
+			    const char *val);
 bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name);
 int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
 			       unsigned long val);
