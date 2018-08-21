@@ -10,7 +10,6 @@
  */
 
 #define _GNU_SOURCE
-#define _BITS_UIO_H
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdio.h>

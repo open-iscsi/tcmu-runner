@@ -4,7 +4,7 @@
 /* This header will be used by application too */
 
 #include <linux/types.h>
-#include <linux/uio.h>
+#include <sys/uio.h>
 
 #define TCMU_VERSION "2.0"
 

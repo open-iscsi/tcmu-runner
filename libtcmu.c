@@ -5,7 +5,6 @@
  */
 
 #define _GNU_SOURCE
-#define _BITS_UIO_H
 #include <memory.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -19,7 +18,6 @@
 #include <errno.h>
 #include <dirent.h>
 #include <scsi/scsi.h>
-
 
 #include <libnl3/netlink/genl/genl.h>
 #include <libnl3/netlink/genl/mngt.h>

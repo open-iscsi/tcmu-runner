@@ -12,7 +12,6 @@
  */
 
 #define _GNU_SOURCE
-#define _BITS_UIO_H
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>

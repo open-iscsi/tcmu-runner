@@ -16,7 +16,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <sys/uio.h>
 #include <gio/gio.h>
 #include <pthread.h>
 
