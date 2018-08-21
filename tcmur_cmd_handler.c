@@ -658,7 +658,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	if (ret)
 		return ret;
 
-	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba:: %hu, last lba: %llu\n",
+	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba: %u, last lba: %llu\n",
 		     start_lba, lba_cnt, start_lba + lba_cnt - 1);
 
 	return TCMU_STS_OK;
