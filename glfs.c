@@ -31,7 +31,7 @@
 
 #define GLUSTER_PORT "24007"
 #define TCMU_GLFS_LOG_FILENAME "tcmu-runner-glfs.log"  /* MAX 32 CHAR */
-#define TCMU_GLFS_DEBUG_LEVEL  4
+#define TCMU_GLFS_DEBUG_LEVEL  7
 
 /* cache protection */
 pthread_mutex_t glfs_lock;
