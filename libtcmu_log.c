@@ -328,7 +328,7 @@ static int append_output(log_output_fn_t output_fn, log_close_fn_t close_fn, voi
 	struct log_output output;
 
 	if (output_fn == NULL)
-	    return -1;
+		return -1;
 
 	if (dest == TCMU_LOG_TO_FILE) {
 		if (name == NULL)
@@ -499,7 +499,7 @@ int tcmu_create_file_output(int pri, const char *filename, bool reloading)
 	if (reloading)
 		log_output_disable(TCMU_LOG_TO_FILE);
 
-        return 0;
+	return 0;
 }
 
 static bool log_buf_not_empty_output(struct log_buf *logbuf)

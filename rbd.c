@@ -944,7 +944,7 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,
 					   struct tcmulib_cmd *cmd)
 {
-       tcmu_notify_lock_lost(dev);
+	tcmu_notify_lock_lost(dev);
 	/*
 	 * This will happen during failback normally, because
 	 * running IO is failed due to librbd's immediate blacklisting

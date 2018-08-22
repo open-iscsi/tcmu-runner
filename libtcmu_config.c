@@ -200,7 +200,7 @@ static void tcmu_conf_free_str_keys(struct tcmu_config *cfg)
 	 * For example:
 	 * TCMU_FREE_CFG_STR_KEY(cfg, 'STR KEY');
 	 */
-	 TCMU_FREE_CFG_STR_KEY(cfg, log_dir_path);
+	TCMU_FREE_CFG_STR_KEY(cfg, log_dir_path);
 }
 
 #define TCMU_MAX_CFG_FILE_SIZE (2 * 1024 * 1024)
