@@ -1707,10 +1707,23 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmulib_cmd *readcmd;
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	uint8_t sectors = cmd->cdb[13];
 
-        ret = handle_caw_check(dev, cmd);
-        if (ret)
-                return ret;
+	/* From sbc4r12a section 5.3 COMPARE AND WRITE command
+	 * A NUMBER OF LOGICAL BLOCKS field set to zero specifies that no
+	 * read operations shall be performed, no logical block data shall
+	 * be transferred from the Data-Out Buffer, no compare operations
+	 * shall be performed, and no write operations shall be performed.
+	 * This condition shall not be considered an error.
+	 */
+	if (!sectors) {
+		tcmu_dev_dbg(dev, "NUMBER OF LOGICAL BLOCKS is zero, just return ok.\n");
+		return TCMU_STS_OK;
+	}
+
+	ret = handle_caw_check(dev, cmd);
+	if (ret)
+		return ret;
 
 	readcmd = caw_init_readcmd(cmd, half);
 	if (!readcmd) {
@@ -1747,19 +1760,32 @@ static int tcmur_caw_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		     tcmur_caw_fn_t caw_fn)
 {
-        int ret;
+	int ret;
+	uint8_t sectors = cmd->cdb[13];
 
-        ret = alua_check_state(dev, cmd);
-        if (ret)
-                return ret;
+	/* From sbc4r12a section 5.3 COMPARE AND WRITE command
+	 * A NUMBER OF LOGICAL BLOCKS field set to zero specifies that no
+	 * read operations shall be performed, no logical block data shall
+	 * be transferred from the Data-Out Buffer, no compare operations
+	 * shall be performed, and no write operations shall be performed.
+	 * This condition shall not be considered an error.
+	 */
+	if (!sectors) {
+		tcmu_dev_dbg(dev, "NUMBER OF LOGICAL BLOCKS is zero, just return ok.\n");
+		return TCMU_STS_OK;
+	}
 
-        ret = handle_caw_check(dev, cmd);
-        if (ret)
-                return ret;
+	ret = alua_check_state(dev, cmd);
+	if (ret)
+		return ret;
 
-        cmd->cmdstate = caw_fn;
+	ret = handle_caw_check(dev, cmd);
+	if (ret)
+		return ret;
 
-        return async_handle_cmd(dev, cmd, tcmur_caw_fn);
+	cmd->cmdstate = caw_fn;
+
+	return async_handle_cmd(dev, cmd, tcmur_caw_fn);
 }
 
 /* async flush */
