@@ -763,7 +763,7 @@ int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 
-        if (rdev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
+	if (rdev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
 		if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
 			tcmu_dev_dbg(dev, "device lock not held.\n");
 			return TCMU_STS_FENCED;

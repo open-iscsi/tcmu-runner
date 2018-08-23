@@ -52,8 +52,6 @@ tcmulib_register_handler(struct tcmulib_context *ctx,
 	}
 	g_variant_unref(result);
 	return ret;
-
-
 }
 
 static void tcmulib_reg_fail(struct tcmulib_context *ctx)
@@ -199,5 +197,4 @@ void tcmulib_register(struct tcmulib_context *ctx)
 			 tcmulib_reg_name_vanished,
 			 ctx,
 			 NULL);
-
 }

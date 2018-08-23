@@ -148,7 +148,7 @@ void tcmu_cancel_recovery(struct tcmu_device *dev)
 
 /**
  * tcmu_notify_conn_lost - notify runner the device instace has lost its
- * 			   connection to its backend storage.
+ *			   connection to its backend storage.
  * @dev: device that has lost its connection
  *
  * Handlers should call this function when they detect they cannot reach their

@@ -273,7 +273,7 @@ done:
 	}
 
 	free_tgt_port_grp(tpg);
-        return NULL;
+	return NULL;
 }
 
 int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)

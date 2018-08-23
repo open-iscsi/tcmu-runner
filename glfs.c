@@ -190,7 +190,7 @@ free_entry:
 	if (entry->volname)
 		free(entry->volname);
 	free(entry);
- error:
+error:
 	return -1;
 }
 
@@ -301,7 +301,7 @@ static int gluster_cache_query_or_add(struct tcmu_device *dev,
 		goto out;
 	}
 
- out:
+out:
 	pthread_mutex_unlock(&glfs_lock);
 	pthread_cleanup_pop(0);
 
@@ -343,12 +343,12 @@ static int parse_imagepath(char *cfgstring, gluster_server **hosts)
 
 	*hosts = calloc(1, sizeof(gluster_server));
 	if (!hosts)
-                goto fail;
+		goto fail;
 	entry = *hosts;
 
 	entry->server = calloc(1, sizeof(gluster_hostdef));
 	if (!entry->server)
-                goto fail;
+		goto fail;
 
 	*sep = '\0';
 	entry->volname = strdup(p);
@@ -453,10 +453,10 @@ static glfs_t* tcmu_create_glfs_object(struct tcmu_device *dev,
 
 	return fs;
 
- unref:
+unref:
 	gluster_cache_refresh(fs, config);
 
- fail:
+fail:
 	gluster_free_server(hosts);
 	return NULL;
 }

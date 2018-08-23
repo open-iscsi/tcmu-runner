@@ -99,13 +99,13 @@ static void free_iovec(struct tcmulib_cmd *cmd)
 static inline int check_iovec_length(struct tcmu_device *dev,
 				     struct tcmulib_cmd *cmd, uint32_t sectors)
 {
-        size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
+	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
 
-        if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
-                tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
-                             iov_length, sectors, tcmu_get_dev_block_size(dev));
+	if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
+		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
+			     iov_length, sectors, tcmu_get_dev_block_size(dev));
 		return TCMU_STS_HW_ERR;
-        }
+	}
 	return TCMU_STS_OK;
 }
 
@@ -1759,14 +1759,14 @@ out:
 
 static int tcmur_caw_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-        tcmur_caw_fn_t caw_fn = cmd->cmdstate;
-        uint32_t block_size = tcmu_get_dev_block_size(dev);
-        uint8_t *cdb = cmd->cdb;
-        uint64_t off = block_size * tcmu_get_lba(cdb);
-        size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
+	tcmur_caw_fn_t caw_fn = cmd->cmdstate;
+	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint8_t *cdb = cmd->cdb;
+	uint64_t off = block_size * tcmu_get_lba(cdb);
+	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 
-        cmd->done = handle_generic_cbk;
-        return caw_fn(dev, cmd, off, half, cmd->iovec, cmd->iov_cnt);
+	cmd->done = handle_generic_cbk;
+	return caw_fn(dev, cmd, off, half, cmd->iovec, cmd->iov_cnt);
 }
 
 int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
