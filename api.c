@@ -610,7 +610,7 @@ finish_page83:
 		 *
 		 * It should be less than or equal to MAXIMUM TRANSFER LENGTH.
 		 */
-		data[5] = 0x01;
+		data[5] = MAX_CAW_LENGTH;
 
 		/*
 		 * Daemons like runner may override the user requested
