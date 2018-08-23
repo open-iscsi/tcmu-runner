@@ -1689,6 +1689,18 @@ static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint64_t start_lba = tcmu_get_lba(cmd->cdb);
 	uint8_t sectors = cmd->cdb[13];
 
+	/* From sbc4r12a section 5.3 COMPARE AND WRITE command
+	 * If the number of logical blocks exceeds the value in the
+	 * MAXIMUM COMPARE AND WRITE LENGTH field(see 6.64 block limits VPD page)
+	 * then the device server shall terminate the command with CHECK CONDITION
+	 * status with the sense key set to ILLEGAL REQUEST and the additional sense
+	 * code set to INVALID FIELD IN CDB.
+	 */
+	if (sectors > MAX_CAW_LENGTH) {
+		tcmu_dev_err(dev, "Received caw length %u greater than max caw length %u.\n",
+			     sectors, MAX_CAW_LENGTH);
+		return TCMU_STS_INVALID_CDB;
+	}
 	/* double sectors since we have two buffers */
 	ret = check_iovec_length(dev, cmd, sectors * 2);
 	if (ret)

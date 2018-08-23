@@ -71,6 +71,8 @@ enum {
 /* Temporarily limit this to 32M */
 #define VPD_MAX_UNMAP_LBA_COUNT            (32 * 1024 * 1024)
 #define VPD_MAX_UNMAP_BLOCK_DESC_COUNT     0x04
+/* Temporarily limit this is 0x1 */
+#define MAX_CAW_LENGTH                     0x01
 
 #define max(a, b) ({			\
 	__typeof__ (a) _a = (a);	\
