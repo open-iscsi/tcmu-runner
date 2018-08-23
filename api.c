@@ -184,7 +184,7 @@ size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)
 
 void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 {
-	sense_buf[0] = 0x70;	/* fixed, current */
+	sense_buf[0] |= 0x70;	/* fixed, current */
 	sense_buf[2] = key;
 	sense_buf[7] = 0xa;
 	sense_buf[12] = (asc_ascq >> 8) & 0xff;
