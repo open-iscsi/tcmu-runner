@@ -2035,12 +2035,40 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 						   ASC_INTERNAL_TARGET_FAILURE);
 		}
 
-		/* Check conv -> seq and seq -> seq zone boundary crossing */
+		/* Check conv -> seq zone boundary crossing */
 		if (zone_type == 0)
 			zone_type = zone->type;
-		if (zone->type != zone_type ||
-		    (zbc_zone_seq_req(zone) &&
-		     lba + nr_lbas > zone->start + zone->len)) {
+		if (zone->type != zone_type) {
+			tcmu_dev_err(dev,
+				     "Write boundary violation lba %llu, xfer len %lu\n",
+				     lba, nr_lbas);
+			return tcmu_set_sense_data(cmd->sense_buf,
+						   ILLEGAL_REQUEST,
+						   ASC_WRITE_BOUNDARY_VIOLATION);
+		}
+
+		/* Check full zone */
+		if (zbc_zone_full(zone)) {
+			tcmu_dev_err(dev,
+				     "Write to FULL zone: zone_type %d, zone_status %d\n",
+				     zone->type, zone->cond);
+				return tcmu_set_sense_data(cmd->sense_buf,
+							   ILLEGAL_REQUEST,
+							   ASC_INVALID_FIELD_IN_CDB);
+		}
+
+		/* Check LBA on write pointer */
+		if (zbc_zone_seq_req(zone) && lba != zone->wp) {
+			tcmu_dev_err(dev, "Unaligned write lba %llu, wp %llu\n",
+				     lba, zone->wp);
+			return tcmu_set_sense_data(cmd->sense_buf,
+						   ILLEGAL_REQUEST,
+						   ASC_UNALIGNED_WRITE_COMMAND);
+		}
+
+		/* Check seq zone boundary crossing */
+		if (zbc_zone_seq_req(zone) &&
+		     lba + nr_lbas > zone->start + zone->len) {
 			tcmu_dev_err(dev,
 				     "Write boundary violation lba %llu, xfer len %lu\n",
 				     lba, nr_lbas);
@@ -2050,27 +2078,9 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 		}
 
 		/*
-		 * For sequential write required zones, enforce write pointer
-		 * position. Same for conventional zones with conv_check_wp
-		 * enabled.
+		 * Calculate remaining LBAs to check that writes in
+		 * conventional zones do not cross into sequential zones"
 		 */
-		if (zbc_zone_seq_req(zone) && lba != zone->wp) {
-			tcmu_dev_err(dev, "Unaligned write lba %llu, wp %llu\n",
-				     lba, zone->wp);
-			if (zbc_zone_full(zone)) {
-				tcmu_dev_err(dev,
-					     "Write to FULL zone: start %llu, lba %llu\n",
-					     zone->start, lba);
-					return tcmu_set_sense_data(cmd->sense_buf,
-								   ILLEGAL_REQUEST,
-								   ASC_INVALID_FIELD_IN_CDB);
-			}
-
-			return tcmu_set_sense_data(cmd->sense_buf,
-						   ILLEGAL_REQUEST,
-						   ASC_UNALIGNED_WRITE_COMMAND);
-		}
-
 		if (lba + nr_lbas > zone->start + zone->len)
 			count = zone->start + zone->len - lba;
 		else
