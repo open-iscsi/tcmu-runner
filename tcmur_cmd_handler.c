@@ -102,7 +102,7 @@ static inline int check_iovec_length(struct tcmu_device *dev,
 	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
 
 	if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
-		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
+		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %u, block size %u\n",
 			     iov_length, sectors, tcmu_get_dev_block_size(dev));
 		return TCMU_STS_HW_ERR;
 	}
@@ -115,7 +115,7 @@ static inline int check_lbas(struct tcmu_device *dev,
 	uint64_t dev_last_lba = tcmu_get_dev_num_lbas(dev);
 
 	if (start_lba + lba_cnt > dev_last_lba || start_lba + lba_cnt < start_lba) {
-		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %llu, xfer len %lu)\n",
+		tcmu_dev_err(dev, "cmd exceeds last lba %"PRIu64" (lba %"PRIu64", xfer len %"PRIu64")\n",
 			     dev_last_lba, start_lba, lba_cnt);
 		return TCMU_STS_RANGE;
 	}
@@ -289,7 +289,7 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 	unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
 	mask = unmap_gran_align - 1;
 
-	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %lu, UNMAP GRANULARITY ALIGNMENT: %lu\n",
+	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %"PRIu64", UNMAP GRANULARITY ALIGNMENT: %"PRIu64"\n",
 		     opt_unmap_gran, unmap_gran_align);
 
 	/*
@@ -325,12 +325,12 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 
 		/* The first one */
 		if (j++ == 0)
-			tcmu_dev_dbg(dev, "The first split: start lba: %llu, end lba: %llu, lbas: %u\n",
+			tcmu_dev_dbg(dev, "The first split: start lba: %"PRIu64", end lba: %"PRIu64", lbas: %"PRIu64"\n",
 				     lba, lba + lbas - 1, lbas);
 
 		/* The last one */
 		if (nlbas == lbas) {
-			tcmu_dev_dbg(dev, "The last split: start lba: %llu, end lba: %llu, lbas: %u\n",
+			tcmu_dev_dbg(dev, "The last split: start lba: %"PRIu64", end lba: %"PRIu64", lbas: %"PRIu64"\n",
 				     lba, lba + lbas - 1, lbas);
 			tcmu_dev_dbg(dev, "There are totally %d splits\n", j);
 		}
@@ -374,11 +374,11 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		lba = be64toh(*((uint64_t *)&par[offset]));
 		nlbas = be32toh(*((uint32_t *)&par[offset + 8]));
 
-		tcmu_dev_dbg(dev, "Parameter list %d, start lba: %llu, end lba: %llu, nlbas: %u\n",
+		tcmu_dev_dbg(dev, "Parameter list %d, start lba: %"PRIu64", end lba: %"PRIu64", nlbas: %"PRIu64"\n",
 			     i++, lba, lba + nlbas - 1, nlbas);
 
 		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
-			tcmu_dev_err(dev, "Illegal parameter list LBA count %lu exceeds:%u\n",
+			tcmu_dev_err(dev, "Illegal parameter list LBA count %"PRIu64" exceeds:%u\n",
 				     nlbas, VPD_MAX_UNMAP_LBA_COUNT);
 			ret = TCMU_STS_INVALID_PARAM_LIST;
 			goto state_unlock;
@@ -470,7 +470,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	 * The PARAMETER LIST LENGTH should be greater than eight,
 	 */
 	if (data_length < 8) {
-		tcmu_dev_err(dev, "Illegal parameter list length %llu and it should be >= 8\n",
+		tcmu_dev_err(dev, "Illegal parameter list length %zu and it should be >= 8\n",
 			     data_length);
 		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 	}
@@ -591,12 +591,12 @@ static void handle_writesame_cbk(struct tcmu_device *dev,
 		goto finish_err;
 
 	if (left_lbas <= write_lbas) {
-		tcmu_dev_dbg(dev, "Last lba: %llu, write lbas: %llu\n",
+		tcmu_dev_dbg(dev, "Last lba: %"PRIu64", write lbas: %"PRIu64"\n",
 			     write_same->cur_lba, left_lbas);
 
 		write_same->iov_len = left_lbas * block_size;
 	} else {
-		tcmu_dev_dbg(dev, "Next lba: %llu, write lbas: %llu\n",
+		tcmu_dev_dbg(dev, "Next lba: %"PRIu64", write lbas: %"PRIu64"\n",
 			     write_same->cur_lba, write_lbas);
 	}
 
@@ -624,7 +624,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	int ret;
 
 	if (cmd->iov_cnt != 1 || cmd->iovec->iov_len != block_size) {
-		tcmu_dev_err(dev, "Illegal Data-Out: iov_cnt %u length: %u\n",
+		tcmu_dev_err(dev, "Illegal Data-Out: iov_cnt %zu length: %zu\n",
 			     cmd->iov_cnt, cmd->iovec->iov_len);
 		return TCMU_STS_INVALID_CDB;
 	}
@@ -658,7 +658,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 	if (ret)
 		return ret;
 
-	tcmu_dev_dbg(dev, "Start lba: %llu, number of lba: %u, last lba: %llu\n",
+	tcmu_dev_dbg(dev, "Start lba: %"PRIu64", number of lba: %u, last lba: %"PRIu64"\n",
 		     start_lba, lba_cnt, start_lba + lba_cnt - 1);
 
 	return TCMU_STS_OK;
@@ -744,7 +744,7 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	cmd->done = handle_writesame_cbk;
 
-	tcmu_dev_dbg(dev, "First lba: %llu, write lbas: %llu\n",
+	tcmu_dev_dbg(dev, "First lba: %"PRIu64", write lbas: %"PRIu64"\n",
 		     start_lba, write_lbas);
 
 	return async_handle_cmd(dev, cmd, writesame_work_fn);
@@ -876,7 +876,7 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 	cmp_offset = tcmu_compare_with_iovec(state->read_buf, state->w_iovec,
 					     state->requested);
 	if (cmp_offset != -1) {
-		tcmu_dev_err(dev, "Verify failed at offset %lu\n", cmp_offset);
+		tcmu_dev_err(dev, "Verify failed at offset %u\n", cmp_offset);
 		ret =  TCMU_STS_MISCOMPARE;
 		tcmu_set_sense_info(sense, cmp_offset);
 	}
@@ -1029,7 +1029,7 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 	xcopy->lba_cnt = be16toh(*(uint16_t *)&seg_desc[10]);
 	xcopy->src_lba = be64toh(*(uint64_t *)&seg_desc[12]);
 	xcopy->dst_lba = be64toh(*(uint64_t *)&seg_desc[20]);
-	tcmu_dbg("Segment descriptor: lba_cnt: %hu src_lba: %llu dst_lba: %llu\n",
+	tcmu_dbg("Segment descriptor: lba_cnt: %u src_lba: %"PRIu64" dst_lba: %"PRIu64"\n",
 		 xcopy->lba_cnt, xcopy->src_lba, xcopy->dst_lba);
 
 	return TCMU_STS_OK;
@@ -1358,7 +1358,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	 * + parameter list header length
 	 */
 	if (data_length < (XCOPY_HDR_LEN + tdll + sdll + inline_dl)) {
-		tcmu_dev_err(dev, "Illegal list length: length from CDB is %u,"
+		tcmu_dev_err(dev, "Illegal list length: length from CDB is %zu,"
 			     " but here the length is %u\n",
 			     data_length, tdll + sdll + inline_dl);
 		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
@@ -1401,7 +1401,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	num_lbas = tcmu_get_dev_num_lbas(xcopy->src_dev);
 	if (xcopy->src_lba + xcopy->lba_cnt > num_lbas) {
 		tcmu_dev_err(xcopy->src_dev,
-			     "src target exceeds last lba %lld (lba %lld, copy len %lld)\n",
+			     "src target exceeds last lba %"PRIu64" (lba %"PRIu64", copy len %u\n",
 			     num_lbas, xcopy->src_lba, xcopy->lba_cnt);
 		return TCMU_STS_RANGE;
 	}
@@ -1409,7 +1409,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	num_lbas = tcmu_get_dev_num_lbas(xcopy->dst_dev);
 	if (xcopy->dst_lba + xcopy->lba_cnt > num_lbas) {
 		tcmu_dev_err(xcopy->dst_dev,
-			     "dst target exceeds last lba %lld (lba %lld, copy len %lld)\n",
+			     "dst target exceeds last lba %"PRIu64" (lba %"PRIu64", copy len %u)\n",
 			     num_lbas, xcopy->dst_lba, xcopy->lba_cnt);
 		return TCMU_STS_RANGE;
 	}
@@ -1512,7 +1512,7 @@ static int xcopy_read_work_fn(struct tcmu_device *src_dev, struct tcmulib_cmd *c
 	size_t iov_cnt = xcopy->iov_cnt;
 
 	tcmu_dev_dbg(src_dev,
-		     "Copying %llu sectors from src (lba:%llu) to dst (lba:%llu)\n",
+		     "Copying %u sectors from src (lba:%"PRIu64") to dst (lba:%"PRIu64")\n",
 		     xcopy->copy_lbas, xcopy->src_lba, xcopy->dst_lba);
 
 	iovec->iov_base = xcopy->iov_base;
@@ -1553,7 +1553,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	 * that contains the LIST IDENTIFIER field.
 	 */
 	if (data_length < XCOPY_HDR_LEN) {
-		tcmu_dev_err(dev, "Illegal parameter list: length %u < hdr_len %u\n",
+		tcmu_dev_err(dev, "Illegal parameter list: length %zu < hdr_len %u\n",
 			     data_length, XCOPY_HDR_LEN);
 		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 	}
@@ -2013,7 +2013,7 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 	/* Check for last commmand */
 	if (state->done_blocks == dev->num_lbas) {
 		tcmu_dev_dbg(dev,
-			     "last format cmd, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
+			     "last format cmd, done_blocks:%u num_lbas:%"PRIu64" block_size:%u\n",
 			     state->done_blocks, dev->num_lbas, dev->block_size);
 		goto free_iovec;
 	}
@@ -2036,7 +2036,7 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 		writecmd->done = handle_format_unit_cbk;
 
 		tcmu_dev_dbg(dev,
-			     "next format cmd, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
+			     "next format cmd, done_blocks:%u num_lbas:%"PRIu64" block_size:%u\n",
 			     state->done_blocks, dev->num_lbas, dev->block_size);
 
 		rc = async_handle_cmd(dev, writecmd, format_unit_work_fn);
@@ -2105,7 +2105,7 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 		goto free_state;
 	}
 
-	tcmu_dev_dbg(dev, "start emulate format, done_blocks:%lu num_lbas:%lu block_size:%lu\n",
+	tcmu_dev_dbg(dev, "start emulate format, done_blocks:%u num_lbas:%"PRIu64" block_size:%u\n",
 		     state->done_blocks, num_lbas, block_size);
 
 	/* copy incase handler changes it */

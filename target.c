@@ -235,7 +235,7 @@ static void *tgt_port_grp_recovery_thread_fn(void *arg)
 
 	if (ret < 0) {
 		tcmu_err("Could not disable %s/%s/tpgt_%hu (err %d).\n",
-			 ret, tpg->fabric, tpg->wwn, tpg->tpgt);
+			 tpg->fabric, tpg->wwn, tpg->tpgt, ret);
 		/* just recover the devs and leave the tpg in curr state */
 		goto done;
 	}
@@ -265,7 +265,7 @@ done:
 		ret = tcmu_set_tpg_int(tpg, "enable", 1);
 		if (ret) {
 			tcmu_err("Could not enable %s/%s/tpgt_%hu (err %d).\n",
-				 ret, tpg->fabric, tpg->wwn, tpg->tpgt);
+				 tpg->fabric, tpg->wwn, tpg->tpgt, ret);
 		} else {
 			tcmu_info("Enabled %s/%s/tpgt_%hu.\n", tpg->fabric, tpg->wwn,
 				  tpg->tpgt);

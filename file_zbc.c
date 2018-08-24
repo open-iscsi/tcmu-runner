@@ -13,6 +13,7 @@
 #define _GNU_SOURCE
 #include <stddef.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1887,7 +1888,7 @@ static int zbc_check_rdwr(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
 
 	if (iov_length != nr_lbas * zdev->lba_size) {
-		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %lu, block size %lu\n",
+		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %zu, block size %zu\n",
 			     iov_length, nr_lbas, zdev->lba_size);
 		return tcmu_set_sense_data(cmd->sense_buf,
 					   HARDWARE_ERROR,
@@ -1895,7 +1896,7 @@ static int zbc_check_rdwr(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	if (lba + nr_lbas > zdev->capacity || lba + nr_lbas < lba) {
-		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %llu, xfer len %lu)\n",
+		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %"PRIu64", xfer len %zu)\n",
 			     zdev->capacity, lba, nr_lbas);
 		return tcmu_set_sense_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
@@ -2028,7 +2029,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 		zone = zbc_get_zone(zdev, lba, false);
 		if (!zone) {
 			tcmu_dev_err(zdev->dev,
-				     "Get zone at LBA %llu failed\n",
+				     "Get zone at LBA %"PRIu64" failed\n",
 				     lba);
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   HARDWARE_ERROR,
@@ -2040,7 +2041,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 			zone_type = zone->type;
 		if (zone->type != zone_type) {
 			tcmu_dev_err(dev,
-				     "Write boundary violation lba %llu, xfer len %lu\n",
+				     "Write boundary violation lba %"PRIu64", xfer len %zu\n",
 				     lba, nr_lbas);
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
@@ -2059,7 +2060,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 
 		/* Check LBA on write pointer */
 		if (zbc_zone_seq_req(zone) && lba != zone->wp) {
-			tcmu_dev_err(dev, "Unaligned write lba %llu, wp %llu\n",
+			tcmu_dev_err(dev, "Unaligned write lba %"PRIu64", wp %llu\n",
 				     lba, zone->wp);
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
@@ -2070,7 +2071,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 		if (zbc_zone_seq_req(zone) &&
 		     lba + nr_lbas > zone->start + zone->len) {
 			tcmu_dev_err(dev,
-				     "Write boundary violation lba %llu, xfer len %lu\n",
+				     "Write boundary violation lba %"PRIu64", xfer len %zu\n",
 				     lba, nr_lbas);
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
@@ -2129,7 +2130,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		zone = zbc_get_zone(zdev, lba, false);
 		if (lba + nr_lbas > zone->start + zone->len) {
 			tcmu_dev_err(dev,
-				     "Write boundary violation lba %llu, xfer len %lu\n",
+				     "Write boundary violation lba %"PRIu64", xfer len %zu\n",
 				     lba, nr_lbas);
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
