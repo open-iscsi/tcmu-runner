@@ -1063,6 +1063,14 @@ static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 		/* Unsupported target descriptor type code */
 		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2607);
 		break;
+	case TCMU_STS_TOO_MANY_SEG_DESC:
+		/* The number of segment descriptors exceeds the allowed number */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2608);
+		break;
+	case TCMU_STS_TOO_MANY_TGT_DESC:
+		/* The number of CSCD descriptors exceeds the allowed number */
+		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2606);
+		break;
 	case TCMU_STS_CP_TGT_DEV_NOTCONN:
 		/* Copy target device not reachable */
 		tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D02);

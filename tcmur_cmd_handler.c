@@ -981,11 +981,17 @@ static int xcopy_parse_segment_descs(uint8_t *seg_descs, struct xcopy *xcopy,
 		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
+	/* From spc4r36q, section 6.4.3.5 SEGMENT DESCRIPTOR LIST LENGTH field
+	 * If the number of segment descriptors exceeds the allowed number, the copy
+	 * manager shall terminate the command with CHECK CONDITION status, with the
+	 * sense key set to ILLEGAL REQUEST, and the additional sense code set to
+	 * TOO MANY SEGMENT DESCRIPTORS.
+	 */
 	if (sdll > RCR_OP_MAX_SEGMENT_DESC_COUNT * XCOPY_SEGMENT_DESC_B2B_LEN) {
 		tcmu_err("Only %u segment descriptor(s) supported, but there are %u\n",
 			 RCR_OP_MAX_SEGMENT_DESC_COUNT,
 			 sdll / XCOPY_SEGMENT_DESC_B2B_LEN);
-		return TCMU_STS_INVALID_PARAM_LIST;
+		return TCMU_STS_TOO_MANY_SEG_DESC;
 	}
 
 	/* EXTENDED COPY segment descriptor type codes block --> block */
@@ -1195,10 +1201,16 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 {
 	int i, ret;
 
+	/* From spc4r36q,section 6.4.3.4 CSCD DESCRIPTOR LIST LENGTH field
+	 * If the number of CSCD descriptors exceeds the allowed number, the copy
+	 * manager shall terminate the command with CHECK CONDITION status, with
+	 * the sense key set to ILLEGAL REQUEST, and the additional sense code
+	 * set to TOO MANY TARGET DESCRIPTORS.
+	 */
 	if (tdll > RCR_OP_MAX_TARGET_DESC_COUNT * XCOPY_TARGET_DESC_LEN) {
 		tcmu_dev_err(udev, "Only %u target descriptor(s) supported, but there are %u\n",
 			     RCR_OP_MAX_TARGET_DESC_COUNT, tdll / XCOPY_TARGET_DESC_LEN);
-		return TCMU_STS_INVALID_PARAM_LIST;
+		return TCMU_STS_TOO_MANY_TGT_DESC;
 	}
 
 	for (i = 0; i < RCR_OP_MAX_TARGET_DESC_COUNT; i++) {
