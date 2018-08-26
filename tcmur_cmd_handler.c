@@ -1519,6 +1519,14 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct xcopy *xcopy;
 	int ret;
 
+	/* spc4r36q section6.4 and 6.5
+	 * EXTENDED_COPY(LID4) :service action 0x01;
+	 * EXTENDED_COPY(LID1) :service action 0x00.
+	 */
+	if ((cdb[1] & 0x1f) != 0x00) {
+		tcmu_dev_err(dev, "EXTENDED_COPY(LID4) not supported\n");
+		return TCMU_STS_INVALID_CMD;
+	}
 	/*
 	 * A parameter list length of zero specifies that copy manager
 	 * shall not transfer any data or alter any internal state.
