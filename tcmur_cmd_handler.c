@@ -1295,9 +1295,11 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	 *
 	 * All target descriptors (see table 108) are 32 bytes or 64 bytes
 	 * in length
+	 * From spc4r36q, section6.4.3.4
+	 * An EXTENDED COPY command may reference one or more CSCDs.
 	 */
 	tdll = be16toh(*(uint16_t *)&par[2]);
-	if (tdll % 32 != 0) {
+	if (tdll < 32 || tdll % 32 != 0) {
 		tcmu_dev_err(dev, "Illegal target descriptor length %u\n",
 			     tdll);
 		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
