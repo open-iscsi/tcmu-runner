@@ -1559,6 +1559,7 @@ static struct tcmur_handler fbo_handler = {
 	.subtype = "fbo",
 	.handle_cmd = fbo_handle_cmd,
 	.nr_threads = 1,
+	.medium_change_supp = 1,
 };
 
 /* Entry point must be named "handler_init". */

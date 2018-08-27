@@ -22,6 +22,7 @@
 #define TCMUR_DEV_FLAG_STOPPED		(1 << 4)
 
 #define TCMUR_UA_DEV_SIZE_CHANGED	0
+#define TCMUR_UA_DEV_MEDIUM_CHANGED	1
 
 enum {
 	TMCUR_DEV_FAILOVER_ALL_ACTIVE,
@@ -84,4 +85,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync, uint16_t tag);
 void tcmu_release_dev_lock(struct tcmu_device *dev);
 int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag);
 
+void tcmu_dev_set_pending_ua(struct tcmu_device *dev, int ua);
+int tcmu_dev_handle_pending_ua(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+;
 #endif

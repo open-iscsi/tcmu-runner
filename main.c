@@ -73,46 +73,6 @@ int tcmur_register_handler(struct tcmur_handler *handler)
 	return 0;
 }
 
-static int tcmur_register_dbus_handler(struct tcmur_handler *handler)
-{
-	assert(handler->_is_dbus_handler == true);
-	return tcmur_register_handler(handler);
-}
-
-bool tcmur_unregister_handler(struct tcmur_handler *handler)
-{
-	int i;
-	for (i = 0; i < darray_size(g_runner_handlers); i++) {
-		if (darray_item(g_runner_handlers, i) == handler) {
-			darray_remove(g_runner_handlers, i);
-			return true;
-		}
-	}
-	return false;
-}
-
-static void free_dbus_handler(struct tcmur_handler *handler)
-{
-	g_free((char*)handler->opaque);
-	g_free((char*)handler->subtype);
-	g_free((char*)handler->cfg_desc);
-	g_free(handler);
-}
-
-static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
-{
-	bool ret = false;
-	assert(handler->_is_dbus_handler == true);
-
-	ret = tcmur_unregister_handler(handler);
-
-	if (ret == true) {
-		free_dbus_handler(handler);
-	}
-
-	return ret;
-}
-
 static int is_handler(const struct dirent *dirent)
 {
 	if (strncmp(dirent->d_name, "handler_", 8))
@@ -228,8 +188,62 @@ on_check_config(TCMUService1 *interface,
 	return TRUE;
 }
 
+static gboolean
+on_change_medium(TCMUService1 *interface,
+		 GDBusMethodInvocation *invocation,
+		 gchar *name,
+		 guint64 size,
+		 gchar *cfgstring,
+		 gpointer user_data)
+{
+	struct tcmulib_context *ctx = user_data;
+	struct tcmur_handler *rhandler;
+	struct tcmu_device *dev = NULL;
+	char *reason = NULL;
+	int ret = 0;
+
+	dev = tcmulib_lookup_dev_by_tcmu_name(ctx, name);
+	if (!dev) {
+		ret = ENODEV;
+		reason = "Device not found.";
+		goto exit;
+	}
+
+	rhandler = tcmu_get_runner_handler(dev);
+	if (!rhandler->medium_change_supp) {
+		ret = EOPNOTSUPP;
+		reason = "Handler does not support medium changes.";
+		goto exit;
+	}
+
+	tcmu_block_device(dev);
+	tcmu_flush_device(dev);
+
+	tcmu_set_cfgfs_ctrl_str(dev, "dev_config", cfgstring);
+	tcmu_update_num_lbas(dev, size);
+	tcmu_set_dev_size(dev);
+
+	ret = tcmu_reopen_dev(dev, false, 0);
+	if (ret == 0) {
+		reason = "success";
+	} else {
+		reason = strerror(ret);
+	}
+
+	tcmu_dev_set_pending_ua(dev, TCMUR_UA_DEV_MEDIUM_CHANGED);
+	tcmu_unblock_device(dev);
+
+exit:
+	g_dbus_method_invocation_return_value(invocation,
+		g_variant_new("(is)", ret, reason));
+
+	return TRUE;
+}
+
 static void
-dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
+dbus_export_handler(struct tcmulib_context *tcmulib_context,
+		    struct tcmur_handler *handler, GCallback check_config,
+		    GCallback change_medium)
 {
 	GDBusObjectSkeleton *object;
 	char obj_name[128];
@@ -244,187 +258,13 @@ dbus_export_handler(struct tcmur_handler *handler, GCallback check_config)
 			 "handle-check-config",
 			 check_config,
 			 handler); /* user_data */
+	g_signal_connect(interface,
+			 "handle-change-medium",
+			 change_medium,
+			 tcmulib_context);
 	tcmuservice1_set_config_desc(interface, handler->cfg_desc);
 	g_dbus_object_manager_server_export(manager, G_DBUS_OBJECT_SKELETON(object));
 	g_object_unref(object);
-}
-
-static bool
-dbus_unexport_handler(struct tcmur_handler *handler)
-{
-	char obj_name[128];
-
-	snprintf(obj_name, sizeof(obj_name), "/org/kernel/TCMUService1/%s",
-		 handler->subtype);
-	return g_dbus_object_manager_server_unexport(manager, obj_name) == TRUE;
-}
-
-struct dbus_info {
-	guint watcher_id;
-	/* The RegisterHandler invocation on
-	 * org.kernel.TCMUService1.HandlerManager1 interface. */
-	GDBusMethodInvocation *register_invocation;
-	/* Connection to the handler's bus_name. */
-	GDBusConnection *connection;
-};
-
-static int dbus_handler_open(struct tcmu_device *dev, bool reopen)
-{
-	return -1;
-}
-
-static void dbus_handler_close(struct tcmu_device *dev)
-{
-	/* nop */
-}
-
-static int dbus_handler_handle_cmd(struct tcmu_device *dev,
-				   struct tcmulib_cmd *cmd)
-{
-	abort();
-}
-
-static gboolean
-on_dbus_check_config(TCMUService1 *interface,
-		     GDBusMethodInvocation *invocation,
-		     gchar *cfgstring,
-		     gpointer user_data)
-{
-	char *bus_name, *obj_name;
-	struct tcmur_handler *handler = user_data;
-	GDBusConnection *connection;
-	GError *error = NULL;
-	GVariant *result;
-
-	bus_name = g_strdup_printf("org.kernel.TCMUService1.HandlerManager1.%s",
-				   handler->subtype);
-	obj_name = g_strdup_printf("/org/kernel/TCMUService1/HandlerManager1/%s",
-				   handler->subtype);
-	connection = g_dbus_method_invocation_get_connection(invocation);
-	result = g_dbus_connection_call_sync(connection,
-					     bus_name,
-					     obj_name,
-					     "org.kernel.TCMUService1",
-					     "CheckConfig",
-					     g_variant_new("(s)", cfgstring),
-					     NULL, G_DBUS_CALL_FLAGS_NONE, -1,
-					     NULL, &error);
-	if (result)
-		g_dbus_method_invocation_return_value(invocation, result);
-	else
-		g_dbus_method_invocation_return_value(invocation,
-			g_variant_new("(bs)", FALSE, error->message));
-	g_free(bus_name);
-	g_free(obj_name);
-	return TRUE;
-}
-
-static void
-on_handler_appeared(GDBusConnection *connection,
-		    const gchar     *name,
-		    const gchar     *name_owner,
-		    gpointer         user_data)
-{
-	struct tcmur_handler *handler = user_data;
-	struct dbus_info *info = handler->opaque;
-
-	if (info->register_invocation) {
-		info->connection = connection;
-		tcmur_register_dbus_handler(handler);
-		dbus_export_handler(handler, G_CALLBACK(on_dbus_check_config));
-		g_dbus_method_invocation_return_value(info->register_invocation,
-			    g_variant_new("(bs)", TRUE, "succeeded"));
-		info->register_invocation = NULL;
-	}
-}
-
-static void
-on_handler_vanished(GDBusConnection *connection,
-		    const gchar     *name,
-		    gpointer         user_data)
-{
-	struct tcmur_handler *handler = user_data;
-	struct dbus_info *info = handler->opaque;
-
-	if (info->register_invocation) {
-		char *reason;
-		reason = g_strdup_printf("Cannot find handler bus name: "
-				"org.kernel.TCMUService1.HandlerManager1.%s",
-				handler->subtype);
-		g_dbus_method_invocation_return_value(info->register_invocation,
-			    g_variant_new("(bs)", FALSE, reason));
-		g_free(reason);
-	}
-	dbus_unexport_handler(handler);
-	g_bus_unwatch_name(info->watcher_id);
-	tcmur_unregister_dbus_handler(handler);
-}
-
-static gboolean
-on_register_handler(TCMUService1HandlerManager1 *interface,
-		    GDBusMethodInvocation *invocation,
-		    gchar *subtype,
-		    gchar *cfg_desc,
-		    gpointer user_data)
-{
-	struct tcmur_handler *handler;
-	struct dbus_info *info;
-	char *bus_name;
-
-	bus_name = g_strdup_printf("org.kernel.TCMUService1.HandlerManager1.%s",
-				   subtype);
-
-	handler               = g_new0(struct tcmur_handler, 1);
-	handler->subtype      = g_strdup(subtype);
-	handler->cfg_desc     = g_strdup(cfg_desc);
-	handler->open         = dbus_handler_open;
-	handler->close        = dbus_handler_close;
-	handler->handle_cmd   = dbus_handler_handle_cmd;
-
-	info = g_new0(struct dbus_info, 1);
-	handler->opaque = info;
-	handler->_is_dbus_handler = 1;
-	info->register_invocation = invocation;
-	info->watcher_id = g_bus_watch_name(G_BUS_TYPE_SYSTEM,
-					    bus_name,
-					    G_BUS_NAME_WATCHER_FLAGS_NONE,
-					    on_handler_appeared,
-					    on_handler_vanished,
-					    handler,
-					    NULL);
-	if (info->watcher_id == 0) {
-		// probably an invalid name, roll back and report an error
-		free_dbus_handler(handler);
-
-		g_dbus_method_invocation_return_value(invocation,
-			g_variant_new("(bs)", FALSE,
-				      "failed to watch for DBus handler name"));
-	}
-	g_free(bus_name);
-	return TRUE;
-}
-
-void dbus_handler_manager1_init(GDBusConnection *connection)
-{
-	GError *error = NULL;
-	TCMUService1HandlerManager1 *interface;
-	gboolean ret;
-
-	interface = tcmuservice1_handler_manager1_skeleton_new();
-	ret = g_dbus_interface_skeleton_export(
-			G_DBUS_INTERFACE_SKELETON(interface),
-			connection,
-			"/org/kernel/TCMUService1/HandlerManager1",
-			&error);
-	g_signal_connect(interface,
-			 "handle-register-handler",
-			 G_CALLBACK (on_register_handler),
-			 NULL);
-	if (!ret)
-		tcmu_err("Handler manager export failed: %s\n",
-		     error ? error->message : "unknown error");
-	if (error)
-		g_error_free(error);
 }
 
 static void dbus_bus_acquired(GDBusConnection *connection,
@@ -433,15 +273,16 @@ static void dbus_bus_acquired(GDBusConnection *connection,
 {
 	struct tcmur_handler **handler;
 
-	tcmu_dbg("bus %s acquired\n", name);
+	tcmu_dbg("bus %s acquired %p\n", name, user_data);
 
 	manager = g_dbus_object_manager_server_new("/org/kernel/TCMUService1");
 
 	darray_foreach(handler, g_runner_handlers) {
-		dbus_export_handler(*handler, G_CALLBACK(on_check_config));
+		dbus_export_handler(user_data, *handler,
+				    G_CALLBACK(on_check_config),
+				    G_CALLBACK(on_change_medium));
 	}
 
-	dbus_handler_manager1_init(connection);
 	g_dbus_object_manager_server_set_connection(manager, connection);
 }
 
@@ -700,7 +541,7 @@ static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 
 	ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
 	if (!ret)
-		tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+		tcmu_dev_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
 
 	return ret;
 }
@@ -1120,7 +961,7 @@ int main(int argc, char **argv)
 				dbus_bus_acquired,
 				dbus_name_acquired, // name acquired
 				dbus_name_lost, // name lost
-				NULL, // user data
+				tcmulib_context, // user data
 				NULL  // user date free func
 		);
 

@@ -33,6 +33,8 @@ enum {
 	TCMU_STS_NO_RESOURCE,
 	/* handler has setup sense. */
 	TCMU_STS_PASSTHROUGH_ERR,
+	/* UA code has setup the sense */
+	TCMU_STS_UNIT_ATTENTION,
 	TCMU_STS_BUSY,
 	TCMU_STS_WR_ERR,
 	TCMU_STS_RD_ERR,
@@ -46,7 +48,6 @@ enum {
 	TCMU_STS_HW_ERR,
 	TCMU_STS_RANGE,
 	TCMU_STS_FRMT_IN_PROGRESS,
-	TCMU_STS_CAPACITY_CHANGED,
 	TCMU_STS_NOTSUPP_SAVE_PARAMS,
 	TCMU_STS_WR_ERR_INCOMPAT_FRMT,
 	TCMU_STS_TRANSITION,
@@ -155,13 +156,14 @@ int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len);
 int tcmu_get_cfgfs_int(const char *path);
 int tcmu_set_cfgfs_ul(const char *path, unsigned long val);
 int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
+int tcmu_set_cfgfs_ctrl_str(struct tcmu_device *dev, const char *key,
+			    const char *val);
 bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name);
 int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
 			       unsigned long val);
 int tcmu_set_dev_size(struct tcmu_device *dev);
 long long tcmu_get_dev_size(struct tcmu_device *dev);
 char *tcmu_get_wwn(struct tcmu_device *dev);
-int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val);
 void tcmu_reset_netlink(void);
 void tcmu_block_netlink(void);
 void tcmu_unblock_netlink(void);

@@ -60,17 +60,22 @@ int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
 	return tcmu_get_cfgfs_int(path);
 }
 
-int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val)
-{
-	char path[PATH_MAX];
-	char buf[CFGFS_BUF_SIZE];
-
-	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/control",
-		 dev->tcm_hba_name, dev->tcm_dev_name);
-	snprintf(buf, sizeof(buf), "%s=%lu", key, val);
-
-	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
+#define tcmu_set_cfgfs_ctrl(type_name, type, type_frmt)			\
+int tcmu_set_cfgfs_ctrl_##type_name(struct tcmu_device *dev,		\
+				    const char *key, type val)		\
+{									\
+	char path[PATH_MAX];						\
+	char buf[CFGFS_BUF_SIZE];					\
+									\
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/control",	\
+		 dev->tcm_hba_name, dev->tcm_dev_name);			\
+	snprintf(buf, sizeof(buf), "%s="type_frmt, key, val);		\
+									\
+	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);		\
 }
+
+tcmu_set_cfgfs_ctrl(ull, unsigned long long, "%llu");
+tcmu_set_cfgfs_ctrl(str, const char *, "%s");
 
 static bool tcmu_cfgfs_mod_param_is_supported(const char *name)
 {
@@ -211,7 +216,7 @@ int tcmu_set_dev_size(struct tcmu_device *dev)
 
 	dev_size = tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev);
 
-	return tcmu_set_control(dev, "dev_size", dev_size);
+	return tcmu_set_cfgfs_ctrl_ull(dev, "dev_size", dev_size);
 }
 
 long long tcmu_get_dev_size(struct tcmu_device *dev)

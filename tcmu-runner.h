@@ -59,6 +59,11 @@ struct tcmur_handler {
 
 	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
+	/*
+	 * True if handler supports medium changes via reopen calls.
+	 */
+	bool medium_change_supp;
+
 	/* Per-device added/removed callbacks */
 	int (*open)(struct tcmu_device *dev, bool reopen);
 	void (*close)(struct tcmu_device *dev);
@@ -125,15 +130,6 @@ struct tcmur_handler {
 	 * indicating success/failure.
 	 */
 	int (*get_lock_tag)(struct tcmu_device *dev, uint16_t *tag);
-
-	/*
-	 * internal field, don't touch this
-	 *
-	 * indicates to tcmu-runner whether this is an internal handler loaded
-	 * via dlopen or an external handler registered via dbus. In the
-	 * latter case opaque will point to a struct dbus_info.
-	 */
-	bool _is_dbus_handler;
 };
 
 /*
@@ -147,7 +143,6 @@ struct tcmur_handler {
  * APIs for tcmur only
  */
 int tcmur_register_handler(struct tcmur_handler *handler);
-bool tcmur_unregister_handler(struct tcmur_handler *handler);
 
 /*
  * Misc

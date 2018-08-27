@@ -124,6 +124,13 @@ void tcmulib_processing_complete(struct tcmu_device *dev);
 /* Clean up loose ends when exiting */
 void tcmulib_close(struct tcmulib_context *ctx);
 
+/*
+ * Get a tcmu_device by its tcmu name. tcmu_name is the string found in:
+ * /sys/kernel/config/target/core/user_$N/$tcmu_name
+ */
+struct tcmu_device *tcmulib_lookup_dev_by_tcmu_name(struct tcmulib_context *ctx,
+						    char *tcmu_name);
+
 #ifdef __cplusplus
 }
 #endif

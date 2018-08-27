@@ -139,6 +139,22 @@ lookup_dev_by_name(struct tcmulib_context *ctx, char *dev_name, int *index)
 	return NULL;
 }
 
+struct tcmu_device *
+tcmulib_lookup_dev_by_tcmu_name(struct tcmulib_context *ctx, char *tcmu_name)
+{
+	struct tcmu_device **dev_ptr;
+	struct tcmu_device *dev;
+
+	darray_foreach(dev_ptr, ctx->devices) {
+		dev = *dev_ptr;
+
+		if (!strcmp(dev->tcm_dev_name, tcmu_name))
+			return dev;
+	}
+
+	return NULL;
+}
+
 static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 			   struct genl_info *info)
 {
@@ -1006,11 +1022,15 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 	return NULL;
 }
 
-static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
+static int tcmu_sts_to_scsi(struct tcmu_device *dev, int tcmu_sts,
+			    uint8_t *sense, uint8_t *cdb)
 {
-	switch (tcmu_sts) {
-	case TCMU_STS_OK:
+	if (tcmu_sts == TCMU_STS_OK)
 		return SAM_STAT_GOOD;
+
+	tcmu_dev_dbg(dev, "Completing 0x%x with status %d\n", cdb[0], tcmu_sts);
+
+	switch (tcmu_sts) {
 	case TCMU_STS_NO_RESOURCE:
 		return SAM_STAT_TASK_SET_FULL;
 	/*
@@ -1021,6 +1041,7 @@ static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 	case TCMU_STS_BUSY:
 		return SAM_STAT_BUSY;
 	case TCMU_STS_PASSTHROUGH_ERR:
+	case TCMU_STS_UNIT_ATTENTION:
 		break;
 	/* Check Conditions below */
 	case TCMU_STS_RANGE:
@@ -1078,10 +1099,6 @@ static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 	case TCMU_STS_INVALID_CP_TGT_DEV_TYPE:
 		/* Invalid copy target device type */
 		tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D03);
-		break;
-	case TCMU_STS_CAPACITY_CHANGED:
-		/* Device capacity has changed */
-		tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A09);
 		break;
 	case TCMU_STS_TRANSITION:
 		/* ALUA state transition */
@@ -1151,7 +1168,8 @@ void tcmulib_command_complete(
 		ent->hdr.cmd_id = cmd->cmd_id;
 	}
 
-	ent->rsp.scsi_status = tcmu_sts_to_scsi(result, cmd->sense_buf);
+	ent->rsp.scsi_status = tcmu_sts_to_scsi(dev, result, cmd->sense_buf,
+					cmd->cdb);
 	if (ent->rsp.scsi_status == SAM_STAT_CHECK_CONDITION) {
 		memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
 		       TCMU_SENSE_BUFFERSIZE);
