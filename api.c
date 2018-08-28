@@ -1192,9 +1192,9 @@ void tcmu_print_cdb_info(struct tcmu_device *dev,
 	sprintf(buf + n, "\n");
 
 	if (info) {
-		tcmu_dev_warn(dev, buf);
+		tcmu_dev_warn(dev, "%s", buf);
 	} else {
-		tcmu_dev_dbg_scsi_cmd(dev, buf);
+		tcmu_dev_dbg_scsi_cmd(dev, "%s", buf);
 	}
 
 	if (bytes > CDB_FIX_SIZE)
