@@ -224,8 +224,6 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev)
 	 * It looks like lock calls are not cancelable, so
 	 * we wait here to avoid crashes.
 	 */
-	tcmu_dev_dbg(dev, "Waiting on lock thread\n");
-
 	tcmu_dev_dbg(rdev->dev, "waiting for lock thread to exit\n");
 	ret = pthread_cond_wait(&rdev->lock_cond, &rdev->state_lock);
 	pthread_mutex_unlock(&rdev->state_lock);
