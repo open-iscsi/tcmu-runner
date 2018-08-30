@@ -33,6 +33,7 @@ enum {
 	TCMUR_DEV_LOCK_UNLOCKED,
 	TCMUR_DEV_LOCK_LOCKED,
 	TCMUR_DEV_LOCK_LOCKING,
+	TCMUR_DEV_LOCK_UNKNOWN,
 };
 
 struct tcmur_device {
@@ -83,5 +84,6 @@ int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries);
 int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync, uint16_t tag);
 void tcmu_release_dev_lock(struct tcmu_device *dev);
 int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag);
+void tcmu_update_dev_lock_state(struct tcmu_device *dev);
 
 #endif

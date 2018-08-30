@@ -387,8 +387,8 @@ static int alua_set_state(struct tcmu_device *dev, struct alua_grp *group,
  * @group_list: list of alua groups
  * @enabled_group_id: group id of the local enabled alua group
  *
- * If the handler is not able to update the remote nodes's state during STPG
- * handling we update it now.
+ * If the handler is not able to update the remote nodes's state during ALUA
+ * transition handling we update it now.
  */
 static int alua_sync_state(struct tcmu_device *dev,
 			   struct list_head *group_list,
@@ -400,6 +400,11 @@ static int alua_sync_state(struct tcmu_device *dev,
 	uint16_t ao_group_id;
 	uint8_t alua_state;
 	int ret;
+
+	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
+		tcmu_update_dev_lock_state(dev);
+		return TCMU_STS_OK;
+	}
 
 	if (rdev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT ||
 	    !rhandler->get_lock_tag)
