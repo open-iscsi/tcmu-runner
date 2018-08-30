@@ -74,8 +74,10 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	tcmu_dev_dbg(dev, "Closing device.\n");
-	rhandler->close(dev);
+	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {
+		tcmu_dev_dbg(dev, "Closing device.\n");
+		rhandler->close(dev);
+	}
 
 	pthread_mutex_lock(&rdev->state_lock);
 	rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
