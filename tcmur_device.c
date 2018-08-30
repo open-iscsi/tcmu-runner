@@ -387,3 +387,22 @@ done:
 
 	return ret;
 }
+
+void tcmu_update_dev_lock_state(struct tcmu_device *dev)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	int state;
+
+	if (!rhandler->get_lock_state)
+		return;
+
+	state = rhandler->get_lock_state(dev);
+	pthread_mutex_lock(&rdev->state_lock);
+	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED &&
+	    state != TCMUR_DEV_LOCK_LOCKED) {
+		tcmu_dev_dbg(dev, "Updated out of sync lock state.\n");
+		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+	}
+	pthread_mutex_unlock(&rdev->state_lock);
+}

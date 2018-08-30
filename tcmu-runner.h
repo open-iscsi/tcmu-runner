@@ -127,6 +127,11 @@ struct tcmur_handler {
 	int (*get_lock_tag)(struct tcmu_device *dev, uint16_t *tag);
 
 	/*
+	 * Must return TCMUR_DEV_LOCK state value.
+	 */
+	int (*get_lock_state)(struct tcmu_device *dev);
+
+	/*
 	 * internal field, don't touch this
 	 *
 	 * indicates to tcmu-runner whether this is an internal handler loaded

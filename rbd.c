@@ -526,6 +526,19 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	return 0;
 }
 
+static int tcmu_rbd_get_lock_state(struct tcmu_device *dev)
+{
+	int ret;
+
+	ret = tcmu_rbd_has_lock(dev);
+	if (ret == 1)
+		return TCMUR_DEV_LOCK_LOCKED;
+	else if (ret == 0 || ret == -ESHUTDOWN)
+		return TCMUR_DEV_LOCK_UNLOCKED;
+	else
+		return TCMUR_DEV_LOCK_UNKNOWN;
+}
+
 /**
  * tcmu_rbd_lock_break - break rbd exclusive lock if needed
  * @dev: device to break the lock for.
@@ -950,7 +963,7 @@ static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,
 	 * running IO is failed due to librbd's immediate blacklisting
 	 * during lock acquisition on a higher priority path.
 	 */
-	return TCMU_STS_TRANSITION;
+	return TCMU_STS_BUSY;
 }
 
 /*
@@ -1461,6 +1474,7 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.lock          = tcmu_rbd_lock,
 	.unlock        = tcmu_rbd_unlock,
 	.get_lock_tag  = tcmu_rbd_get_lock_tag,
+	.get_lock_state = tcmu_rbd_get_lock_state,
 #endif
 };
 
