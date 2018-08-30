@@ -560,7 +560,7 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		goto done;
 	} else if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKING) {
 		tcmu_dev_info(dev, "Lock acquisition operation is already in process.");
-		ret = TCMU_STS_TRANSITION;
+		ret = TCMU_STS_BUSY;
 		goto done;
 	}
 
@@ -585,7 +585,7 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 		ret = TCMU_STS_IMPL_TRANSITION_ERR;
 	} else {
-		ret = TCMU_STS_TRANSITION;
+		ret = TCMU_STS_BUSY;
 	}
 
 done:

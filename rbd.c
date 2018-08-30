@@ -963,7 +963,7 @@ static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,
 	 * running IO is failed due to librbd's immediate blacklisting
 	 * during lock acquisition on a higher priority path.
 	 */
-	return TCMU_STS_TRANSITION;
+	return TCMU_STS_BUSY;
 }
 
 /*
