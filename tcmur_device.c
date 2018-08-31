@@ -42,6 +42,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret, attempt = 0;
+	bool needs_close = false;
 
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	ret = aio_wait_for_empty_queue(rdev);
@@ -72,9 +73,12 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 	pthread_mutex_lock(&rdev->state_lock);
 	if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKING)
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+
+	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)
+		needs_close = true;
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {
+	if (needs_close) {
 		tcmu_dev_dbg(dev, "Closing device.\n");
 		rhandler->close(dev);
 	}
@@ -96,6 +100,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 		pthread_mutex_lock(&rdev->state_lock);
 		if (!ret) {
 			rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
+			rdev->lock_lost = false;
 		}
 		attempt++;
 	}
@@ -205,8 +210,10 @@ void tcmu_notify_lock_lost(struct tcmu_device *dev)
 	 * We could be getting stale IO completions. If we are trying to
 	 * reaquire the lock do not change state.
 	 */
-	if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKING)
+	if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKING) {
+		rdev->lock_lost = true;
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+	}
 	pthread_mutex_unlock(&rdev->state_lock);
 }
 
@@ -329,6 +336,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	int retries = 0, ret = TCMU_STS_HW_ERR;
+	bool reopen;
 
 	/* Block the kernel device. */
 	tcmu_block_device(dev);
@@ -348,28 +356,48 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 	if (!is_sync)
 		tcmu_flush_device(dev);
 
+	reopen = false;
+	pthread_mutex_lock(&rdev->state_lock);
+	if (rdev->lock_lost) {
+		reopen = true;
+	}
+	pthread_mutex_unlock(&rdev->state_lock);
+
 retry:
-	tcmu_dev_dbg(dev, "lock call state %d retries %d. tag %hu\n",
-		     rdev->lock_state, retries, tag);
+	tcmu_dev_dbg(dev, "lock call state %d retries %d. tag %hu reopen %d\n",
+		     rdev->lock_state, retries, tag, reopen);
+
+	if (reopen) {
+		tcmu_dev_dbg(dev, "Try to reopen device. %d\n", retries);
+		ret = tcmu_reopen_dev(dev, true, 0);
+		if (ret) {
+			tcmu_dev_err(dev, "Could not reopen device while taking lock. Err %d.\n",
+				     ret);
+			/* We were fenced and were not able to clear it. */
+			ret = TCMU_STS_FENCED;
+			goto drop_conn;
+		}
+	}
 
 	ret = rhandler->lock(dev, tag);
-	switch (ret) {
-	case TCMU_STS_FENCED:
-		/*
-		 * Try to reopen the backend device. If this
-		 * fails then go into recovery, so the initaitor
-		 * can drop down to another path.
-		 */
-		tcmu_dev_dbg(dev, "Try to reopen device. %d\n", retries);
-		if (retries < 1 && !tcmu_reopen_dev(dev, true, 0)) {
+	if (ret == TCMU_STS_FENCED) {
+		if (retries < 1) {
+			reopen = true;
 			retries++;
 			goto retry;
 		}
-		/* fallthrough */
-	case TCMU_STS_TIMEOUT:
+	}
+
+drop_conn:
+	/*
+	 * If we cannot unfence ourself or we cannot reach the backend,
+	 * disable the tpg until we can reopen the device. The initiator
+	 * can try another path while we try to fix things up in the
+	 * background.
+	 */
+	if (ret == TCMU_STS_TIMEOUT || ret == TCMU_STS_FENCED) {
 		tcmu_dev_dbg(dev, "Fail handler device connection.\n");
 		tcmu_notify_conn_lost(dev);
-		break;
 	}
 
 done:
@@ -403,6 +431,7 @@ void tcmu_update_dev_lock_state(struct tcmu_device *dev)
 	    state != TCMUR_DEV_LOCK_LOCKED) {
 		tcmu_dev_dbg(dev, "Updated out of sync lock state.\n");
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+		rdev->lock_lost = true;
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 }

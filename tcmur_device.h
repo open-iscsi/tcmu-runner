@@ -48,6 +48,7 @@ struct tcmur_device {
 	pthread_t recovery_thread;
 	struct list_node recovery_entry;
 
+	bool lock_lost;
 	uint8_t lock_state;
 	pthread_t lock_thread;
 	pthread_cond_t lock_cond;
