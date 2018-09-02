@@ -687,7 +687,7 @@ static int tcmu_rbd_set_lock_tag(struct tcmu_device *dev, uint16_t tcmu_tag)
 	 */
 	ret = rbd_lock_get_owners(state->image, &lock_mode, owners,
 				  &num_owners);
-	tcmu_dev_dbg(dev, "set tag get lockowner got %d %d\n", ret, num_owners);
+	tcmu_dev_dbg(dev, "set tag get lockowner got %d %zd\n", ret, num_owners);
 	if (ret)
 		return ret;
 
@@ -1086,7 +1086,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		tcmu_dev_err(dev, "Invalid IO request.\n");
 		tcmu_r = TCMU_STS_INVALID_CDB;
 	} else if (ret < 0) {
-		tcmu_dev_err(dev, "Got fatal IO error %d.\n", ret);
+		tcmu_dev_err(dev, "Got fatal IO error %"PRId64".\n", ret);
 
 		if (aio_cb->type == RBD_AIO_TYPE_READ)
 			tcmu_r = TCMU_STS_RD_ERR;
@@ -1309,7 +1309,7 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 	if (ret < 0)
 		goto out_free_bounce_buffer;
 
-	tcmu_dev_dbg(dev, "Start write same off:%llu, len:%llu\n", off, len);
+	tcmu_dev_dbg(dev, "Start write same off:%"PRIu64", len:%"PRIu64"\n", off, len);
 
 	ret = rbd_aio_writesame(state->image, off, len, aio_cb->bounce_buffer,
 				length, completion, 0);

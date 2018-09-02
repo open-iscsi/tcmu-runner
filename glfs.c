@@ -676,7 +676,7 @@ static int tcmu_glfs_reconfig(struct tcmu_device *dev,
 			ret = 0;
 		} else if (st.st_size != cfg->data.dev_size) {
 			tcmu_dev_err(dev,
-				     "device size and backing size disagree: device %lld backing %lld\n",
+				     "device size and backing size disagree: device %"PRId64" backing %lld\n",
 				     cfg->data.dev_size, (long long) st.st_size);
 			ret = -EINVAL;
 		}

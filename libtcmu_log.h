@@ -47,10 +47,15 @@ unsigned int tcmu_get_log_level(void);
 int tcmu_setup_log(void);
 void tcmu_destroy_log(void);
 
+__attribute__ ((format (printf, 4, 5)))
 void tcmu_err_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+__attribute__ ((format (printf, 4, 5)))
 void tcmu_warn_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+__attribute__ ((format (printf, 4, 5)))
 void tcmu_info_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+__attribute__ ((format (printf, 4, 5)))
 void tcmu_dbg_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+__attribute__ ((format (printf, 4, 5)))
 void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 
 char *tcmu_get_logdir(void);
