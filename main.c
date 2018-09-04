@@ -972,6 +972,8 @@ int main(int argc, char **argv)
 	int fd;
 	int ret;
 
+	tcmu_info("Starting...\n");
+
 	while (1) {
 		int option_index = 0;
 		int c, nr_files;
