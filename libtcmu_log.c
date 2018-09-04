@@ -224,13 +224,19 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	if (!fmt)
 		return;
 
-	if (!tcmu_logbuf || !tcmu_logbuf->finish_initialize) {
+	if (!tcmu_logbuf) {
 		/* handle early log calls by config and deamon setup */
 		vfprintf(stderr, fmt, args);
 		return;
 	}
 
 	pthread_mutex_lock(&tcmu_logbuf->lock);
+
+	if (!tcmu_logbuf->finish_initialize) {
+		/* handle early log calls by config and deamon setup */
+		vfprintf(stderr, fmt, args);
+		goto unlock;
+	}
 
 	/* Format the log msg */
 	if (dev) {
