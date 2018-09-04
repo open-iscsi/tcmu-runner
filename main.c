@@ -972,6 +972,7 @@ int main(int argc, char **argv)
 	int fd;
 	int ret;
 
+	tcmu_early_setup_log();
 	tcmu_info("Starting...\n");
 
 	while (1) {
@@ -1034,6 +1035,8 @@ int main(int argc, char **argv)
 
 	if (tcmu_setup_log())
 		goto destroy_config;
+
+	tcmu_early_destroy_log(false);
 
 	fd = creat(TCMU_LOCK_FILE, S_IRUSR | S_IWUSR);
 	if (fd == -1) {
@@ -1170,6 +1173,7 @@ free_opt:
 	if (new_path)
 		free(handler_path);
 	tcmu_logdir_destroy();
+	tcmu_early_destroy_log(true);
 
 	exit(1);
 }

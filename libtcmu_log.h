@@ -44,7 +44,9 @@ struct tcmu_device;
 
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
+void tcmu_early_setup_log(void);
 int tcmu_setup_log(void);
+void tcmu_early_destroy_log(bool destroy_all);
 void tcmu_destroy_log(void);
 
 __attribute__ ((format (printf, 4, 5)))

@@ -29,6 +29,11 @@
 #define LOG_MSG_LEN (LOG_ENTRY_LEN - 1) /* the length of the log message */
 #define LOG_ENTRYS (1024 * 32)
 
+struct early_log_buf {
+	int pri;
+	char msg[LOG_MSG_LEN];
+};
+
 struct log_buf {
 	pthread_cond_t cond;
 	pthread_mutex_t lock;
@@ -39,6 +44,7 @@ struct log_buf {
 	unsigned int head;
 	unsigned int tail;
 	char buf[LOG_ENTRYS][LOG_ENTRY_LEN];
+	darray(struct early_log_buf) early_buf;
 	darray(struct log_output) outputs;
 	pthread_t thread_id;
 };
@@ -166,17 +172,24 @@ static void log_cleanup(void *arg)
 
 	pthread_mutex_lock(&tcmu_logbuf_lock);
 
+	if (!tcmu_logbuf)
+		goto unlock;
+
 	pthread_cond_destroy(&tcmu_logbuf->cond);
 	pthread_mutex_destroy(&tcmu_logbuf->lock);
 
-	darray_foreach(output, tcmu_logbuf->outputs)
-		log_cleanup_output(output);
+	if (!darray_empty(tcmu_logbuf->outputs)) {
+		darray_foreach(output, tcmu_logbuf->outputs)
+			log_cleanup_output(output);
+	}
 
 	darray_free(tcmu_logbuf->outputs);
+	darray_free(tcmu_logbuf->early_buf);
 
 	free(tcmu_logbuf);
 	tcmu_logbuf = NULL;
 
+unlock:
 	pthread_mutex_unlock(&tcmu_logbuf_lock);
 }
 
@@ -209,6 +222,27 @@ static void log_output(int pri, const char *msg, bool bypass)
 	}
 }
 
+static void buffer_log_messages(int pri, const char *fmt, va_list args, bool buffer)
+{
+	struct early_log_buf lb;
+	char buf[LOG_MSG_LEN];
+	ssize_t len;
+
+	len = vsnprintf(buf, LOG_MSG_LEN, fmt, args);
+
+	/* Handle early log calls by config and deamon setup */
+	fwrite(buf, 1, len, stderr);
+
+	if (!buffer)
+		return;
+
+	/* Save the log messages in the tmp buf */
+	lb.pri = pri;
+	strcpy(lb.msg, buf);
+
+	darray_append(tcmu_logbuf->early_buf, lb);
+}
+
 static void
 log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	     int linenr, const char *fmt, va_list args)
@@ -224,17 +258,18 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	if (!fmt)
 		return;
 
+	pthread_mutex_lock(&tcmu_logbuf_lock);
 	if (!tcmu_logbuf) {
-		/* handle early log calls by config and deamon setup */
-		vfprintf(stderr, fmt, args);
+		buffer_log_messages(pri, fmt, args, false);
+		pthread_mutex_unlock(&tcmu_logbuf_lock);
 		return;
 	}
+	pthread_mutex_unlock(&tcmu_logbuf_lock);
 
 	pthread_mutex_lock(&tcmu_logbuf->lock);
 
 	if (!tcmu_logbuf->finish_initialize) {
-		/* handle early log calls by config and deamon setup */
-		vfprintf(stderr, fmt, args);
+		buffer_log_messages(pri, fmt, args, true);
 		goto unlock;
 	}
 
@@ -545,6 +580,8 @@ static bool log_buf_not_empty_output(struct log_buf *logbuf)
 
 static void *log_thread_start(void *arg)
 {
+	struct early_log_buf *lb;
+
 	pthread_cleanup_push(log_cleanup, NULL);
 
 	pthread_mutex_lock(&tcmu_logbuf->lock);
@@ -552,7 +589,12 @@ static void *log_thread_start(void *arg)
 		tcmu_logbuf->finish_initialize = true;
 		pthread_cond_signal(&tcmu_logbuf->cond);
 	}
+
+	darray_foreach(lb, tcmu_logbuf->early_buf)
+		log_output(lb->pri, lb->msg, true);
 	pthread_mutex_unlock(&tcmu_logbuf->lock);
+
+	tcmu_dbg("Log thread finished initializing!\n");
 
 	while (1) {
 		pthread_mutex_lock(&tcmu_logbuf->lock);
@@ -682,18 +724,35 @@ int tcmu_make_absolute_logfile(char *path, const char *filename)
 	return 0;
 }
 
-int tcmu_setup_log(void)
+void tcmu_early_setup_log(void)
 {
-	int ret;
-
+	pthread_mutex_lock(&tcmu_logbuf_lock);
 	tcmu_logbuf = malloc(sizeof(struct log_buf));
 	if (!tcmu_logbuf)
-		return -ENOMEM;
+		goto unlock;
 
 	tcmu_logbuf->thread_active = false;
 	tcmu_logbuf->finish_initialize = false;
 	tcmu_logbuf->head = 0;
 	tcmu_logbuf->tail = 0;
+
+	darray_init(tcmu_logbuf->early_buf);
+
+unlock:
+	pthread_mutex_unlock(&tcmu_logbuf_lock);
+}
+
+int tcmu_setup_log(void)
+{
+	int ret;
+
+	pthread_mutex_lock(&tcmu_logbuf_lock);
+	if (!tcmu_logbuf) {
+		tcmu_logbuf = malloc(sizeof(struct log_buf));
+		if (!tcmu_logbuf)
+			goto cleanup_log;
+	}
+
 	pthread_cond_init(&tcmu_logbuf->cond, NULL);
 	pthread_mutex_init(&tcmu_logbuf->lock, NULL);
 
@@ -721,9 +780,11 @@ int tcmu_setup_log(void)
 		pthread_cond_wait(&tcmu_logbuf->cond, &tcmu_logbuf->lock);
 	pthread_mutex_unlock(&tcmu_logbuf->lock);
 
+	pthread_mutex_unlock(&tcmu_logbuf_lock);
 	return 0;
 
 cleanup_log:
+	pthread_mutex_unlock(&tcmu_logbuf_lock);
 	log_cleanup(NULL);
 	return -ENOMEM;
 }
@@ -754,7 +815,26 @@ unlock:
 	return ret;
 }
 
-void tcmu_destroy_log()
+void tcmu_early_destroy_log(bool destroy_all)
+{
+	pthread_mutex_lock(&tcmu_logbuf_lock);
+
+	if (!tcmu_logbuf)
+		goto unlock;
+
+	darray_free(tcmu_logbuf->early_buf);
+
+	if (destroy_all) {
+		free(tcmu_logbuf);
+		tcmu_logbuf = NULL;
+	}
+
+unlock:
+	pthread_mutex_unlock(&tcmu_logbuf_lock);
+
+}
+
+void tcmu_destroy_log(void)
 {
 	pthread_t thread;
 	void *join_retval;
