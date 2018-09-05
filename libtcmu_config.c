@@ -22,7 +22,7 @@
 #include "darray.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
-#include "tcmu-runner.h"
+#include "libtcmu_common.h"
 
 #include "ccan/list/list.h"
 
