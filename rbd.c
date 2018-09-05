@@ -1367,7 +1367,8 @@ static int tcmu_rbd_aio_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		goto out_free_bounce_buffer;
 	}
 
-	tcmu_dev_dbg(dev, "Start CAW off:%llu, len:%llu\n", off, len);
+	tcmu_dev_dbg(dev, "Start CAW off: %"PRIu64", len: %"PRIu64"\n",
+		     off, len);
 	ret = rbd_aio_compare_and_write(state->image, off, len,
 					aio_cb->bounce_buffer,
 					aio_cb->bounce_buffer + len, completion,
