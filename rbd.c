@@ -932,6 +932,10 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 		goto stop_image;
 	}
 
+	tcmu_set_dev_max_unmap_len(dev, (image_info.obj_size * 4) /
+				   tcmu_get_dev_block_size(dev));
+	tcmu_set_dev_opt_unmap_gran(dev, image_info.obj_size /
+				    tcmu_get_dev_block_size(dev));
 	tcmu_set_dev_write_cache_enabled(dev, 0);
 
 	free(dev_cfg_dup);
