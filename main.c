@@ -761,6 +761,7 @@ static int dev_added(struct tcmu_device *dev)
 	 * alignment starts at the begining of the device. Handlers can
 	 * override in their open function.
 	 */
+	tcmu_set_dev_max_unmap_len(dev, VPD_MAX_UNMAP_LBA_COUNT);
 	tcmu_set_dev_opt_unmap_gran(dev, max_sectors);
 	tcmu_set_dev_unmap_gran_align(dev, 0);
 

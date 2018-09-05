@@ -50,6 +50,7 @@ struct tcmu_device {
 	uint64_t num_lbas;
 	uint32_t block_size;
 	uint32_t max_xfer_len;
+	uint32_t max_unmap_len;
 	uint32_t opt_unmap_gran;
 	uint32_t unmap_gran_align;
 	unsigned int write_cache_enabled:1;

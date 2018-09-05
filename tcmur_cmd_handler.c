@@ -377,9 +377,9 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		tcmu_dev_dbg(dev, "Parameter list %d, start lba: %"PRIu64", end lba: %"PRIu64", nlbas: %"PRIu64"\n",
 			     i++, lba, lba + nlbas - 1, nlbas);
 
-		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
+		if (nlbas > tcmu_get_dev_max_unmap_len(dev)) {
 			tcmu_dev_err(dev, "Illegal parameter list LBA count %"PRIu64" exceeds:%u\n",
-				     nlbas, VPD_MAX_UNMAP_LBA_COUNT);
+				     nlbas, tcmu_get_dev_max_unmap_len(dev));
 			ret = TCMU_STS_INVALID_PARAM_LIST;
 			goto state_unlock;
 		}

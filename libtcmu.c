@@ -869,6 +869,21 @@ uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev)
 }
 
 /**
+ * tcmu_set/get_dev_max_unmap_len - set/get device's man unmap len
+ * @dev: tcmu device
+ * @len: max unmap len in block_size sectors
+ */
+void tcmu_set_dev_max_unmap_len(struct tcmu_device *dev, uint32_t len)
+{
+	dev->max_unmap_len = len;
+}
+
+uint32_t tcmu_get_dev_max_unmap_len(struct tcmu_device *dev)
+{
+	return dev->max_unmap_len;
+}
+
+/**
  * tcmu_set/get_dev_unmap_gran_align - set/get device's unmap granularity alignment
  * @dev: tcmu device
  * @len: unmap granularity alignment length in block_size sectors
