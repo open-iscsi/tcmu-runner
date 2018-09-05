@@ -82,6 +82,13 @@ bool char_to_hex(unsigned char *val, char c)
 	return false;
 }
 
+struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
+{
+        struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+
+        return handler->hm_private;
+}
+
 int tcmu_emulate_evpd_inquiry(
 	struct tcmu_device *dev,
 	struct tgt_port *port,
