@@ -23,8 +23,8 @@
 #include "libtcmu_common.h"
 #include "tcmur_aio.h"
 #include "tcmur_device.h"
-#include "tcmur_cmd_handler.h"
 #include "tcmu-runner.h"
+#include "tcmur_cmd_handler.h"
 #include "alua.h"
 
 static void _cleanup_spin_lock(void *arg)

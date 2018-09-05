@@ -27,10 +27,7 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
-#include "tcmur_aio.h"
-#include "tcmur_cmd_handler.h"
-#include "tcmu-runner.h"
-#include "tcmur_device.h"
+#include "scsi_defs.h"
 
 #define TCMU_NL_VERSION 2
 
@@ -946,13 +943,6 @@ char *tcmu_get_dev_cfgstring(struct tcmu_device *dev)
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)
 {
 	return dev->handler;
-}
-
-struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
-{
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-
-	return handler->hm_private;
 }
 
 static inline struct tcmu_cmd_entry *

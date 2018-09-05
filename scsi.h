@@ -30,6 +30,7 @@ extern "C" {
 
 /* Basic implementations of mandatory SCSI commands */
 bool char_to_hex(unsigned char *val, char c);
+struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev);
 int tcmu_emulate_inquiry(struct tcmu_device *dev, struct tgt_port *port, uint8_t *cdb, struct iovec *iovec, size_t iov_cnt);
 int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb);
 int tcmu_emulate_test_unit_ready(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt);
