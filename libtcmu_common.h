@@ -137,7 +137,8 @@ void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev);
 void tcmu_set_dev_max_unmap_len(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_get_dev_max_unmap_len(struct tcmu_device *dev);
-void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len);
+void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
+				 bool split);
 uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev);
 void tcmu_set_dev_unmap_gran_align(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_get_dev_unmap_gran_align(struct tcmu_device *dev);

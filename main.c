@@ -762,7 +762,7 @@ static int dev_added(struct tcmu_device *dev)
 	 * override in their open function.
 	 */
 	tcmu_set_dev_max_unmap_len(dev, VPD_MAX_UNMAP_LBA_COUNT);
-	tcmu_set_dev_opt_unmap_gran(dev, max_sectors);
+	tcmu_set_dev_opt_unmap_gran(dev, max_sectors, true);
 	tcmu_set_dev_unmap_gran_align(dev, 0);
 
 	tcmu_dev_dbg(dev, "Got block_size %d, size in bytes %"PRId64"\n",

@@ -282,27 +282,38 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 	struct tcmulib_cmd *ucmd;
 	uint64_t lbas;
 
-	/* OPTIMAL UNMAP GRANULARITY */
-	opt_unmap_gran = tcmu_get_dev_opt_unmap_gran(dev);
+	if (!dev->split_unmaps) {
+		/*
+		 * Handler does not support vectored unmaps, but prefers to
+		 * break up unmaps itself, so pass the entire segment to it.
+		 */
+		opt_unmap_gran = tcmu_get_dev_max_unmap_len(dev);
+		mask = 0;
+	} else {
+		/*
+		 * Align the start lba of a unmap request and split the
+		 * large num blocks into OPTIMAL UNMAP GRANULARITY size.
+		 *
+		 * NOTE: here we always asumme the OPTIMAL UNMAP GRANULARITY
+		 * equals to UNMAP GRANULARITY ALIGNMENT to simplify the
+		 * algorithm. In the future, for new devices that have different
+		 * values the following align and split algorithm should be
+		 * changed.
+		 */
 
-	/* UNMAP GRANULARITY ALIGNMENT */
-	unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
-	mask = unmap_gran_align - 1;
+		/* OPTIMAL UNMAP GRANULARITY */
+		opt_unmap_gran = tcmu_get_dev_opt_unmap_gran(dev);
 
-	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %"PRIu64", UNMAP GRANULARITY ALIGNMENT: %"PRIu64"\n",
-		     opt_unmap_gran, unmap_gran_align);
+		/* UNMAP GRANULARITY ALIGNMENT */
+		unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
+		mask = unmap_gran_align - 1;
+	}
 
-	/*
-	 * Align the start lba of a unmap request and split the
-	 * large num blocks into OPTIMAL UNMAP GRANULARITY size.
-	 *
-	 * NOTE: here we always asumme the OPTIMAL UNMAP GRANULARITY
-	 * equals to UNMAP GRANULARITY ALIGNMENT to simplify the
-	 * algorithm. In the future, for new devices that have different
-	 * values the following align and split algorithm should be changed.
-	 */
 	lbas = opt_unmap_gran - (lba & mask);
 	lbas = min(lbas, nlbas);
+
+	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %"PRIu64", UNMAP GRANULARITY ALIGNMENT mask: %"PRIu64", lbas %"PRIu64"\n",
+		     opt_unmap_gran, mask, lbas);
 
 	while (nlbas) {
 		desc = calloc(1, sizeof(*desc));
