@@ -1109,7 +1109,8 @@ static int xcopy_locate_udev(struct tcmulib_context *ctx,
 			continue;
 
 		*udev = dev;
-		tcmu_dev_dbg(dev, "Located tcmu devivce: %s\n", dev->dev_name);
+		tcmu_dev_dbg(dev, "Located tcmu devivce: %s\n",
+			     dev->tcm_dev_name);
 
 		return 0;
 	}
