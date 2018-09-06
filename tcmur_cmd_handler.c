@@ -951,7 +951,6 @@ out:
 #define XCOPY_TARGET_DESC_LEN           32
 #define XCOPY_SEGMENT_DESC_B2B_LEN      28
 #define XCOPY_NAA_IEEE_REGEX_LEN        16
-#define XCOPY_MAX_SECTORS               1024
 
 struct xcopy {
 	struct tcmu_device *origdev;
@@ -1586,11 +1585,10 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		goto finish_err;
 	}
 
-	src_max_sectors = tcmu_get_dev_max_xfer_len(xcopy->src_dev);
-	dst_max_sectors = tcmu_get_dev_max_xfer_len(xcopy->dst_dev);
+	src_max_sectors = tcmu_get_dev_opt_xcopy_rw_len(xcopy->src_dev);
+	dst_max_sectors = tcmu_get_dev_opt_xcopy_rw_len(xcopy->dst_dev);
 
 	max_sectors = min(src_max_sectors, dst_max_sectors);
-	max_sectors = min(max_sectors, (uint32_t)XCOPY_MAX_SECTORS);
 	copy_lbas = min(max_sectors, xcopy->lba_cnt);
 	xcopy->copy_lbas = copy_lbas;
 

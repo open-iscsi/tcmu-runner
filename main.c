@@ -764,6 +764,11 @@ static int dev_added(struct tcmu_device *dev)
 	tcmu_set_dev_max_unmap_len(dev, VPD_MAX_UNMAP_LBA_COUNT);
 	tcmu_set_dev_opt_unmap_gran(dev, max_sectors, true);
 	tcmu_set_dev_unmap_gran_align(dev, 0);
+	/*
+	 * By default we will try to do RWs for xcopys in max_sector chunks,
+	 * but handlers that can do larger internal IOs should override.
+	 */
+	tcmu_set_dev_opt_xcopy_rw_len(dev, max_sectors);
 
 	tcmu_dev_dbg(dev, "Got block_size %d, size in bytes %"PRId64"\n",
 		     block_size, dev_size);
