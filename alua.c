@@ -694,7 +694,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 	uint32_t off = 4, param_list_len = tcmu_get_xfer_length(cmd->cdb);
 	uint16_t id, tmp_id;
 	char *buf, new_state;
-	int found, ret = TCMU_STS_OK;
+	int ret = TCMU_STS_OK;
 
 	port = tcmu_get_enabled_port(group_list);
 	if (!port)
@@ -721,16 +721,13 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 		id = be16toh(tmp_id);
 		off += 2;
 
-		found = 0;
 		list_for_each(group_list, group, entry) {
 			if (group->id != id)
 				continue;
 
 			if (group != port->grp) {
-				ret = TCMU_STS_HW_ERR;
-				tcmu_dev_err(dev, "Failing STPG for group %d. Unable to transition remote groups.\n",
-					     id);
-				goto free_buf;
+				tcmu_dev_dbg(dev, "Port of group %d is disable.\n", id);
+				continue;
 			}
 
 			tcmu_dev_dbg(dev, "Got STPG for group %u\n", id);
@@ -738,26 +735,24 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 					new_state,
 					ALUA_STAT_ALTERED_BY_EXPLICIT_STPG,
 					cmd->sense_buf);
+			/* Only one group is enabled, so after matching the previous one,
+			 * whether it is successful or not, we should exit the loop
+			 * without continuing to process the content behind the command.
+			 */
 			if (ret != TCMU_STS_OK) {
 				tcmu_dev_err(dev, "Failing STPG for group %d\n",
 					      id);
-				goto free_buf;
 			}
-			found = 1;
-			break;
-		}
-
-		if (!found) {
-			/*
-			 * Could not find what error code to return in SCSI
-			 * spec.
-			 */
-			tcmu_dev_err(dev, "Could not find group for %u for STPG\n",
-				      id);
-			ret = TCMU_STS_EXPL_TRANSITION_ERR;
-			break;
+			goto free_buf;
 		}
 	}
+
+	/*
+	 * Could not find what error code to return in SCSI
+	 * spec.
+	 */
+	tcmu_dev_err(dev, "Could not find enable group for STPG\n");
+	ret = TCMU_STS_EXPL_TRANSITION_ERR;
 
 free_buf:
 	free(buf);
