@@ -110,9 +110,9 @@ struct tcmur_handler {
 	unmap_fn_t unmap;
 
 	/*
-	 * If the lock is acquired and the tag is non-NULL, it must be
-	 * associated with the lock and returned by get_lock_tag on local
-	 * and remote nodes. When unlock is successful, the tag
+	 * If the lock is acquired and the tag is not TCMU_INVALID_LOCK_TAG,
+	 * it must be associated with the lock and returned by get_lock_tag on
+	 * local and remote nodes. When unlock is successful, the tag
 	 * associated with the lock must be deleted.
 	 *
 	 * Returns a TCMU_STS indicating success/failure.

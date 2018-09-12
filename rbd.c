@@ -755,7 +755,8 @@ static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 
 set_lock_tag:
 	tcmu_dev_warn(dev, "Acquired exclusive lock.\n");
-	ret = tcmu_rbd_set_lock_tag(dev, tag);
+	if (tag != TCMU_INVALID_LOCK_TAG)
+		ret = tcmu_rbd_set_lock_tag(dev, tag);
 
 done:
 	tcmu_rbd_service_status_update(dev, ret == 0 ? true : false);

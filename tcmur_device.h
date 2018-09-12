@@ -15,6 +15,8 @@
 
 #include "tcmur_aio.h"
 
+#define TCMU_INVALID_LOCK_TAG USHRT_MAX
+
 #define TCMUR_DEV_FLAG_FORMATTING	(1 << 0)
 #define TCMUR_DEV_FLAG_IN_RECOVERY	(1 << 1)
 #define TCMUR_DEV_FLAG_IS_OPEN		(1 << 2)
