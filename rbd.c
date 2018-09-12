@@ -831,6 +831,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	char *pool, *name, *next_opt;
 	char *config, *dev_cfg_dup;
 	struct tcmu_rbd_state *state;
+	uint32_t max_blocks;
 	int ret;
 
 	state = calloc(1, sizeof(*state));
@@ -932,6 +933,17 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 		goto stop_image;
 	}
 
+	/*
+	 * librbd/ceph can better split and align unmaps and internal RWs, so
+	 * just have runner pass the entire cmd to us. To try and balance
+	 * overflowing the OSD/ceph side queues with discards/RWs limit it to
+	 * up to 4.
+	 */
+	max_blocks = (image_info.obj_size * 4) / tcmu_get_dev_block_size(dev);
+	tcmu_set_dev_opt_xcopy_rw_len(dev, max_blocks);
+	tcmu_set_dev_max_unmap_len(dev, max_blocks);
+	tcmu_set_dev_opt_unmap_gran(dev, image_info.obj_size /
+				    tcmu_get_dev_block_size(dev), false);
 	tcmu_set_dev_write_cache_enabled(dev, 0);
 
 	free(dev_cfg_dup);

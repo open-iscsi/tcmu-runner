@@ -71,7 +71,7 @@ enum {
 #define CFGFS_MOD_PARAM CFGFS_TARGET_MOD"/parameters"
 
 /* Temporarily limit this to 32M */
-#define VPD_MAX_UNMAP_LBA_COUNT            (32 * 1024 * 1024)
+#define VPD_MAX_UNMAP_LBA_COUNT            65536
 #define VPD_MAX_UNMAP_BLOCK_DESC_COUNT     0x04
 /* Temporarily limit this is 0x1 */
 #define MAX_CAW_LENGTH                     0x01
@@ -135,7 +135,12 @@ void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size);
 uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev);
 void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev);
-void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len);
+void tcmu_set_dev_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_get_dev_opt_xcopy_rw_len(struct tcmu_device *dev);
+void tcmu_set_dev_max_unmap_len(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_get_dev_max_unmap_len(struct tcmu_device *dev);
+void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
+				 bool split);
 uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev);
 void tcmu_set_dev_unmap_gran_align(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_get_dev_unmap_gran_align(struct tcmu_device *dev);

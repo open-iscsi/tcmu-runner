@@ -854,18 +854,51 @@ uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev)
 }
 
 /**
+ * tcmu_set_dev_opt_xcopy_rw_len - set device's emulated xcopy chunk len
+ * @dev: tcmu device
+ * @len: optimal RW len, in block_size sectors, for emulate xcopy operations
+ */
+void tcmu_set_dev_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len)
+{
+	dev->opt_xcopy_rw_len = len;
+}
+
+uint32_t tcmu_get_dev_opt_xcopy_rw_len(struct tcmu_device *dev)
+{
+	return dev->opt_xcopy_rw_len;
+}
+
+/**
  * tcmu_set/get_dev_opt_unmap_gran - set/get device's optimal unmap granularity
  * @dev: tcmu device
  * @len: optimal unmap granularity length in block_size sectors
+ * @split: true if handler needs unmaps larger then len to be split for it.
  */
-void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len)
+void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
+				 bool split)
 {
+	dev->split_unmaps = split;
 	dev->opt_unmap_gran = len;
 }
 
 uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev)
 {
 	return dev->opt_unmap_gran;
+}
+
+/**
+ * tcmu_set/get_dev_max_unmap_len - set/get device's man unmap len
+ * @dev: tcmu device
+ * @len: max unmap len in block_size sectors
+ */
+void tcmu_set_dev_max_unmap_len(struct tcmu_device *dev, uint32_t len)
+{
+	dev->max_unmap_len = len;
+}
+
+uint32_t tcmu_get_dev_max_unmap_len(struct tcmu_device *dev)
+{
+	return dev->max_unmap_len;
 }
 
 /**

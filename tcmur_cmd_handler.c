@@ -282,27 +282,38 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 	struct tcmulib_cmd *ucmd;
 	uint64_t lbas;
 
-	/* OPTIMAL UNMAP GRANULARITY */
-	opt_unmap_gran = tcmu_get_dev_opt_unmap_gran(dev);
+	if (!dev->split_unmaps) {
+		/*
+		 * Handler does not support vectored unmaps, but prefers to
+		 * break up unmaps itself, so pass the entire segment to it.
+		 */
+		opt_unmap_gran = tcmu_get_dev_max_unmap_len(dev);
+		mask = 0;
+	} else {
+		/*
+		 * Align the start lba of a unmap request and split the
+		 * large num blocks into OPTIMAL UNMAP GRANULARITY size.
+		 *
+		 * NOTE: here we always asumme the OPTIMAL UNMAP GRANULARITY
+		 * equals to UNMAP GRANULARITY ALIGNMENT to simplify the
+		 * algorithm. In the future, for new devices that have different
+		 * values the following align and split algorithm should be
+		 * changed.
+		 */
 
-	/* UNMAP GRANULARITY ALIGNMENT */
-	unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
-	mask = unmap_gran_align - 1;
+		/* OPTIMAL UNMAP GRANULARITY */
+		opt_unmap_gran = tcmu_get_dev_opt_unmap_gran(dev);
 
-	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %"PRIu64", UNMAP GRANULARITY ALIGNMENT: %"PRIu64"\n",
-		     opt_unmap_gran, unmap_gran_align);
+		/* UNMAP GRANULARITY ALIGNMENT */
+		unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
+		mask = unmap_gran_align - 1;
+	}
 
-	/*
-	 * Align the start lba of a unmap request and split the
-	 * large num blocks into OPTIMAL UNMAP GRANULARITY size.
-	 *
-	 * NOTE: here we always asumme the OPTIMAL UNMAP GRANULARITY
-	 * equals to UNMAP GRANULARITY ALIGNMENT to simplify the
-	 * algorithm. In the future, for new devices that have different
-	 * values the following align and split algorithm should be changed.
-	 */
 	lbas = opt_unmap_gran - (lba & mask);
 	lbas = min(lbas, nlbas);
+
+	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %"PRIu64", UNMAP GRANULARITY ALIGNMENT mask: %"PRIu64", lbas %"PRIu64"\n",
+		     opt_unmap_gran, mask, lbas);
 
 	while (nlbas) {
 		desc = calloc(1, sizeof(*desc));
@@ -377,9 +388,9 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 		tcmu_dev_dbg(dev, "Parameter list %d, start lba: %"PRIu64", end lba: %"PRIu64", nlbas: %"PRIu64"\n",
 			     i++, lba, lba + nlbas - 1, nlbas);
 
-		if (nlbas > VPD_MAX_UNMAP_LBA_COUNT) {
+		if (nlbas > tcmu_get_dev_max_unmap_len(dev)) {
 			tcmu_dev_err(dev, "Illegal parameter list LBA count %"PRIu64" exceeds:%u\n",
-				     nlbas, VPD_MAX_UNMAP_LBA_COUNT);
+				     nlbas, tcmu_get_dev_max_unmap_len(dev));
 			ret = TCMU_STS_INVALID_PARAM_LIST;
 			goto state_unlock;
 		}
@@ -940,7 +951,6 @@ out:
 #define XCOPY_TARGET_DESC_LEN           32
 #define XCOPY_SEGMENT_DESC_B2B_LEN      28
 #define XCOPY_NAA_IEEE_REGEX_LEN        16
-#define XCOPY_MAX_SECTORS               1024
 
 struct xcopy {
 	struct tcmu_device *origdev;
@@ -1099,7 +1109,8 @@ static int xcopy_locate_udev(struct tcmulib_context *ctx,
 			continue;
 
 		*udev = dev;
-		tcmu_dev_dbg(dev, "Located tcmu devivce: %s\n", dev->dev_name);
+		tcmu_dev_dbg(dev, "Located tcmu devivce: %s\n",
+			     dev->tcm_dev_name);
 
 		return 0;
 	}
@@ -1575,11 +1586,10 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		goto finish_err;
 	}
 
-	src_max_sectors = tcmu_get_dev_max_xfer_len(xcopy->src_dev);
-	dst_max_sectors = tcmu_get_dev_max_xfer_len(xcopy->dst_dev);
+	src_max_sectors = tcmu_get_dev_opt_xcopy_rw_len(xcopy->src_dev);
+	dst_max_sectors = tcmu_get_dev_opt_xcopy_rw_len(xcopy->dst_dev);
 
 	max_sectors = min(src_max_sectors, dst_max_sectors);
-	max_sectors = min(max_sectors, (uint32_t)XCOPY_MAX_SECTORS);
 	copy_lbas = min(max_sectors, xcopy->lba_cnt);
 	xcopy->copy_lbas = copy_lbas;
 

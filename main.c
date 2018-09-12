@@ -726,7 +726,6 @@ static int dev_added(struct tcmu_device *dev)
 	struct list_head group_list;
 	struct tcmur_device *rdev;
 	int32_t block_size, max_sectors;
-	uint32_t max_xfer_length;
 	int64_t dev_size;
 	int ret;
 
@@ -756,6 +755,20 @@ static int dev_added(struct tcmu_device *dev)
 	if (max_sectors < 0)
 		goto free_rdev;
 	tcmu_set_dev_max_xfer_len(dev, max_sectors);
+
+	/*
+	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
+	 * alignment starts at the begining of the device. Handlers can
+	 * override in their open function.
+	 */
+	tcmu_set_dev_max_unmap_len(dev, VPD_MAX_UNMAP_LBA_COUNT);
+	tcmu_set_dev_opt_unmap_gran(dev, max_sectors, true);
+	tcmu_set_dev_unmap_gran_align(dev, 0);
+	/*
+	 * By default we will try to do RWs for xcopys in max_sector chunks,
+	 * but handlers that can do larger internal IOs should override.
+	 */
+	tcmu_set_dev_opt_xcopy_rw_len(dev, max_sectors);
 
 	tcmu_dev_dbg(dev, "Got block_size %d, size in bytes %"PRId64"\n",
 		     block_size, dev_size);
@@ -800,14 +813,6 @@ static int dev_added(struct tcmu_device *dev)
 	ret = pthread_cond_init(&rdev->lock_cond, NULL);
 	if (ret < 0)
 		goto close_dev;
-
-	/*
-	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
-	 * alignment starts at the begining of the device.
-	 */
-	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
-	tcmu_set_dev_opt_unmap_gran(dev, max_xfer_length);
-	tcmu_set_dev_unmap_gran_align(dev, 0);
 
 	ret = pthread_create(&rdev->cmdproc_thread, NULL, tcmur_cmdproc_thread,
 			     dev);
