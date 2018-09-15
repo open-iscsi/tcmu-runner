@@ -523,6 +523,7 @@ static bool log_dequeue_msg(struct log_buf *logbuf)
 
 	pthread_mutex_lock(&logbuf->lock);
 	if (rb_is_empty(logbuf)) {
+		tcmu_logbuf->thread_active = false;
 		pthread_mutex_unlock(&logbuf->lock);
 		return false;
 	}
@@ -559,7 +560,6 @@ static void *log_thread_start(void *arg)
 
 	while (1) {
 		pthread_mutex_lock(&tcmu_logbuf->lock);
-		tcmu_logbuf->thread_active = false;
 		pthread_cond_wait(&tcmu_logbuf->cond, &tcmu_logbuf->lock);
 		tcmu_logbuf->thread_active = true;
 		pthread_mutex_unlock(&tcmu_logbuf->lock);
