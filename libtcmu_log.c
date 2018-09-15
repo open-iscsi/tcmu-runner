@@ -209,12 +209,26 @@ static void log_output(int pri, const char *msg, bool bypass)
 	}
 }
 
+static void log_queue_msg(struct log_buf *logbuf, int pri, char *buf)
+{
+	unsigned int head;
+	char *msg;
+
+	head = logbuf->head;
+	rb_set_pri(logbuf, head, pri);
+	msg = rb_get_msg(logbuf, head);
+	memcpy(msg, buf, LOG_MSG_LEN);
+	rb_update_head(logbuf);
+
+	if (logbuf->thread_active == false)
+		pthread_cond_signal(&logbuf->cond);
+}
+
 static void
 log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	     int linenr, const char *fmt, va_list args)
 {
-	unsigned int head;
-	char *msg, buf[LOG_MSG_LEN];
+	char buf[LOG_MSG_LEN];
 	int n;
 	struct tcmur_handler *rhandler;
 
@@ -256,21 +270,14 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	 */
 	log_output(pri, buf, true);
 
+	/*
+	 * Avoid overflowing the log buf with SCSI CDBs. Insert the log msg to
+	 * the ringbuffer if the pri < TCMU_LOG_DEBUG_SCSI_CMD
+	 */
 	if (pri >= TCMU_LOG_DEBUG_SCSI_CMD)
 		goto unlock;
 
-	/*
-	 * Insert the log msg to the ringbuffer if
-	 * the pri < TCMU_LOG_DEBUG_SCSI_CMD
-	 */
-	head = tcmu_logbuf->head;
-	rb_set_pri(tcmu_logbuf, head, pri);
-	msg = rb_get_msg(tcmu_logbuf, head);
-	memcpy(msg, buf, LOG_MSG_LEN);
-	rb_update_head(tcmu_logbuf);
-
-	if (tcmu_logbuf->thread_active == false)
-		pthread_cond_signal(&tcmu_logbuf->cond);
+	log_queue_msg(tcmu_logbuf, pri, buf);
 
 unlock:
 	pthread_mutex_unlock(&tcmu_logbuf->lock);
@@ -508,15 +515,11 @@ int tcmu_create_file_output(int pri, const char *filename, bool reloading)
 	return 0;
 }
 
-static bool log_buf_not_empty_output(struct log_buf *logbuf)
+static bool log_dequeue_msg(struct log_buf *logbuf)
 {
 	unsigned int tail;
 	uint8_t pri;
 	char *msg, buf[LOG_MSG_LEN];
-
-	if (!logbuf) {
-		return false;
-	}
 
 	pthread_mutex_lock(&logbuf->lock);
 	if (rb_is_empty(logbuf)) {
@@ -561,7 +564,7 @@ static void *log_thread_start(void *arg)
 		tcmu_logbuf->thread_active = true;
 		pthread_mutex_unlock(&tcmu_logbuf->lock);
 
-		while (log_buf_not_empty_output(tcmu_logbuf));
+		while (log_dequeue_msg(tcmu_logbuf));
 	}
 
 	pthread_cleanup_pop(1);
