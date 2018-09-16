@@ -14,12 +14,6 @@
 #include <stdarg.h>
 #include <stdbool.h>
 
-#define TCMU_IDENT "tcmu"
-#define TCMU_RUNNER "tcmu-runner"
-#define TCMU_CONSUMER "tcmu-consumer"
-#define TCMU_SYNC "tcmu-synthesizer"
-#define TCMU_LOG_BUF_SIZE 1024
-
 #define TCMU_LOG_ERROR	LOG_ERR		/* error conditions */
 #define TCMU_LOG_WARN	LOG_WARNING	/* warning conditions */
 #define TCMU_LOG_INFO	LOG_INFO	/* informational */
@@ -28,17 +22,6 @@
 
 /* default tcmu log dir path */
 #define TCMU_LOG_DIR_DEFAULT   "/var/log/"
-#define TCMU_LOG_FILENAME_MAX  32
-#define TCMU_LOG_FILENAME      "tcmu-runner.log"
-
-typedef enum {
-        TCMU_LOG_TO_STDOUT,
-        TCMU_LOG_TO_SYSLOG,
-        TCMU_LOG_TO_FILE,
-} tcmu_log_destination;
-
-typedef int (*log_output_fn_t) (int priority, const char *timestamp, const char *str, void *data);
-typedef void (*log_close_fn_t) (void *data);
 
 struct tcmu_device;
 
@@ -46,6 +29,12 @@ void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
 int tcmu_setup_log(void);
 void tcmu_destroy_log(void);
+char *tcmu_get_logdir(void);
+void tcmu_logdir_destroy(void);
+bool tcmu_logdir_getenv(void);
+bool tcmu_logdir_create(const char *path, bool reloading);
+int tcmu_make_absolute_logfile(char *path, const char *filename);
+int tcmu_logdir_resetup(char *log_dir_path);
 
 __attribute__ ((format (printf, 4, 5)))
 void tcmu_err_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
@@ -57,15 +46,6 @@ __attribute__ ((format (printf, 4, 5)))
 void tcmu_dbg_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 __attribute__ ((format (printf, 4, 5)))
 void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
-
-char *tcmu_get_logdir(void);
-void tcmu_logdir_destroy(void);
-bool tcmu_logdir_getenv(void);
-bool tcmu_logdir_create(const char *path, bool reloading);
-int tcmu_make_absolute_logfile(char *path, const char *filename);
-int tcmu_create_file_output(int pri, const char *filename, bool reloading);
-int tcmu_logdir_resetup(char *log_dir_path);
-
 
 #define tcmu_dev_err(dev, ...)  do { tcmu_err_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_dev_warn(dev, ...) do { tcmu_warn_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)

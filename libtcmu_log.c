@@ -29,6 +29,9 @@
 #define LOG_MSG_LEN (LOG_ENTRY_LEN - 1) /* the length of the log message */
 #define LOG_ENTRYS (1024 * 32)
 
+#define TCMU_LOG_FILENAME_MAX	32
+#define TCMU_LOG_FILENAME	"tcmu-runner.log"
+
 struct log_buf {
 	pthread_cond_t cond;
 	pthread_mutex_t lock;
@@ -42,6 +45,16 @@ struct log_buf {
 	darray(struct log_output) outputs;
 	pthread_t thread_id;
 };
+
+typedef enum {
+	TCMU_LOG_TO_STDOUT,
+	TCMU_LOG_TO_SYSLOG,
+	TCMU_LOG_TO_FILE,
+} tcmu_log_destination;
+
+typedef int (*log_output_fn_t)(int priority, const char *timestamp,
+			       const char *str, void *data);
+typedef void (*log_close_fn_t)(void *data);
 
 struct log_output {
 	log_output_fn_t output_fn;
@@ -62,18 +75,18 @@ static pthread_mutex_t tcmu_logbuf_lock = PTHREAD_MUTEX_INITIALIZER;
 static inline int to_syslog_level(int level)
 {
 	switch (level) {
-		case TCMU_CONF_LOG_ERROR:
-			return TCMU_LOG_ERROR;
-		case TCMU_CONF_LOG_WARN:
-			return TCMU_LOG_WARN;
-		case TCMU_CONF_LOG_INFO:
-			return TCMU_LOG_INFO;
-		case TCMU_CONF_LOG_DEBUG:
-			return TCMU_LOG_DEBUG;
-		case TCMU_CONF_LOG_DEBUG_SCSI_CMD:
-			return TCMU_LOG_DEBUG_SCSI_CMD;
-		default:
-			return TCMU_LOG_INFO;
+	case TCMU_CONF_LOG_ERROR:
+		return TCMU_LOG_ERROR;
+	case TCMU_CONF_LOG_WARN:
+		return TCMU_LOG_WARN;
+	case TCMU_CONF_LOG_INFO:
+		return TCMU_LOG_INFO;
+	case TCMU_CONF_LOG_DEBUG:
+		return TCMU_LOG_DEBUG;
+	case TCMU_CONF_LOG_DEBUG_SCSI_CMD:
+		return TCMU_LOG_DEBUG_SCSI_CMD;
+	default:
+		return TCMU_LOG_INFO;
 	}
 }
 
@@ -483,7 +496,7 @@ static int create_stdout_output(int pri)
 	return 0;
 }
 
-int tcmu_create_file_output(int pri, const char *filename, bool reloading)
+static int create_file_output(int pri, const char *filename, bool reloading)
 {
 	char log_file_path[PATH_MAX];
 	int fd, ret;
@@ -710,7 +723,7 @@ int tcmu_setup_log(void)
 	if (ret < 0)
 		tcmu_err("create stdout output error \n");
 
-	ret = tcmu_create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME, false);
+	ret = create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME, false);
 	if (ret < 0)
 		tcmu_err("create file output error \n");
 
@@ -747,8 +760,7 @@ int tcmu_logdir_resetup(char *log_dir_path)
 		goto unlock;
 	}
 
-	ret = tcmu_create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME,
-				      true);
+	ret = create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME, true);
 	if (ret < 0)
 		tcmu_err("Could not change log path to %s, ret:%d.\n",
 			 log_dir_path, ret);
