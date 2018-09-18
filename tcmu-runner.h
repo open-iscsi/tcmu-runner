@@ -25,6 +25,7 @@ extern "C" {
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "alua.h"
+#include "scsi.h"
 
 typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
 		       struct iovec *, size_t, size_t, off_t);

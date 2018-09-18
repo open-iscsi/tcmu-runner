@@ -31,6 +31,7 @@
 #include "libtcmu.h"
 #include "scsi_defs.h"
 #include "libtcmu_log.h"
+#include "scsi.h"
 
 struct tcmu_device *tcmu_dev_array[128];
 size_t dev_array_len = 0;
