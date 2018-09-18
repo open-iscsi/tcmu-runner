@@ -92,6 +92,7 @@ add_executable(tcmu-runner
   tcmur_device.c
   target.c
   alua.c
+  scsi.c
   main.c
   tcmuhandler-generated.c
   )
@@ -113,6 +114,7 @@ target_link_libraries(tcmu-runner
 install(TARGETS tcmu-runner RUNTIME DESTINATION bin)
 
 add_executable(tcmu-synthesizer
+  scsi.c
   tcmu-synthesizer.c
   )
 target_link_libraries(tcmu-synthesizer tcmu)
@@ -175,6 +177,7 @@ endif (with-fbo)
 
 # The minimal library consumer
 add_executable(consumer
+  scsi.c
   consumer.c
   )
 target_link_libraries(consumer tcmu)
