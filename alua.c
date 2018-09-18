@@ -27,8 +27,6 @@
 #include "target.h"
 #include "alua.h"
 
-#define TCMU_ALUA_INVALID_GROUP_ID USHRT_MAX
-
 static char *tcmu_get_alua_str_setting(struct alua_grp *group,
 				       const char *setting)
 {
@@ -412,7 +410,7 @@ static int alua_sync_state(struct tcmu_device *dev,
 
 	ret = tcmu_get_lock_tag(dev, &ao_group_id);
 	if (ret == TCMU_STS_NO_LOCK_HOLDERS) {
-		ao_group_id = TCMU_ALUA_INVALID_GROUP_ID;
+		ao_group_id = TCMU_INVALID_LOCK_TAG;
 	} else if (ret != TCMU_STS_OK)
 		return ret;
 

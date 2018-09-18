@@ -386,16 +386,15 @@ retry:
 			retries++;
 			goto retry;
 		}
+		/*
+		 * If we can't unfence ourself the lock is probably bouncing
+		 * due to path initialization. Allow the other node to hold the
+		 * lock for now, and the initiator will drive retries.
+		 */
 	}
 
 drop_conn:
-	/*
-	 * If we cannot unfence ourself or we cannot reach the backend,
-	 * disable the tpg until we can reopen the device. The initiator
-	 * can try another path while we try to fix things up in the
-	 * background.
-	 */
-	if (ret == TCMU_STS_TIMEOUT || ret == TCMU_STS_FENCED) {
+	if (ret == TCMU_STS_TIMEOUT) {
 		tcmu_dev_dbg(dev, "Fail handler device connection.\n");
 		tcmu_notify_conn_lost(dev);
 	}
