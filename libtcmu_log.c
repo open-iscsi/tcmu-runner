@@ -633,7 +633,7 @@ void tcmu_logdir_destroy(void)
 
 static int tcmu_mkdir(const char *path)
 {
-	DIR* dir;
+	DIR *dir;
 
 	dir = opendir(path);
 	if (dir) {
@@ -641,20 +641,20 @@ static int tcmu_mkdir(const char *path)
 	} else if (errno == ENOENT) {
 		if (mkdir(path, 0755) == -1) {
 			tcmu_err("mkdir(%s) failed: %m\n", path);
-			return false;
+			return -errno;
 		}
 	} else {
 		tcmu_err("opendir(%s) failed: %m\n", path);
-		return false;
+		return -errno;
 	}
 
-	return true;
+	return 0;
 }
 
 static int tcmu_mkdirs(const char *pathname)
 {
 	char path[PATH_MAX], *ch;
-	int ind = 0;
+	int ind = 0, ret;
 
 	strlcpy(path, pathname, PATH_MAX);
 
@@ -668,8 +668,9 @@ static int tcmu_mkdirs(const char *pathname)
 
 		*ch = '\0';
 
-		if (!tcmu_mkdir(path))
-			return false;
+		ret = tcmu_mkdir(path);
+		if (ret)
+			return ret;
 
 		*ch = '/';
 		ind = ch - path + 1;
@@ -683,7 +684,7 @@ bool tcmu_logdir_create(const char *path, bool reloading)
 	if (!tcmu_logdir_check(path))
 		return false;
 
-	if (!tcmu_mkdirs(path))
+	if (tcmu_mkdirs(path))
 		return false;
 
 	return !!tcmu_alloc_and_set_log_dir(path, reloading);
