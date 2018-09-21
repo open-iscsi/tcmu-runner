@@ -985,8 +985,6 @@ int main(int argc, char **argv)
 	int fd;
 	int ret;
 
-	tcmu_info("Starting...\n");
-
 	while (1) {
 		int option_index = 0;
 		int c, nr_files;
@@ -1045,6 +1043,8 @@ int main(int argc, char **argv)
 
 	if (tcmu_setup_log(log_dir))
 		goto free_config;
+
+	tcmu_info("Starting...\n");
 
 	if (tcmu_watch_config(tcmu_cfg)) {
 		tcmu_warn("Dynamic config file changes is not supported.\n");
