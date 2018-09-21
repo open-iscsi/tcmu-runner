@@ -973,6 +973,7 @@ int main(int argc, char **argv)
 	guint reg_id;
 	guint watch_id;
 	bool new_path = false;
+	bool watching_cfg = false;
 	struct flock lock_fd = {0, };
 	char *log_dir = NULL;
 	int fd;
@@ -1032,17 +1033,23 @@ int main(int argc, char **argv)
 	 * the log directory may be configured via the system config file
 	 * which will be used in logger setting up.
 	 */
-	tcmu_cfg = tcmu_setup_config(NULL);
+	tcmu_cfg = tcmu_parse_config(NULL);
 	if (!tcmu_cfg)
 		goto free_opt;
 
 	if (tcmu_setup_log(log_dir))
-		goto destroy_config;
+		goto free_config;
+
+	if (tcmu_watch_config(tcmu_cfg)) {
+		tcmu_warn("Dynamic config file changes is not supported.\n");
+	} else {
+		watching_cfg = true;
+	}
 
 	fd = creat(TCMU_LOCK_FILE, S_IRUSR | S_IWUSR);
 	if (fd == -1) {
 		tcmu_err("creat(%s) failed: [%m]\n", TCMU_LOCK_FILE);
-		goto destroy_log;
+		goto unwatch_cfg;
 	}
 
 	lock_fd.l_type = F_WRLCK;
@@ -1149,7 +1156,9 @@ int main(int argc, char **argv)
 	}
 	close(fd);
 
-	tcmu_destroy_config(tcmu_cfg);
+	if (watching_cfg)
+		tcmu_unwatch_config(tcmu_cfg);
+	tcmu_free_config(tcmu_cfg);
 	tcmu_destroy_log();
 
 	return 0;
@@ -1166,10 +1175,13 @@ close_fd:
 		         TCMU_LOCK_FILE);
 	}
 	close(fd);
-destroy_log:
+unwatch_cfg:
+	if (watching_cfg)
+		tcmu_unwatch_config(tcmu_cfg);
+
 	tcmu_destroy_log();
-destroy_config:
-	tcmu_destroy_config(tcmu_cfg);
+free_config:
+	tcmu_free_config(tcmu_cfg);
 free_opt:
 	if (new_path)
 		free(handler_path);

@@ -459,7 +459,7 @@ static void *dyn_config_start(void *arg)
 	return NULL;
 }
 
-struct tcmu_config *tcmu_setup_config(const char *path)
+struct tcmu_config *tcmu_parse_config(const char *path)
 {
 	struct tcmu_config *cfg;
 
@@ -483,16 +483,6 @@ struct tcmu_config *tcmu_setup_config(const char *path)
 		goto free_path;
 	}
 
-	/*
-	 * If the dynamic reloading thread fails to start, it will fall
-	 * back to static config
-	 */
-	if (pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg)) {
-		tcmu_warn("Dynamic config started failed, fallling back to static!\n");
-	} else {
-		cfg->is_dynamic = true;
-	}
-
 	return cfg;
 
 free_path:
@@ -502,20 +492,22 @@ free_cfg:
 	return NULL;
 }
 
-static void tcmu_cancel_config_thread(struct tcmu_config *cfg)
+int tcmu_watch_config(struct tcmu_config *cfg)
+{
+	return pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg);
+}
+
+void tcmu_unwatch_config(struct tcmu_config *cfg)
 {
 	tcmu_cancel_thread(cfg->thread_id);
 }
 
-void tcmu_destroy_config(struct tcmu_config *cfg)
+void tcmu_free_config(struct tcmu_config *cfg)
 {
 	struct tcmu_conf_option *option, *next;
 
 	if (!cfg)
 		return;
-
-	if (cfg->is_dynamic)
-		tcmu_cancel_config_thread(cfg);
 
 	list_for_each_safe(&tcmu_options, option, next, list) {
 		list_del(&option->list);
