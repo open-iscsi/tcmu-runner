@@ -681,15 +681,17 @@ free_log_dir:
 	return -ENOMEM;
 }
 
-int tcmu_log_dir_resetup(char *log_dir)
+int tcmu_resetup_log_file(char *log_dir)
 {
 	int ret;
 
-	ret = tcmu_log_dir_create(log_dir);
-	if (ret) {
-		tcmu_err("Could not reset log dir to %s. Error %d.\n",
-			 log_dir, ret);
-		return ret;
+	if (log_dir) {
+		ret = tcmu_log_dir_create(log_dir);
+		if (ret) {
+			tcmu_err("Could not reset log dir to %s. Error %d.\n",
+				 log_dir, ret);
+			return ret;
+		}
 	}
 
 	if (!tcmu_logbuf)

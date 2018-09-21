@@ -190,6 +190,12 @@ static gboolean sighandler(gpointer user_data)
 	return G_SOURCE_CONTINUE;
 }
 
+static gboolean handle_sighup(gpointer user_data)
+{
+	tcmu_resetup_log_file(NULL);
+	return G_SOURCE_CONTINUE;
+}
+
 gboolean tcmulib_callback(GIOChannel *source,
 			  GIOCondition condition,
 			  gpointer data)
@@ -1115,7 +1121,8 @@ int main(int argc, char **argv)
 
 	loop = g_main_loop_new(NULL, FALSE);
 	if (g_unix_signal_add(SIGINT, sighandler, loop) <= 0 ||
-	    g_unix_signal_add(SIGTERM, sighandler, loop) <= 0) {
+	    g_unix_signal_add(SIGTERM, sighandler, loop) <= 0 ||
+	    g_unix_signal_add(SIGHUP, handle_sighup, loop) <= 0) {
 		tcmu_err("couldn't setup signal handlers\n");
 		goto err_tcmulib_close;
 	}

@@ -30,7 +30,7 @@ unsigned int tcmu_get_log_level(void);
 int tcmu_setup_log(char *log_dir);
 void tcmu_destroy_log(void);
 int tcmu_make_absolute_logfile(char *path, const char *filename);
-int tcmu_log_dir_resetup(char *log_dir_path);
+int tcmu_resetup_log_file(char *log_dir_path);
 
 __attribute__ ((format (printf, 4, 5)))
 void tcmu_err_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
