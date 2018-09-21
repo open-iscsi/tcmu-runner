@@ -159,7 +159,7 @@ do { \
 	free(cfg->key); \
 } while (0);
 
-static void tcmu_conf_set_options(struct tcmu_config *cfg, bool reloading)
+static void tcmu_conf_set_options(struct tcmu_config *cfg)
 {
 	/* set log_level option */
 	TCMU_PARSE_CFG_INT(cfg, log_level, TCMU_CONF_LOG_INFO);
@@ -169,26 +169,7 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg, bool reloading)
 
 	/* set log_dir path option */
 	TCMU_PARSE_CFG_STR(cfg, log_dir_path, TCMU_LOG_DIR_DEFAULT);
-	if (!reloading) {
-		/*
-		 * The priority of the logdir setting is:
-		 * 1, --tcmu_log_dir/-l LOG_DIR_PATH
-		 * 2, export TCMU_LOGDIR="/var/log/mychoice/"
-		 * 3, tcmu.conf
-		 * 4, default /var/log/
-		 */
-		if (!tcmu_get_logdir())
-			tcmu_logdir_create(cfg->log_dir_path, false);
-		else
-			tcmu_warn("The logdir option from the tcmu.conf will be ignored\n");
-	} else {
-		/*
-		 * Here we asume that users want to change the
-		 * log_dir_path without considering the priority
-		 * mentioned above.
-		 */
-		tcmu_logdir_resetup(cfg->log_dir_path);
-	}
+	tcmu_log_dir_resetup(cfg->log_dir_path);
 
 	/* add your new config options */
 }
@@ -360,7 +341,7 @@ static void tcmu_parse_option(char **cur, const char *end)
 	}
 }
 
-static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len, bool reloading)
+static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 {
 	char *cur = buf, *end = buf + len;
 
@@ -382,10 +363,10 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len, bool
 	}
 
 	/* parse the options from tcmu_options[] to struct tcmu_config */
-	tcmu_conf_set_options(cfg, reloading);
+	tcmu_conf_set_options(cfg);
 }
 
-static int tcmu_load_config(struct tcmu_config *cfg, bool reloading)
+static int tcmu_load_config(struct tcmu_config *cfg)
 {
 	int ret = -1;
 	int fd, len;
@@ -410,7 +391,7 @@ static int tcmu_load_config(struct tcmu_config *cfg, bool reloading)
 
 	buf[len] = '\0';
 
-	tcmu_parse_options(cfg, buf, len, reloading);
+	tcmu_parse_options(cfg, buf, len);
 
 	ret = 0;
 free_buf:
@@ -469,7 +450,7 @@ static void *dyn_config_start(void *arg)
 
 			/* Try to reload the config file */
 			if (event->mask & IN_MODIFY || event->mask & IN_IGNORED)
-				tcmu_load_config(cfg, true);
+				tcmu_load_config(cfg);
 
 			p += sizeof(struct inotify_event) + event->len;
 		}
@@ -497,7 +478,7 @@ struct tcmu_config *tcmu_setup_config(const char *path)
 		goto free_cfg;
 	}
 
-	if (tcmu_load_config(cfg, false)) {
+	if (tcmu_load_config(cfg)) {
 		tcmu_err("Loading TCMU config failed!\n");
 		goto free_path;
 	}

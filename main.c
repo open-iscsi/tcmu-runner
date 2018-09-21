@@ -974,6 +974,7 @@ int main(int argc, char **argv)
 	guint watch_id;
 	bool new_path = false;
 	struct flock lock_fd = {0, };
+	char *log_dir = NULL;
 	int fd;
 	int ret;
 
@@ -996,7 +997,8 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			if (!tcmu_logdir_create(optarg, false))
+			log_dir = strdup(optarg);
+			if (!log_dir)
 				goto free_opt;
 			break;
 		case 'f':
@@ -1025,9 +1027,6 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (!tcmu_logdir_getenv())
-		goto free_opt;
-
 	/*
 	 * The order of setting up config and logger is important, because
 	 * the log directory may be configured via the system config file
@@ -1037,7 +1036,7 @@ int main(int argc, char **argv)
 	if (!tcmu_cfg)
 		goto free_opt;
 
-	if (tcmu_setup_log())
+	if (tcmu_setup_log(log_dir))
 		goto destroy_config;
 
 	fd = creat(TCMU_LOCK_FILE, S_IRUSR | S_IWUSR);
@@ -1174,7 +1173,8 @@ destroy_config:
 free_opt:
 	if (new_path)
 		free(handler_path);
-	tcmu_logdir_destroy();
+	if (log_dir)
+		free(log_dir);
 
 	exit(1);
 }

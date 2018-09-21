@@ -71,6 +71,9 @@ static int tcmu_log_level = TCMU_LOG_INFO;
 static struct log_buf *tcmu_logbuf = NULL;
 static pthread_mutex_t tcmu_logbuf_lock = PTHREAD_MUTEX_INITIALIZER;
 
+static char *tcmu_log_dir;
+static pthread_mutex_t tcmu_log_dir_lock = PTHREAD_MUTEX_INITIALIZER;
+
 /* covert log level from tcmu config to syslog */
 static inline int to_syslog_level(int level)
 {
@@ -94,23 +97,6 @@ static inline int to_syslog_level(int level)
 unsigned int tcmu_get_log_level(void)
 {
 	return tcmu_log_level;
-}
-
-bool tcmu_logdir_getenv(void)
-{
-	char *log_path;
-
-	if (tcmu_get_logdir())
-		return true;
-
-	log_path = getenv("TCMU_LOGDIR");
-	if (!log_path)
-		return true;
-
-	if (!tcmu_logdir_create(log_path, false))
-		return false;
-
-	return true;
 }
 
 void tcmu_set_log_level(int level)
@@ -173,24 +159,35 @@ static void log_cleanup_output(struct log_output *output)
 		free(output->name);
 }
 
+static void tcmu_log_dir_free(void)
+{
+	if (tcmu_log_dir) {
+		free(tcmu_log_dir);
+		tcmu_log_dir = NULL;
+	}
+}
+
 static void log_cleanup(void *arg)
 {
 	struct log_output *output;
 
 	pthread_mutex_lock(&tcmu_logbuf_lock);
 
-	pthread_cond_destroy(&tcmu_logbuf->cond);
-	pthread_mutex_destroy(&tcmu_logbuf->lock);
+	if (tcmu_logbuf) {
+		pthread_cond_destroy(&tcmu_logbuf->cond);
+		pthread_mutex_destroy(&tcmu_logbuf->lock);
 
-	darray_foreach(output, tcmu_logbuf->outputs)
-		log_cleanup_output(output);
+		darray_foreach(output, tcmu_logbuf->outputs)
+			       log_cleanup_output(output);
 
-	darray_free(tcmu_logbuf->outputs);
+		darray_free(tcmu_logbuf->outputs);
 
-	free(tcmu_logbuf);
-	tcmu_logbuf = NULL;
-
+		free(tcmu_logbuf);
+		tcmu_logbuf = NULL;
+	}
 	pthread_mutex_unlock(&tcmu_logbuf_lock);
+
+	tcmu_log_dir_free();
 }
 
 static void log_output(int pri, const char *msg, bool bypass)
@@ -584,14 +581,8 @@ static void *log_thread_start(void *arg)
 	return NULL;
 }
 
-/* tcmu log dir path */
-static char *tcmu_log_dir = NULL;
-
-static bool tcmu_logdir_check(const char *path)
+static bool tcmu_log_dir_check(const char *path)
 {
-	if (!path)
-		return false;
-
 	if (strlen(path) >= PATH_MAX - TCMU_LOG_FILENAME_MAX) {
 		tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
 			 path, PATH_MAX - TCMU_LOG_FILENAME_MAX - 1);
@@ -601,34 +592,19 @@ static bool tcmu_logdir_check(const char *path)
 	return true;
 }
 
-/* get the log dir of tcmu-runner */
-char *tcmu_get_logdir(void)
+static int tcmu_log_dir_set(const char *log_dir)
 {
-	return tcmu_log_dir;
-}
+	char *new_dir;
 
-static char *tcmu_alloc_and_set_log_dir(const char *log_dir, bool reloading)
-{
-	/*
-	 * Do nothing here and will use the /var/log/
-	 * as the default log dir
-	 */
-	if (!log_dir)
-		return NULL;
-
-	if (reloading && tcmu_log_dir)
-		free(tcmu_log_dir);
-
-	tcmu_log_dir = strdup(log_dir);
-	if (!tcmu_log_dir)
+	new_dir = strdup(log_dir);
+	if (!new_dir) {
 		tcmu_err("Failed to copy log dir: %s\n", log_dir);
+		return -ENOMEM;
+	}
 
-	return tcmu_log_dir;
-}
-
-void tcmu_logdir_destroy(void)
-{
-	free(tcmu_log_dir);
+	tcmu_log_dir_free();
+	tcmu_log_dir = new_dir;
+	return 0;
 }
 
 static int tcmu_mkdir(const char *path)
@@ -679,33 +655,72 @@ static int tcmu_mkdirs(const char *pathname)
 	return tcmu_mkdir(path);
 }
 
-bool tcmu_logdir_create(const char *path, bool reloading)
+static void cleanup_log_dir_lock(void *arg)
 {
-	if (!tcmu_logdir_check(path))
-		return false;
+	pthread_mutex_unlock(&tcmu_log_dir_lock);
+}
 
-	if (tcmu_mkdirs(path))
-		return false;
+static int tcmu_log_dir_create(const char *path)
+{
+	int ret = 0;
 
-	return !!tcmu_alloc_and_set_log_dir(path, reloading);
+	if (!tcmu_log_dir_check(path))
+		return -EINVAL;
+
+	pthread_cleanup_push(cleanup_log_dir_lock, NULL);
+	pthread_mutex_lock(&tcmu_log_dir_lock);
+	if (tcmu_log_dir && !strcmp(path, tcmu_log_dir))
+		goto unlock;
+
+	ret = tcmu_mkdirs(path);
+	if (ret)
+		goto unlock;
+
+	ret = tcmu_log_dir_set(path);
+unlock:
+	pthread_mutex_unlock(&tcmu_log_dir_lock);
+	pthread_cleanup_pop(0);
+	return ret;
 }
 
 int tcmu_make_absolute_logfile(char *path, const char *filename)
 {
-	if (snprintf(path, PATH_MAX, "%s/%s",
-	             tcmu_log_dir ? tcmu_log_dir : TCMU_LOG_DIR_DEFAULT,
-	             filename) < 0)
-		return -errno;
-	return 0;
+	int ret = 0;
+
+	pthread_mutex_lock(&tcmu_log_dir_lock);
+	if (!tcmu_log_dir) {
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	if (snprintf(path, PATH_MAX, "%s/%s", tcmu_log_dir, filename) < 0)
+		ret = -EINVAL;
+unlock:
+	pthread_mutex_unlock(&tcmu_log_dir_lock);
+	return ret;
 }
 
-int tcmu_setup_log(void)
+int tcmu_setup_log(char *log_dir)
 {
 	int ret;
 
-	tcmu_logbuf = malloc(sizeof(struct log_buf));
+	if (!log_dir)
+		log_dir = getenv("TCMU_LOGDIR");
+	if (!log_dir)
+		log_dir = tcmu_log_dir;
+	if (!log_dir)
+		log_dir = TCMU_LOG_DIR_DEFAULT;
+
+	ret = tcmu_log_dir_create(log_dir);
+	if (ret) {
+		tcmu_err("Could not setup log dir %s. Error %d.\n", log_dir,
+			  ret);
+		return ret;
+	}
+
+	tcmu_logbuf = calloc(1, sizeof(struct log_buf));
 	if (!tcmu_logbuf)
-		return -ENOMEM;
+		goto cleanup_log;
 
 	tcmu_logbuf->thread_active = false;
 	tcmu_logbuf->finish_initialize = false;
@@ -745,26 +760,28 @@ cleanup_log:
 	return -ENOMEM;
 }
 
-int tcmu_logdir_resetup(char *log_dir_path)
+int tcmu_log_dir_resetup(char *log_dir)
 {
 	int ret;
 
-	pthread_mutex_lock(&tcmu_logbuf_lock);
-
-	if (!tcmu_logbuf) {
-		ret = -ESHUTDOWN;
-		goto unlock;
+	ret = tcmu_log_dir_create(log_dir);
+	if (ret) {
+		tcmu_err("Could not reset log dir to %s. Error %d.\n",
+			 log_dir, ret);
+		return ret;
 	}
 
-	if (!tcmu_logdir_create(log_dir_path, true)) {
-		ret = -ENOENT;
+	pthread_mutex_lock(&tcmu_logbuf_lock);
+	if (!tcmu_logbuf) {
+		/* Early call from config file parser or race with logrotate */
+		ret = 0;
 		goto unlock;
 	}
 
 	ret = create_file_output(TCMU_LOG_DEBUG, TCMU_LOG_FILENAME, true);
 	if (ret < 0)
 		tcmu_err("Could not change log path to %s, ret:%d.\n",
-			 log_dir_path, ret);
+			 log_dir, ret);
 unlock:
 	pthread_mutex_unlock(&tcmu_logbuf_lock);
 	return ret;

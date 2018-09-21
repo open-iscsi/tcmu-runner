@@ -27,14 +27,10 @@ struct tcmu_device;
 
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
-int tcmu_setup_log(void);
+int tcmu_setup_log(char *log_dir);
 void tcmu_destroy_log(void);
-char *tcmu_get_logdir(void);
-void tcmu_logdir_destroy(void);
-bool tcmu_logdir_getenv(void);
-bool tcmu_logdir_create(const char *path, bool reloading);
 int tcmu_make_absolute_logfile(char *path, const char *filename);
-int tcmu_logdir_resetup(char *log_dir_path);
+int tcmu_log_dir_resetup(char *log_dir_path);
 
 __attribute__ ((format (printf, 4, 5)))
 void tcmu_err_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
