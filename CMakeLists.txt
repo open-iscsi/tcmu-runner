@@ -272,6 +272,12 @@ configure_file (
   )
 install(SCRIPT tcmu.conf_install.cmake)
 
+configure_file (
+  "${PROJECT_SOURCE_DIR}/logrotate.conf_install.cmake.in"
+  "${PROJECT_SOURCE_DIR}/logrotate.conf_install.cmake"
+  )
+install(SCRIPT logrotate.conf_install.cmake)
+
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)

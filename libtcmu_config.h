@@ -18,7 +18,6 @@ struct tcmu_config {
 	pthread_t thread_id;
 	char *path;
 
-	bool is_dynamic;
 	int log_level;
 	char *log_dir_path;
 };
@@ -41,6 +40,9 @@ enum {
 	TCMU_CONF_LOG_LEVEL_MAX = TCMU_CONF_LOG_DEBUG_SCSI_CMD,
 };
 
-void tcmu_destroy_config(struct tcmu_config *cfg);
-struct tcmu_config * tcmu_setup_config(const char *path);
+void tcmu_free_config(struct tcmu_config *cfg);
+struct tcmu_config * tcmu_parse_config(const char *path);
+int tcmu_watch_config(struct tcmu_config *cfg);
+void tcmu_unwatch_config(struct tcmu_config *cfg);
+
 #endif /* __TCMU_CONFIG_H */

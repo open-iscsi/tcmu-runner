@@ -189,7 +189,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (tcmu_setup_log()) {
+	if (tcmu_setup_log(NULL)) {
 		fprintf(stderr, "Could not setup tcmu logger.\n");
 		exit(1);
 	}

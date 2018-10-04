@@ -1,0 +1,3 @@
+if (NOT EXISTS "/etc/logrotate/tcmu-runner")
+	file(INSTALL "${PROJECT_SOURCE_DIR}/logrotate.conf" DESTINATION "/etc/logrotate.d" RENAME "tcmu-runner")
+endif()

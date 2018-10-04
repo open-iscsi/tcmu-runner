@@ -181,12 +181,18 @@ static int open_handlers(void)
 	return num_good;
 }
 
-static gboolean sighandler(gpointer user_data)
+static gboolean handle_sig(gpointer user_data)
 {
 	tcmu_dbg("Have received signal!\n");
 
 	g_main_loop_quit((GMainLoop*)user_data);
 
+	return G_SOURCE_CONTINUE;
+}
+
+static gboolean handle_sighup(gpointer user_data)
+{
+	tcmu_resetup_log_file(NULL);
 	return G_SOURCE_CONTINUE;
 }
 
@@ -973,7 +979,9 @@ int main(int argc, char **argv)
 	guint reg_id;
 	guint watch_id;
 	bool new_path = false;
+	bool watching_cfg = false;
 	struct flock lock_fd = {0, };
+	char *log_dir = NULL;
 	int fd;
 	int ret;
 
@@ -994,7 +1002,8 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			if (!tcmu_logdir_create(optarg, false))
+			log_dir = strdup(optarg);
+			if (!log_dir)
 				goto free_opt;
 			break;
 		case 'f':
@@ -1023,25 +1032,30 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (!tcmu_logdir_getenv())
-		goto free_opt;
-
 	/*
 	 * The order of setting up config and logger is important, because
 	 * the log directory may be configured via the system config file
 	 * which will be used in logger setting up.
 	 */
-	tcmu_cfg = tcmu_setup_config(NULL);
+	tcmu_cfg = tcmu_parse_config(NULL);
 	if (!tcmu_cfg)
 		goto free_opt;
 
-	if (tcmu_setup_log())
-		goto destroy_config;
+	if (tcmu_setup_log(log_dir))
+		goto free_config;
+
+	tcmu_info("Starting...\n");
+
+	if (tcmu_watch_config(tcmu_cfg)) {
+		tcmu_warn("Dynamic config file changes is not supported.\n");
+	} else {
+		watching_cfg = true;
+	}
 
 	fd = creat(TCMU_LOCK_FILE, S_IRUSR | S_IWUSR);
 	if (fd == -1) {
 		tcmu_err("creat(%s) failed: [%m]\n", TCMU_LOCK_FILE);
-		goto destroy_log;
+		goto unwatch_cfg;
 	}
 
 	lock_fd.l_type = F_WRLCK;
@@ -1106,8 +1120,9 @@ int main(int argc, char **argv)
 	}
 
 	loop = g_main_loop_new(NULL, FALSE);
-	if (g_unix_signal_add(SIGINT, sighandler, loop) <= 0 ||
-	    g_unix_signal_add(SIGTERM, sighandler, loop) <= 0) {
+	if (g_unix_signal_add(SIGINT, handle_sig, loop) <= 0 ||
+	    g_unix_signal_add(SIGTERM, handle_sig, loop) <= 0 ||
+	    g_unix_signal_add(SIGHUP, handle_sighup, loop) <= 0) {
 		tcmu_err("couldn't setup signal handlers\n");
 		goto err_tcmulib_close;
 	}
@@ -1148,7 +1163,9 @@ int main(int argc, char **argv)
 	}
 	close(fd);
 
-	tcmu_destroy_config(tcmu_cfg);
+	if (watching_cfg)
+		tcmu_unwatch_config(tcmu_cfg);
+	tcmu_free_config(tcmu_cfg);
 	tcmu_destroy_log();
 
 	return 0;
@@ -1165,14 +1182,18 @@ close_fd:
 		         TCMU_LOCK_FILE);
 	}
 	close(fd);
-destroy_log:
+unwatch_cfg:
+	if (watching_cfg)
+		tcmu_unwatch_config(tcmu_cfg);
+
 	tcmu_destroy_log();
-destroy_config:
-	tcmu_destroy_config(tcmu_cfg);
+free_config:
+	tcmu_free_config(tcmu_cfg);
 free_opt:
 	if (new_path)
 		free(handler_path);
-	tcmu_logdir_destroy();
+	if (log_dir)
+		free(log_dir);
 
 	exit(1);
 }
