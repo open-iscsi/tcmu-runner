@@ -181,7 +181,7 @@ static int open_handlers(void)
 	return num_good;
 }
 
-static gboolean sighandler(gpointer user_data)
+static gboolean handle_sig(gpointer user_data)
 {
 	tcmu_dbg("Have received signal!\n");
 
@@ -1120,8 +1120,8 @@ int main(int argc, char **argv)
 	}
 
 	loop = g_main_loop_new(NULL, FALSE);
-	if (g_unix_signal_add(SIGINT, sighandler, loop) <= 0 ||
-	    g_unix_signal_add(SIGTERM, sighandler, loop) <= 0 ||
+	if (g_unix_signal_add(SIGINT, handle_sig, loop) <= 0 ||
+	    g_unix_signal_add(SIGTERM, handle_sig, loop) <= 0 ||
 	    g_unix_signal_add(SIGHUP, handle_sighup, loop) <= 0) {
 		tcmu_err("couldn't setup signal handlers\n");
 		goto err_tcmulib_close;
