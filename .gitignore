@@ -19,3 +19,4 @@ ncscope.*
 tcmu.conf_install.cmake
 core.*
 extra/rpmbuild
+logrotate.conf_install.cmake
