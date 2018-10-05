@@ -441,7 +441,7 @@ static int create_file_output(struct log_buf *logbuf, int pri,
 	if (!output) {
 		close(fd);
 		tcmu_err("Failed to create output file: %s\n", log_file_path);
-		return ret;
+		return -ENOMEM;
 	}
 
 	pthread_cleanup_push(cleanup_file_out_lock, logbuf);
