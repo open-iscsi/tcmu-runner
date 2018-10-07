@@ -40,6 +40,14 @@ enum {
 	TCMU_CONF_LOG_LEVEL_MAX = TCMU_CONF_LOG_DEBUG_SCSI_CMD,
 };
 
+static const char *const log_level_lookup[] = {
+	[TCMU_CONF_LOG_ERROR]	= "ERROR",
+	[TCMU_CONF_LOG_WARN]	= "WARNING",
+	[TCMU_CONF_LOG_INFO]	= "INFO",
+	[TCMU_CONF_LOG_DEBUG]	= "DEBUG",
+	[TCMU_CONF_LOG_DEBUG_SCSI_CMD]	= "DEBUG SCSI CMD",
+};
+
 void tcmu_free_config(struct tcmu_config *cfg);
 struct tcmu_config * tcmu_parse_config(const char *path);
 int tcmu_watch_config(struct tcmu_config *cfg);

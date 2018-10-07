@@ -95,6 +95,7 @@ void tcmu_set_log_level(int level)
 	else if (level < TCMU_CONF_LOG_LEVEL_MIN)
 		level = TCMU_CONF_LOG_LEVEL_MIN;
 
+	tcmu_info("log level now is %s\n", log_level_lookup[level]);
 	tcmu_log_level = to_syslog_level(level);
 }
 
@@ -430,6 +431,8 @@ static int create_file_output(struct log_buf *logbuf, int pri,
 		return ret;
 	}
 
+	tcmu_dbg("Attempting to use '%s' as the log file path\n", log_file_path);
+
 	fd = open(log_file_path, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
 	if (fd < 0) {
 		tcmu_err("Failed to open %s:%m\n", log_file_path);
@@ -455,6 +458,7 @@ static int create_file_output(struct log_buf *logbuf, int pri,
 	pthread_mutex_unlock(&logbuf->file_out_lock);
 	pthread_cleanup_pop(0);
 
+	tcmu_info("log file path now is '%s'\n", log_file_path);
 	return 0;
 }
 
