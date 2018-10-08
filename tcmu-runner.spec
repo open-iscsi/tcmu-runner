@@ -2,10 +2,10 @@ Name:          tcmu-runner
 Summary:       A daemon that handles the userspace side of the LIO TCM-User backstore
 Group:         System Environment/Kernel
 License:       Apache 2.0 or LGPLv2.1
-Version:       1.3.0
+Version:       1.4.0
 URL:           https://github.com/open-iscsi/tcmu-runner
 
-%define _RC rc4
+#%define _RC
 Release:       %{?_RC:%{_RC}}%{dist}
 BuildRoot:     %(mktemp -udp %{_tmppath}/%{name}-%{version}%{?_RC:-%{_RC}})
 Source:       %{name}-%{version}%{?_RC:-%{_RC}}.tar.gz
