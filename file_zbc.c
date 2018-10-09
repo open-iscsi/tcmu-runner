@@ -2060,8 +2060,8 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 
 		/* Check LBA on write pointer */
 		if (zbc_zone_seq_req(zone) && lba != zone->wp) {
-			tcmu_dev_err(dev, "Unaligned write lba %"PRIu64", wp %llu\n",
-				     lba, zone->wp);
+			tcmu_dev_err(dev, "Unaligned write lba %"PRIu64", wp %"PRIu64"\n",
+				     lba, (uint64_t)zone->wp);
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
 						   ASC_UNALIGNED_WRITE_COMMAND);
