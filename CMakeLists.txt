@@ -11,6 +11,7 @@ set(tcmu-runner_HANDLER_PATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/tc
 option(with-glfs "build Gluster glfs handler" true)
 option(with-qcow "build qcow handler" true)
 option(with-rbd "build Ceph rbd handler" true)
+option(with-zbc "build zbc handler" true)
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
@@ -168,25 +169,27 @@ target_include_directories(handler_file_optical
   )
 target_link_libraries(handler_file_optical ${PTHREAD})
 
-# Stuff for building the file zbc handler
-add_library(handler_file_zbc
-  SHARED
-  file_zbc.c
-  )
-set_target_properties(handler_file_zbc
-  PROPERTIES
-  PREFIX ""
-  )
-target_include_directories(handler_file_zbc
-  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-  )
-install(TARGETS handler_file_zbc DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
-
 # The minimal library consumer
 add_executable(consumer
   consumer.c
   )
 target_link_libraries(consumer tcmu)
+
+if (with-zbc)
+	# Stuff for building the file zbc handler
+	add_library(handler_file_zbc
+	  SHARED
+	  file_zbc.c
+	  )
+	set_target_properties(handler_file_zbc
+	  PROPERTIES
+	  PREFIX ""
+	  )
+	target_include_directories(handler_file_zbc
+	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+	  )
+	install(TARGETS handler_file_zbc DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-zbc)
 
 if (with-rbd)
 	find_library(LIBRBD rbd)
