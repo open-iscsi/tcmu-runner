@@ -288,6 +288,8 @@ configure_file (
   )
 install(SCRIPT logrotate.conf_install.cmake)
 
+install(FILES libtcmu.h libtcmu_common.h
+  DESTINATION include)
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
