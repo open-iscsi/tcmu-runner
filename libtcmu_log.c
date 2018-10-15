@@ -21,7 +21,7 @@
 #include "libtcmu_config.h"
 #include "libtcmu_time.h"
 #include "libtcmu_priv.h"
-#include "tcmu-runner.h"
+#include "libtcmu.h"
 #include "string_priv.h"
 
 /* tcmu ring buffer for log */
@@ -216,7 +216,7 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 {
 	char buf[LOG_MSG_LEN];
 	int n;
-	struct tcmur_handler *rhandler;
+	struct tcmulib_handler *handler;
 
 	if (pri > tcmu_log_level)
 		return;
@@ -232,9 +232,9 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 
 	/* Format the log msg */
 	if (dev) {
-		rhandler = tcmu_get_runner_handler(dev);
+		handler = tcmu_get_dev_handler(dev);
 		n = sprintf(buf, "%s:%d %s/%s: ", funcname, linenr,
-		            rhandler ? rhandler->subtype: "",
+		            handler ? handler->subtype: "",
 		            dev ? dev->tcm_dev_name: "");
 	} else {
 		n = sprintf(buf, "%s:%d: ", funcname, linenr);
