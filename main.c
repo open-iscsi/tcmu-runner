@@ -733,6 +733,7 @@ static int dev_added(struct tcmu_device *dev)
 	struct tcmur_device *rdev;
 	int32_t block_size, max_sectors;
 	int64_t dev_size;
+	unsigned int cmd_time_out;
 	int ret;
 
 	rdev = calloc(1, sizeof(*rdev));
@@ -756,6 +757,13 @@ static int dev_added(struct tcmu_device *dev)
 		goto free_rdev;
 	}
 	tcmu_set_dev_num_lbas(dev, dev_size / block_size);
+
+	cmd_time_out = tcmu_get_attribute(dev, "cmd_time_out");
+	if (cmd_time_out < 0) {
+		tcmu_dev_err(dev, "Could not get cmd_time_out\n");
+		goto free_rdev;
+	}
+	tcmu_set_dev_cmd_time_out(dev, cmd_time_out);
 
 	max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
 	if (max_sectors < 0)

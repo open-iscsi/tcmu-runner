@@ -814,6 +814,16 @@ uint64_t tcmu_get_dev_num_lbas(struct tcmu_device *dev)
 	return dev->num_lbas;
 }
 
+void tcmu_set_dev_cmd_time_out(struct tcmu_device *dev, unsigned int cmd_time_out)
+{
+	dev->cmd_time_out = cmd_time_out;
+}
+
+unsigned int tcmu_get_dev_cmd_time_out(struct tcmu_device *dev)
+{
+	return dev->cmd_time_out;
+}
+
 /**
  * tcmu_update_num_lbas - Update num LBAs based on the new size.
  * @dev: tcmu device to update

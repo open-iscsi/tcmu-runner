@@ -55,6 +55,7 @@ struct tcmu_device {
 	uint32_t max_unmap_len;
 	uint32_t opt_unmap_gran;
 	uint32_t unmap_gran_align;
+	unsigned int cmd_time_out;
 	unsigned int write_cache_enabled:1;
 	unsigned int solid_state_media:1;
 

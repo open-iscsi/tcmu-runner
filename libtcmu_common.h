@@ -131,6 +131,8 @@ char *tcmu_get_dev_cfgstring(struct tcmu_device *dev);
 void tcmu_set_dev_num_lbas(struct tcmu_device *dev, uint64_t num_lbas);
 uint64_t tcmu_get_dev_num_lbas(struct tcmu_device *dev);
 int tcmu_update_num_lbas(struct tcmu_device *dev, uint64_t new_size);
+void tcmu_set_dev_cmd_time_out(struct tcmu_device *dev, unsigned int cmd_time_out);
+unsigned int tcmu_get_dev_cmd_time_out(struct tcmu_device *dev);
 void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size);
 uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev);
 void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len);
