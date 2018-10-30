@@ -47,6 +47,7 @@ add_library(tcmu
   libtcmu_log.c
   libtcmu_config.c
   libtcmu_time.c
+  libtcmu_timer.c
   )
 set_target_properties(tcmu
   PROPERTIES
@@ -75,6 +76,7 @@ add_library(tcmu_static
   libtcmu_log.c
   libtcmu_config.c
   libtcmu_time.c
+  libtcmu_timer.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
