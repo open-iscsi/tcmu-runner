@@ -187,7 +187,7 @@ int main(int argc, char **argv)
 							     cmd->iovec,
 							     cmd->iov_cnt,
 							     cmd->sense_buf);
-					tcmulib_command_complete(dev, cmd, ret);
+					tcmulib_command_complete(dev, cmd, ret, false);
 				}
 
 				tcmulib_processing_complete(dev);

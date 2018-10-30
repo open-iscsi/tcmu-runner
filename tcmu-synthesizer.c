@@ -93,7 +93,7 @@ static gboolean syn_dev_callback(GIOChannel *source,
 				     cmd->cdb,
 				     cmd->iovec,
 				     cmd->iov_cnt);
-		tcmulib_command_complete(dev, cmd, ret);
+		tcmulib_command_complete(dev, cmd, ret, false);
 	}
 
 	tcmulib_processing_complete(dev);

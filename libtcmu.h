@@ -113,7 +113,7 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev);
  *
  * result is scsi status, or TCMU_STS_NOT_HANDLED or TCMU_ASYNC_HANDLED.
  */
-void tcmulib_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd, int result);
+void tcmulib_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd, int result, bool timeout);
 
 /* Call when start processing commands (before calling tcmulib_get_next_command()) */
 void tcmulib_processing_start(struct tcmu_device *dev);

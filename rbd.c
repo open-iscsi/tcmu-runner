@@ -1490,6 +1490,7 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.get_lock_tag  = tcmu_rbd_get_lock_tag,
 	.get_lock_state = tcmu_rbd_get_lock_state,
 #endif
+	.has_timer     = true;
 };
 
 int handler_init(void)

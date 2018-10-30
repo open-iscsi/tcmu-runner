@@ -1021,6 +1021,9 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			if (!cmd)
 				return NULL;
 			cmd->cmd_id = ent->hdr.cmd_id;
+			cmd->dev = dev;
+			cmd->timer = NULL;
+			cmd->timeout = false;
 
 			/* Convert iovec addrs in-place to not be offsets */
 			cmd->iov_cnt = ent->req.iov_cnt;
@@ -1176,32 +1179,40 @@ do { \
 void tcmulib_command_complete(
 	struct tcmu_device *dev,
 	struct tcmulib_cmd *cmd,
-	int result)
+	int result, bool timeout)
 {
 	struct tcmu_mailbox *mb = dev->map;
 	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 
-	/* current command could be PAD in async case */
-	while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
-		if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
-			break;
+	if (!cmd->timeout) {
+		/* current command could be PAD in async case */
+		while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
+			if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
+				break;
+			TCMU_UPDATE_RB_TAIL(mb, ent);
+			ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
+		}
+
+		/* cmd_id could be different in async case */
+		if (cmd->cmd_id != ent->hdr.cmd_id) {
+			ent->hdr.cmd_id = cmd->cmd_id;
+		}
+
+		ent->rsp.scsi_status = tcmu_sts_to_scsi(result, cmd->sense_buf);
+		if (ent->rsp.scsi_status == SAM_STAT_CHECK_CONDITION) {
+			memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
+					TCMU_SENSE_BUFFERSIZE);
+		}
+
 		TCMU_UPDATE_RB_TAIL(mb, ent);
-		ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 	}
 
-	/* cmd_id could be different in async case */
-	if (cmd->cmd_id != ent->hdr.cmd_id) {
-		ent->hdr.cmd_id = cmd->cmd_id;
-	}
+	cmd->timeout = timeout;
 
-	ent->rsp.scsi_status = tcmu_sts_to_scsi(result, cmd->sense_buf);
-	if (ent->rsp.scsi_status == SAM_STAT_CHECK_CONDITION) {
-		memcpy(ent->rsp.sense_buffer, cmd->sense_buf,
-		       TCMU_SENSE_BUFFERSIZE);
+	if (!timeout) {
+		free(cmd->timer);
+		free(cmd);
 	}
-
-	TCMU_UPDATE_RB_TAIL(mb, ent);
-	free(cmd);
 }
 
 void tcmulib_processing_start(struct tcmu_device *dev)

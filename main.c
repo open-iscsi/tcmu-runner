@@ -46,6 +46,7 @@
 #include "version.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+#include "libtcmu_timer.h"
 
 # define TCMU_LOCK_FILE   "/var/run/lock/tcmu.lock"
 
@@ -626,10 +627,11 @@ static void *tcmur_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_print_cdb_info(dev, cmd, NULL);
 
-			if (tcmur_handler_is_passthrough_only(rhandler))
+			if (tcmur_handler_is_passthrough_only(rhandler)) {
 				ret = tcmur_cmd_passthrough_handler(dev, cmd);
-			else
+			} else {
 				ret = tcmur_generic_handle_cmd(dev, cmd);
+			}
 
 			if (ret == TCMU_STS_NOT_HANDLED)
 				tcmu_print_cdb_info(dev, cmd, "is not supported");
@@ -643,7 +645,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			 */
 			if (ret != TCMU_STS_ASYNC_HANDLED) {
 				completed = 1;
-				tcmur_command_complete(dev, cmd, ret);
+				tcmur_command_complete(dev, cmd, ret, false);
 			}
 		}
 
@@ -993,6 +995,12 @@ int main(int argc, char **argv)
 	int fd;
 	int ret;
 
+	ret = tcmu_init_timer_base();
+	if (ret) {
+		tcmu_err("failed to init tcmu timer base!\n");
+		exit(1);
+	}
+
 	while (1) {
 		int option_index = 0;
 		int c, nr_files;
@@ -1202,6 +1210,8 @@ free_opt:
 		free(handler_path);
 	if (log_dir)
 		free(log_dir);
+
+	tcmu_cleanup_timer_base();
 
 	exit(1);
 }

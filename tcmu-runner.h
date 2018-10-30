@@ -139,6 +139,8 @@ struct tcmur_handler {
 	 * latter case opaque will point to a struct dbus_info.
 	 */
 	bool _is_dbus_handler;
+
+	bool has_timer;
 };
 
 /*
