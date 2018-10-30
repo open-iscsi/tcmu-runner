@@ -306,6 +306,58 @@ static inline bool list_empty_nocheck(const struct list_head *h)
 	return h->n.next == &h->n;
 }
 
+static inline void __list_splice(struct list_head *list, struct list_head *head)
+{
+    list->n.prev->next = head->n.next;
+    head->n.next->prev = list->n.prev;
+
+    head->n.next = list->n.next;
+    list->n.next->prev = &head->n;
+}
+
+static inline void
+list_splice(struct list_head *list, struct list_head *head)
+{
+    if (list_empty(list))
+        return;
+
+    __list_splice(list, head);
+}
+
+/* Splice moves @list to the head of the list at @head. */
+static inline void
+list_splice_init(struct list_head *list, struct list_head *head)
+{
+    if (list_empty(list))
+        return;
+
+    __list_splice(list, head);
+    list_head_init(list);
+}
+
+/**
+ * list_replace - replace old entry by new one
+ * @old : the element to be replaced
+ * @new : the new element to insert
+ *
+ * If @old was empty, it will be overwritten.
+ */
+static inline void
+list_replace(struct list_head *old, struct list_head *new)
+{
+    new->n.next = old->n.next;
+    new->n.next->prev = &new->n;
+    new->n.prev = old->n.prev;
+    new->n.prev->next = &new->n;
+}
+
+static inline void
+list_replace_init(struct list_head *old, struct list_head *new)
+{
+    list_replace(old, new);
+    list_head_init(old);
+}
+
 /**
  * list_del - delete an entry from an (unknown) linked list.
  * @n: the list_node to delete from the list.
