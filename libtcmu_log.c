@@ -220,7 +220,7 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	     int linenr, const char *fmt, va_list args)
 {
 	char buf[LOG_MSG_LEN];
-	int n;
+	int n = 0;
 	struct tcmulib_handler *handler;
 
 	if (pri > tcmu_log_level)
@@ -236,13 +236,14 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	}
 
 	/* Format the log msg */
+	if (funcname)
+		n = sprintf(buf, "%s:%d: ", funcname, linenr);
+
 	if (dev) {
 		handler = tcmu_dev_get_handler(dev);
-		n = sprintf(buf, "%s:%d %s/%s: ", funcname, linenr,
-		            handler ? handler->subtype: "",
-		            dev ? dev->tcm_dev_name: "");
-	} else {
-		n = sprintf(buf, "%s:%d: ", funcname, linenr);
+		n += sprintf(buf + n, "%s/%s: ",
+		             handler ? handler->subtype: "",
+		             dev ? dev->tcm_dev_name: "");
 	}
 
 	vsnprintf(buf + n, LOG_MSG_LEN - n, fmt, args);
@@ -514,6 +515,34 @@ static bool log_dequeue_msg(struct log_buf *logbuf)
 	return true;
 }
 
+pthread_cond_t pending_cmds_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t pending_cmds_lock = PTHREAD_MUTEX_INITIALIZER;
+struct list_head pending_cmds_head = LIST_HEAD_INIT(pending_cmds_head);
+static pthread_t pending_thread_id;
+static void *log_thread_pending_start(void *arg)
+{
+	struct tcmu_device *dev, *tmp;
+
+	while (1) {
+		pthread_mutex_lock(&pending_cmds_lock);
+		pthread_cond_wait(&pending_cmds_cond, &pending_cmds_lock);
+		list_for_each_safe(&pending_cmds_head, dev, tmp, entry) {
+			tcmu_dev_warn_simple(dev, "Pending cmds: 180(+)s:[%lu],"
+				" 150s:[%lu], 120s:[%lu], 90s:[%lu], 60s:[%lu],"
+				" 30s:[%lu]\n",
+				dev->timeout_cmds[CMD_TO_180SEC / CMD_TO_STEP - 1],
+				dev->timeout_cmds[CMD_TO_150SEC / CMD_TO_STEP - 1],
+				dev->timeout_cmds[CMD_TO_120SEC / CMD_TO_STEP - 1],
+				dev->timeout_cmds[CMD_TO_90SEC / CMD_TO_STEP - 1],
+				dev->timeout_cmds[CMD_TO_60SEC / CMD_TO_STEP - 1],
+				dev->timeout_cmds[CMD_TO_30SEC / CMD_TO_STEP - 1]);
+		}
+		pthread_mutex_unlock(&pending_cmds_lock);
+	}
+
+	return NULL;
+}
+
 static void *log_thread_start(void *arg)
 {
 	tcmu_logbuf = arg;
@@ -691,6 +720,13 @@ int tcmu_setup_log(char *log_dir)
 			     logbuf);
 	if (ret) {
 		log_cleanup(logbuf);
+		return ret;
+	}
+
+	ret = pthread_create(&pending_thread_id, NULL, log_thread_pending_start,
+			     NULL);
+	if (ret) {
+		pthread_cancel(logbuf->thread_id);
 		return ret;
 	}
 

@@ -26,6 +26,9 @@
 
 struct tcmu_device;
 struct tcmu_config;
+extern struct list_head pending_cmds_head;
+extern pthread_cond_t pending_cmds_cond;
+extern pthread_mutex_t pending_cmds_lock;
 
 void tcmu_set_log_level(int level);
 unsigned int tcmu_get_log_level(void);
@@ -50,6 +53,7 @@ void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, in
 #define tcmu_dev_crit(dev, ...)  do { tcmu_crit_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_dev_err(dev, ...)  do { tcmu_err_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_dev_warn(dev, ...) do { tcmu_warn_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
+#define tcmu_dev_warn_simple(dev, ...) do { tcmu_warn_message(dev, NULL, 0, __VA_ARGS__);} while (0)
 #define tcmu_dev_info(dev, ...) do { tcmu_info_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_dev_dbg(dev, ...)  do { tcmu_dbg_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_dev_dbg_scsi_cmd(dev, ...)  do { tcmu_dbg_scsi_cmd_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)

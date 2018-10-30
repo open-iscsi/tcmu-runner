@@ -20,6 +20,7 @@
 #include <pthread.h>
 
 #include "darray.h"
+#include "ccan/list/list.h"
 
 #define KERN_IFACE_VER 2
 
@@ -34,6 +35,15 @@ struct tcmulib_context {
 
 	GDBusConnection *connection;
 };
+
+#define	CMD_TO_30SEC	30
+#define	CMD_TO_60SEC	60
+#define	CMD_TO_90SEC	90
+#define	CMD_TO_120SEC	120
+#define	CMD_TO_150SEC	150
+#define	CMD_TO_180SEC	180
+#define	CMD_TO_STEP	30
+#define	CMD_TO_COUNT	6
 
 struct tcmu_device {
 	int fd;
@@ -62,6 +72,9 @@ struct tcmu_device {
 
 	struct tcmulib_handler *handler;
 	struct tcmulib_context *ctx;
+
+	uint64_t timeout_cmds[CMD_TO_COUNT];
+	struct list_node entry;
 
 	void *hm_private; /* private ptr for handler module */
 };

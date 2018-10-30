@@ -21,6 +21,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
 #include "libtcmu_common.h"
+#include "libtcmu_timer.h"
 #include "tcmur_aio.h"
 #include "tcmur_device.h"
 #include "tcmu-runner.h"
@@ -39,10 +40,11 @@ void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
 	pthread_cleanup_push(_cleanup_spin_lock, (void *)&rdev->lock);
+	if (cmd->timer)
+		tcmu_del_timer(cmd->timer);
+
 	pthread_spin_lock(&rdev->lock);
-
 	tcmulib_command_complete(dev, cmd, rc);
-
 	pthread_spin_unlock(&rdev->lock);
 	pthread_cleanup_pop(0);
 }
@@ -59,6 +61,29 @@ static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		tcmulib_processing_complete(dev);
 		track_aio_wakeup_finish(rdev, &wake_up);
 	}
+}
+
+void tcmur_cmd_timeout(struct tcmu_timer *timer, void *data)
+{
+	struct tcmulib_cmd *cmd = (struct tcmulib_cmd *)data;
+	struct tcmu_device *dev = cmd->dev;
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+
+	if (cmd->timeout >= CMD_TO_180SEC)
+		return;
+
+	pthread_spin_lock(&rdev->lock);
+	if (!cmd->timeout) {
+		cmd->timeout = CMD_TO_30SEC;
+	} else {
+		dev->timeout_cmds[cmd->timeout / CMD_TO_STEP - 1]--;
+		cmd->timeout += CMD_TO_STEP;
+	}
+	dev->timeout_cmds[cmd->timeout / CMD_TO_STEP - 1]++;
+	pthread_spin_unlock(&rdev->lock);
+
+	tcmu_mod_timer(timer, CMD_TO_STEP);
+	pthread_cond_signal(&pending_cmds_cond);
 }
 
 static int alloc_iovec(struct tcmulib_cmd *cmd, size_t length)
@@ -2218,6 +2243,8 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
+	struct tcmu_timer *timer;
+
 
 	track_aio_request_start(rdev);
 
@@ -2253,6 +2280,18 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	default:
 		break;
 	}
+
+	timer = malloc(sizeof(*timer));
+	if (!timer) {
+		tcmu_dev_err(dev, "malloc timer failed!\n");
+		goto untrack;
+	}
+
+	timer->data = cmd;
+	timer->expires = CMD_TO_30SEC;
+	timer->function = tcmur_cmd_timeout;
+	cmd->timer = timer;
+	tcmu_add_timer(timer);
 
 	switch(cdb[0]) {
 	case READ_6:
@@ -2297,8 +2336,11 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 untrack:
-	if (ret != TCMU_STS_ASYNC_HANDLED)
+	if (ret != TCMU_STS_ASYNC_HANDLED) {
+		if (timer)
+			tcmu_del_timer(timer);
 		track_aio_request_finish(rdev, NULL);
+	}
 	return ret;
 }
 

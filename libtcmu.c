@@ -6,6 +6,7 @@
 
 #define _GNU_SOURCE
 #include <memory.h>
+#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -535,6 +536,9 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 	}
 
 	darray_append(ctx->devices, dev);
+	pthread_mutex_lock(&pending_cmds_lock);
+	list_add_tail(&pending_cmds_head, &dev->entry);
+	pthread_mutex_unlock(&pending_cmds_lock);
 
 	if (reopen && reset_supp)
 		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
@@ -588,6 +592,9 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 	}
 
 	darray_remove(ctx->devices, i);
+	pthread_mutex_lock(&pending_cmds_lock);
+	list_del_init(&dev->entry);
+	pthread_mutex_unlock(&pending_cmds_lock);
 
 	dev->handler->removed(dev);
 
@@ -964,6 +971,9 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			if (!cmd)
 				return NULL;
 			cmd->cmd_id = ent->hdr.cmd_id;
+			cmd->dev = dev;
+			cmd->timer = NULL;
+			cmd->timeout = 0;
 
 			/* Convert iovec addrs in-place to not be offsets */
 			cmd->iov_cnt = ent->req.iov_cnt;
@@ -1124,6 +1134,11 @@ void tcmulib_command_complete(
 	struct tcmu_mailbox *mb = dev->map;
 	struct tcmu_cmd_entry *ent = (void *) mb + mb->cmdr_off + mb->cmd_tail;
 
+	if (cmd->timeout) {
+		dev->timeout_cmds[cmd->timeout / CMD_TO_STEP - 1]--;
+		pthread_cond_signal(&pending_cmds_cond);
+	}
+
 	/* current command could be PAD in async case */
 	while (ent != (void *) mb + mb->cmdr_off + mb->cmd_head) {
 		if (tcmu_hdr_get_op(ent->hdr.len_op) == TCMU_OP_CMD)
@@ -1144,6 +1159,9 @@ void tcmulib_command_complete(
 	}
 
 	TCMU_UPDATE_RB_TAIL(mb, ent);
+
+	if (cmd->timer)
+		free(cmd->timer);
 	free(cmd);
 }
 

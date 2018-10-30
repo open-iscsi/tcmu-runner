@@ -31,5 +31,6 @@ typedef int (*tcmur_caw_fn_t)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
                               size_t iov_cnt);
 int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
                      tcmur_caw_fn_t caw_fn);
+void tcmur_cmd_timeout(struct tcmu_timer *timer, void *data);
 
 #endif /* __TCMUR_CMD_HANDLER_H */

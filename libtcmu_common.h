@@ -111,6 +111,10 @@ struct tcmulib_cmd {
 
 	/* callback to finish/continue command processing */
 	cmd_done_t done;
+
+	struct tcmu_device *dev;
+	struct tcmu_timer *timer;
+	uint16_t timeout;
 };
 
 /* Set/Get methods for the opaque tcmu_device */
