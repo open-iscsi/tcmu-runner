@@ -1452,8 +1452,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	    cdb[0] != GPCMD_GET_EVENT_STATUS_NOTIFICATION) {
 		tcmu_set_sense_key_specific_info(sense, state->format_progress);
 		ret = TCMU_STS_FRMT_IN_PROGRESS;
-		cmd->done(dev, cmd, ret);
-		return 0;
+		return ret;
 	}
 
 	switch(cdb[0]) {
@@ -1543,8 +1542,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = TCMU_STS_NOT_HANDLED;
 	}
 
-	cmd->done(dev, cmd, ret);
-	return 0;
+	return ret;
 }
 
 static const char fbo_cfg_desc[] =

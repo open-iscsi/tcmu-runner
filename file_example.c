@@ -111,8 +111,7 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return TCMU_STS_OK;
+	return ret;
 }
 
 static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -136,8 +135,7 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return TCMU_STS_OK;
+	return ret;
 }
 
 static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -152,8 +150,7 @@ static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return TCMU_STS_OK;
+	return ret;
 }
 
 static int file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)

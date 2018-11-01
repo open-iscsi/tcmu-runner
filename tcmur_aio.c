@@ -141,7 +141,6 @@ static void *io_work_queue(void *arg)
 	struct tcmu_device *dev = arg;
 	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
-	int ret;
 
 	while (1) {
 		struct tcmu_work *work;
@@ -166,9 +165,7 @@ static void *io_work_queue(void *arg)
 		cmd = work->cmd;
 		pthread_cleanup_push(_cleanup_io_work, work);
 
-		ret = work->fn(work->dev, cmd);
-		if (ret)
-			cmd->done(dev, cmd, ret);
+		cmd->done(dev, cmd,work->fn(work->dev, cmd));
 
 		pthread_cleanup_pop(1); /* cleanup work */
 	}
