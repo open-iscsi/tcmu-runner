@@ -1454,8 +1454,7 @@ static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return TCMU_STS_OK;
+	return ret;
 }
 
 static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
@@ -1479,8 +1478,7 @@ static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return TCMU_STS_OK;
+	return ret;
 }
 
 static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -1495,8 +1493,7 @@ static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return TCMU_STS_OK;
+	return ret;
 }
 
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";
