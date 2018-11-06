@@ -39,6 +39,8 @@ using this API are called "TCMU handlers". Handler authors can write code just
 to handle the SCSI commands as desired, and can also link with whatever
 userspace libraries they like.
 
+%global debug_package %{nil}
+
 %prep
 %setup -n %{name}-%{version}%{?_RC:-%{_RC}}
 
@@ -67,14 +69,17 @@ userspace libraries they like.
 %{_datadir}/dbus-1/system-services/org.kernel.TCMUService1.service
 %{_unitdir}/tcmu-runner.service
 %dir %{_usr}/lib64/tcmu-runner/
-%{_usr}/lib64/tcmu-runner/*
+%{_libdir}/libtcmu*
+%{_libdir}/tcmu-runner/*.so
 %{_mandir}/man8/*
 %doc README.md LICENSE.LGPLv2.1 LICENSE.Apache2
-%{_usr}/lib64/*
 %dir %{_sysconfdir}/tcmu/
 %config %{_sysconfdir}/tcmu/tcmu.conf
 %config(noreplace) %{_sysconfdir}/logrotate.d/tcmu-runner
 
 %changelog
+* Tue Nov 06 2018 Amar Tumballi <amarts@redhat.com>
+- Fix build errors
+
 * Tue Oct 31 2017 Xiubo Li <lixiubo@cmss.chinamobile.com> - 1.3.0-rc4
 - Initial tcmu-runner packaging
