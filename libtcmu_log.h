@@ -21,7 +21,7 @@
 #define TCMU_LOG_DEBUG_SCSI_CMD	(LOG_DEBUG + 1)	/* scsi cmd debug-level messages */
 
 /* default tcmu log dir path */
-#define TCMU_LOG_DIR_DEFAULT   "/var/log/"
+#define TCMU_LOG_DIR_DEFAULT   "/var/log"
 
 struct tcmu_device;
 
