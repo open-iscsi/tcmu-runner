@@ -12,6 +12,7 @@ option(with-glfs "build Gluster glfs handler" true)
 option(with-qcow "build qcow handler" true)
 option(with-rbd "build Ceph rbd handler" true)
 option(with-zbc "build zbc handler" true)
+option(with-fbo "build fbo handler" true)
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
@@ -155,19 +156,22 @@ target_include_directories(handler_file
   PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 
-# Stuff for building the file optical handler
-add_library(handler_file_optical
-  SHARED
-  file_optical.c
-  )
-set_target_properties(handler_file_optical
-  PROPERTIES
-  PREFIX ""
-  )
-target_include_directories(handler_file_optical
-  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-  )
-target_link_libraries(handler_file_optical ${PTHREAD})
+if (with-fbo)
+	# Stuff for building the file optical handler
+	add_library(handler_file_optical
+  	SHARED
+  	file_optical.c
+  	)
+	set_target_properties(handler_file_optical
+  	PROPERTIES
+  	PREFIX ""
+  	)
+	target_include_directories(handler_file_optical
+  	PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  	)
+	target_link_libraries(handler_file_optical ${PTHREAD})
+	install(TARGETS handler_file_optical DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-fbo)
 
 # The minimal library consumer
 add_executable(consumer
