@@ -290,7 +290,7 @@ retry:
 		 * is called from the main IO thread and will wait for
 		 * commands started before it via the aio wait call.
 		 */
-		tcmu_dev_dbg(dev, "Could not access dev. Try reopen.");
+		tcmu_dev_dbg(dev, "Could not access dev. Try reopen.\n");
 		ret = tcmu_reopen_dev(dev, false, 0);
 		if (!ret && retry < 1) {
 			retry++;
