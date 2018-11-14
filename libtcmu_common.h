@@ -177,6 +177,7 @@ off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size);
 size_t tcmu_seek_in_iovec(struct iovec *iovec, size_t count);
 void tcmu_seek_in_cmd_iovec(struct tcmulib_cmd *cmd, size_t count);
 void tcmu_zero_iovec(struct iovec *iovec, size_t iov_cnt);
+bool tcmu_zeroed_iovec(struct iovec *iovec, size_t iov_cnt);
 size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src, size_t len);
 size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec, size_t iov_cnt);
 size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
