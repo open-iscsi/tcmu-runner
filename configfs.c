@@ -61,14 +61,15 @@ int tcmu_cfgfs_dev_get_attr(struct tcmu_device *dev, const char *name)
 	return tcmu_cfgfs_get_int(path);
 }
 
-int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val)
+static int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
+				       uint64_t val)
 {
 	char path[PATH_MAX];
 	char buf[CFGFS_BUF_SIZE];
 
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/control",
 		 dev->tcm_hba_name, dev->tcm_dev_name);
-	snprintf(buf, sizeof(buf), "%s=%lu", key, val);
+	snprintf(buf, sizeof(buf), "%s=%"PRIu64"", key, val);
 
 	return tcmu_cfgfs_set_str(path, buf, strlen(buf) + 1);
 }
@@ -208,11 +209,11 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 
 int tcmu_set_dev_size(struct tcmu_device *dev)
 {
-	long long dev_size;
+	uint64_t dev_size;
 
 	dev_size = tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev);
 
-	return tcmu_set_control(dev, "dev_size", dev_size);
+	return tcmu_cfgfs_dev_set_ctrl_u64(dev, "dev_size", dev_size);
 }
 
 long long tcmu_get_dev_size(struct tcmu_device *dev)

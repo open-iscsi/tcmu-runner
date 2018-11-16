@@ -157,7 +157,6 @@ int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
 int tcmu_set_dev_size(struct tcmu_device *dev);
 long long tcmu_get_dev_size(struct tcmu_device *dev);
 char *tcmu_get_wwn(struct tcmu_device *dev);
-int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val);
 void tcmu_reset_netlink(void);
 void tcmu_block_netlink(void);
 void tcmu_unblock_netlink(void);
