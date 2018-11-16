@@ -61,8 +61,8 @@ int tcmu_cfgfs_dev_get_attr(struct tcmu_device *dev, const char *name)
 	return tcmu_cfgfs_get_int(path);
 }
 
-static int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
-				       uint64_t val)
+int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
+				uint64_t val)
 {
 	char path[PATH_MAX];
 	char buf[CFGFS_BUF_SIZE];
@@ -205,15 +205,6 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 	}
 
 	return ret_buf;
-}
-
-int tcmu_set_dev_size(struct tcmu_device *dev)
-{
-	uint64_t dev_size;
-
-	dev_size = tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev);
-
-	return tcmu_cfgfs_dev_set_ctrl_u64(dev, "dev_size", dev_size);
 }
 
 long long tcmu_get_dev_size(struct tcmu_device *dev)

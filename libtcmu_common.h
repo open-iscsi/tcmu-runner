@@ -154,7 +154,8 @@ int tcmu_cfgfs_dev_get_attr(struct tcmu_device *dev, const char *name);
 bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name);
 int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
 			       unsigned long val);
-int tcmu_set_dev_size(struct tcmu_device *dev);
+int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
+			        uint64_t val);
 long long tcmu_get_dev_size(struct tcmu_device *dev);
 char *tcmu_get_wwn(struct tcmu_device *dev);
 void tcmu_reset_netlink(void);
