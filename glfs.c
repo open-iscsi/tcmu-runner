@@ -86,7 +86,8 @@ typedef struct glfs_cbk_cookie {
 		TCMU_GLFS_READ  = 1,
 		TCMU_GLFS_WRITE = 2,
 		TCMU_GLFS_FLUSH = 3,
-		TCMU_GLFS_DISCARD = 4
+		TCMU_GLFS_DISCARD = 4,
+		TCMU_GLFS_WRITESAME = 5
 	} op;
 } glfs_cbk_cookie;
 
@@ -583,6 +584,7 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 		case TCMU_GLFS_WRITE:
 		case TCMU_GLFS_FLUSH:
 		case TCMU_GLFS_DISCARD:
+		case TCMU_GLFS_WRITESAME:
 			ret = TCMU_STS_WR_ERR;
 			break;
 		}
@@ -748,6 +750,65 @@ out:
 	return TCMU_STS_NO_RESOURCE;
 }
 
+static int tcmu_glfs_writesame(struct tcmu_device *dev,
+			       struct tcmulib_cmd *cmd,
+			       uint64_t offset, uint64_t length,
+			       struct iovec *iov, size_t iov_cnt)
+{
+	struct glfs_state *state = tcmu_get_dev_private(dev);
+	glfs_cbk_cookie *cookie;
+	ssize_t ret;
+
+	if (!tcmu_zeroed_iovec(iov, iov_cnt)) {
+		tcmu_dev_warn(dev,
+			      "Received none zeroed data, will fall back to writesame emulator instead.\n");
+		return TCMU_STS_NOT_HANDLED;
+	}
+
+	cookie = calloc(1, sizeof(*cookie));
+	if (!cookie) {
+		tcmu_dev_err(dev, "Could not allocate cookie: %m\n");
+		goto out;
+	}
+	cookie->dev = dev;
+	cookie->cmd = cmd;
+	cookie->length = 0;
+	cookie->op = TCMU_GLFS_WRITESAME;
+
+	ret = glfs_zerofill_async(state->gfd, offset, length, glfs_async_cbk, cookie);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "glfs_zerofill_async(vol=%s, file=%s) failed: %m\n",
+		             state->hosts->volname, state->hosts->path);
+		goto out;
+	}
+
+	return TCMU_STS_OK;
+
+out:
+	free(cookie);
+	return TCMU_STS_NO_RESOURCE;
+}
+
+/*
+ * Return scsi status or TCMU_STS_NOT_HANDLED
+ */
+static int tcmu_glfs_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+{
+	uint8_t *cdb = cmd->cdb;
+	int ret;
+
+	switch(cdb[0]) {
+	case WRITE_SAME:
+	case WRITE_SAME_16:
+		ret = tcmur_handle_writesame(dev, cmd, tcmu_glfs_writesame);
+		break;
+	default:
+		ret = TCMU_STS_NOT_HANDLED;
+	}
+
+	return ret;
+}
+
 /*
  * For backstore creation
  *
@@ -780,6 +841,7 @@ struct tcmur_handler glfs_handler = {
 	.reconfig       = tcmu_glfs_reconfig,
 	.flush          = tcmu_glfs_flush,
 	.unmap          = tcmu_glfs_discard,
+	.handle_cmd     = tcmu_glfs_handle_cmd,
 };
 
 /* Entry point must be named "handler_init". */

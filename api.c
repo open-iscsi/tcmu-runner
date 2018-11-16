@@ -229,6 +229,30 @@ void tcmu_zero_iovec(struct iovec *iovec, size_t iov_cnt)
 	}
 }
 
+static inline bool tcmu_zeroed_mem(const char *buf, size_t size)
+{
+    int i;
+
+    for (i = 0; i < size; i++) {
+        if (buf[i])
+		return false;
+    }
+
+    return true;
+}
+
+bool tcmu_zeroed_iovec(struct iovec *iovec, size_t iov_cnt)
+{
+    int i;
+
+    for (i = 0; i < iov_cnt; i++) {
+        if (!tcmu_zeroed_mem(iovec[i].iov_base, iovec[i].iov_len))
+		return false;
+    }
+
+    return true;
+}
+
 /*
  * Copy data into an iovec, and consume the space in the iovec.
  *

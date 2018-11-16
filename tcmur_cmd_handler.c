@@ -312,7 +312,7 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 	lbas = opt_unmap_gran - (lba & mask);
 	lbas = min(lbas, nlbas);
 
-	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %"PRIu64", UNMAP GRANULARITY ALIGNMENT mask: %"PRIu64", lbas %"PRIu64"\n",
+	tcmu_dev_dbg(dev, "OPTIMAL UNMAP GRANULARITY: %"PRIu64", UNMAP GRANULARITY ALIGNMENT mask: %"PRIu64", lbas: %"PRIu64"\n",
 		     opt_unmap_gran, mask, lbas);
 
 	while (nlbas) {
