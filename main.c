@@ -750,8 +750,8 @@ static int dev_added(struct tcmu_device *dev)
 	}
 	tcmu_set_dev_block_size(dev, block_size);
 
-	dev_size = tcmu_get_dev_size(dev);
-	if (dev_size < 0) {
+	dev_size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
+	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get device size\n");
 		goto free_rdev;
 	}

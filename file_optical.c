@@ -93,6 +93,7 @@ static int fbo_open(struct tcmu_device *dev, bool reopen)
 	int64_t size;
 	char *options;
 	char *path;
+	int ret;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
@@ -116,8 +117,8 @@ static int fbo_open(struct tcmu_device *dev, bool reopen)
 	tcmu_set_dev_block_size(dev, state->block_size);
 #endif
 
-	size = tcmu_get_dev_size(dev);
-	if (size == -1) {
+	size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
+	if (ret < 0) {
 		tcmu_err("Could not get device size\n");
 		goto err;
 	}

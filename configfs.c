@@ -61,6 +61,65 @@ int tcmu_cfgfs_dev_get_attr(struct tcmu_device *dev, const char *name)
 	return tcmu_cfgfs_get_int(path);
 }
 
+uint64_t tcmu_cfgfs_dev_get_info_u64(struct tcmu_device *dev, const char *name,
+				     int *fn_ret)
+{
+	int fd;
+	char path[PATH_MAX];
+	char buf[CFGFS_BUF_SIZE];
+	ssize_t ret;
+	char *rover;
+	char *search_pattern;
+	uint64_t val;
+
+	*fn_ret = 0;
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/info",
+		 dev->tcm_hba_name, dev->tcm_dev_name);
+
+	fd = open(path, O_RDONLY);
+	if (fd == -1) {
+		tcmu_err("Could not open configfs to read dev info: %s\n",
+			 strerror(errno));
+		*fn_ret = -EINVAL;
+		return 0;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	close(fd);
+	if (ret == -1) {
+		tcmu_err("Could not read configfs to read dev info: %s\n",
+			 strerror(errno));
+		*fn_ret = -EINVAL;
+		return 0;
+	}
+	buf[sizeof(buf)-1] = '\0'; /* paranoid? Ensure null terminated */
+
+	if (asprintf(&search_pattern, " %s: ", name) < 0) {
+		tcmu_err("Could not create search string.\n");
+		*fn_ret = -ENOMEM;
+		return 0;
+	}
+
+	rover = strstr(buf, search_pattern);
+	free(search_pattern);
+	if (!rover) {
+		tcmu_err("Could not find \" %s: \" in %s: %s\n", name, path,
+			 strerror(errno));
+		*fn_ret = -EINVAL;
+		return 0;
+	}
+	rover += strlen(name) + 3; /* name plus ':' and spaces before/after */
+
+	val = strtoull(rover, NULL, 0);
+	if (val == ULLONG_MAX) {
+		tcmu_err("Could not get %s: %s\n", name, strerror(errno));
+		*fn_ret = -EINVAL;
+		return 0;
+	}
+
+	return val;
+}
+
 int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
 				uint64_t val)
 {
@@ -205,51 +264,6 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 	}
 
 	return ret_buf;
-}
-
-long long tcmu_get_dev_size(struct tcmu_device *dev)
-{
-	int fd;
-	char path[PATH_MAX];
-	char buf[CFGFS_BUF_SIZE];
-	ssize_t ret;
-	char *rover;
-	unsigned long long size;
-
-	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/info",
-		 dev->tcm_hba_name, dev->tcm_dev_name);
-
-	fd = open(path, O_RDONLY);
-	if (fd == -1) {
-		tcmu_err("Could not open configfs to read dev info: %s\n",
-			 strerror(errno));
-		return -EINVAL;
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-	close(fd);
-	if (ret == -1) {
-		tcmu_err("Could not read configfs to read dev info: %s\n",
-			 strerror(errno));
-		return -EINVAL;
-	}
-	buf[sizeof(buf)-1] = '\0'; /* paranoid? Ensure null terminated */
-
-	rover = strstr(buf, " Size: ");
-	if (!rover) {
-		tcmu_err("Could not find \" Size: \" in %s: %s\n", path,
-			 strerror(errno));
-		return -EINVAL;
-	}
-	rover += 7; /* get to the value */
-
-	size = strtoull(rover, NULL, 0);
-	if (size == ULLONG_MAX) {
-		tcmu_err("Could not get size: %s\n", strerror(errno));
-		return -EINVAL;
-	}
-
-	return size;
 }
 
 char *tcmu_cfgfs_get_str(const char *path)

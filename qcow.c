@@ -1388,6 +1388,7 @@ static int qcow_open(struct tcmu_device *dev, bool reopen)
 {
 	struct bdev *bdev;
 	char *config;
+	int ret;
 
 	bdev = calloc(1, sizeof(*bdev));
 	if (!bdev)
@@ -1396,8 +1397,8 @@ static int qcow_open(struct tcmu_device *dev, bool reopen)
 	tcmu_set_dev_private(dev, bdev);
 
 	bdev->block_size = tcmu_get_dev_block_size(dev);
-	bdev->size = tcmu_get_dev_size(dev);
-	if (bdev->size < 0) {
+	bdev->size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
+	if (ret < 0) {
 		tcmu_err("Could not get device size\n");
 		goto err;
 	}

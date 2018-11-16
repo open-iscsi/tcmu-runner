@@ -887,10 +887,9 @@ static int zbc_open(struct tcmu_device *dev, bool reopen)
 	}
 
 	/* Get device capacity */
-	zdev->cfg.dev_size = tcmu_get_dev_size(dev);
-	if (zdev->cfg.dev_size == -1) {
+	zdev->cfg.dev_size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
+	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get device size\n");
-		ret = -ENODEV;
 		goto err;
 	}
 
