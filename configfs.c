@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <inttypes.h>
 
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
@@ -97,7 +98,7 @@ void tcmu_block_netlink(void)
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/block_netlink");
 
 	tcmu_dbg("blocking netlink\n");
-	rc = tcmu_cfgfs_set_ul(path, 1);
+	rc = tcmu_cfgfs_set_u32(path, 1);
 	if (rc) {
 		tcmu_warn("Could not block netlink %d.\n", rc);
 		return;
@@ -118,7 +119,7 @@ void tcmu_unblock_netlink(void)
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/block_netlink");
 
 	tcmu_dbg("unblocking netlink\n");
-	rc = tcmu_cfgfs_set_ul(path, 0);
+	rc = tcmu_cfgfs_set_u32(path, 0);
 	if (rc) {
 		tcmu_warn("Could not unblock netlink %d.\n", rc);
 		return;
@@ -150,7 +151,7 @@ void tcmu_reset_netlink(void)
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/reset_netlink");
 
 	tcmu_dbg("reseting netlink\n");
-	rc = tcmu_cfgfs_set_ul(path, 1);
+	rc = tcmu_cfgfs_set_u32(path, 1);
 	if (rc) {
 		tcmu_warn("Could not reset netlink: %d\n", rc);
 		return;
@@ -350,11 +351,11 @@ int tcmu_cfgfs_set_str(const char *path, const char *val, int val_len)
 	return 0;
 }
 
-int tcmu_cfgfs_set_ul(const char *path, unsigned long val)
+int tcmu_cfgfs_set_u32(const char *path, uint32_t val)
 {
 	char buf[20];
 
-	sprintf(buf, "%lu", val);
+	sprintf(buf, "%"PRIu32"", val);
 	return tcmu_cfgfs_set_str(path, buf, strlen(buf) + 1);
 }
 
@@ -378,5 +379,5 @@ int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
 
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/action/%s",
 		 dev->tcm_hba_name, dev->tcm_dev_name, name);
-	return tcmu_cfgfs_set_ul(path, val);
+	return tcmu_cfgfs_set_u32(path, val);
 }

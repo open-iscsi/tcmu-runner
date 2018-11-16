@@ -52,7 +52,7 @@ static int tcmu_set_tpg_int(struct tgt_port_grp *tpg, const char *name,
 
 	snprintf(path, sizeof(path), CFGFS_ROOT"/%s/%s/tpgt_%hu/%s",
 		 tpg->fabric, tpg->wwn, tpg->tpgt, name);
-	return tcmu_cfgfs_set_ul(path, val);
+	return tcmu_cfgfs_set_u32(path, val);
 }
 
 static int tcmu_get_tpg_int(struct tgt_port *port, const char *name)
