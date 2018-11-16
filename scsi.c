@@ -134,7 +134,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		data[1] = 0x80;
 
-		wwn = tcmu_get_wwn(dev);
+		wwn = tcmu_cfgfs_dev_get_wwn(dev);
 		if (!wwn)
 			return TCMU_STS_HW_ERR;
 
@@ -166,7 +166,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		data[1] = 0x83;
 
-		wwn = tcmu_get_wwn(dev);
+		wwn = tcmu_cfgfs_dev_get_wwn(dev);
 		if (!wwn)
 			return TCMU_STS_HW_ERR;
 

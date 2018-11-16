@@ -961,7 +961,7 @@ static int zbc_evpd_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	case 0x83:
 		/* Device identification */
-		wwn = tcmu_get_wwn(dev);
+		wwn = tcmu_cfgfs_dev_get_wwn(dev);
 		if (!wwn)
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   HARDWARE_ERROR,

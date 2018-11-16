@@ -225,7 +225,7 @@ void tcmu_reset_netlink(void)
  *
  * Callers must free the result with free().
  */
-char *tcmu_get_wwn(struct tcmu_device *dev)
+char *tcmu_cfgfs_dev_get_wwn(struct tcmu_device *dev)
 {
 	int fd;
 	char path[PATH_MAX];

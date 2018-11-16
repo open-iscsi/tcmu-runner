@@ -1058,7 +1058,7 @@ static int xcopy_gen_naa_ieee(struct tcmu_device *udev, uint8_t *wwn)
 	wwn[ind] = 0x50;
 
 	/* Parse the udev vpd unit serial number */
-	buf = tcmu_get_wwn(udev);
+	buf = tcmu_cfgfs_dev_get_wwn(udev);
 	if (!buf)
 		return -1;
 	p = buf;
