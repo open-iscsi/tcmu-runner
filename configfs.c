@@ -20,7 +20,7 @@
 
 #define CFGFS_BUF_SIZE 4096
 
-int tcmu_get_cfgfs_int(const char *path)
+int tcmu_cfgfs_get_int(const char *path)
 {
 	int fd;
 	char buf[16];
@@ -51,13 +51,13 @@ int tcmu_get_cfgfs_int(const char *path)
 	return val;
 }
 
-int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
+int tcmu_cfgfs_dev_get_attr(struct tcmu_device *dev, const char *name)
 {
 	char path[PATH_MAX];
 
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/attrib/%s",
 		 dev->tcm_hba_name, dev->tcm_dev_name, name);
-	return tcmu_get_cfgfs_int(path);
+	return tcmu_cfgfs_get_int(path);
 }
 
 int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val)
@@ -69,7 +69,7 @@ int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val
 		 dev->tcm_hba_name, dev->tcm_dev_name);
 	snprintf(buf, sizeof(buf), "%s=%lu", key, val);
 
-	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
+	return tcmu_cfgfs_set_str(path, buf, strlen(buf) + 1);
 }
 
 static bool tcmu_cfgfs_mod_param_is_supported(const char *name)
@@ -97,7 +97,7 @@ void tcmu_block_netlink(void)
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/block_netlink");
 
 	tcmu_dbg("blocking netlink\n");
-	rc = tcmu_set_cfgfs_ul(path, 1);
+	rc = tcmu_cfgfs_set_ul(path, 1);
 	if (rc) {
 		tcmu_warn("Could not block netlink %d.\n", rc);
 		return;
@@ -118,7 +118,7 @@ void tcmu_unblock_netlink(void)
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/block_netlink");
 
 	tcmu_dbg("unblocking netlink\n");
-	rc = tcmu_set_cfgfs_ul(path, 0);
+	rc = tcmu_cfgfs_set_ul(path, 0);
 	if (rc) {
 		tcmu_warn("Could not unblock netlink %d.\n", rc);
 		return;
@@ -150,7 +150,7 @@ void tcmu_reset_netlink(void)
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/reset_netlink");
 
 	tcmu_dbg("reseting netlink\n");
-	rc = tcmu_set_cfgfs_ul(path, 1);
+	rc = tcmu_cfgfs_set_ul(path, 1);
 	if (rc) {
 		tcmu_warn("Could not reset netlink: %d\n", rc);
 		return;
@@ -259,7 +259,7 @@ long long tcmu_get_dev_size(struct tcmu_device *dev)
 	return size;
 }
 
-char *tcmu_get_cfgfs_str(const char *path)
+char *tcmu_cfgfs_get_str(const char *path)
 {
 	int fd, n;
 	char buf[CFGFS_BUF_SIZE];
@@ -327,7 +327,7 @@ char *tcmu_get_cfgfs_str(const char *path)
 	return val;
 }
 
-int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len)
+int tcmu_cfgfs_set_str(const char *path, const char *val, int val_len)
 {
 	int fd;
 	ssize_t ret;
@@ -350,12 +350,12 @@ int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len)
 	return 0;
 }
 
-int tcmu_set_cfgfs_ul(const char *path, unsigned long val)
+int tcmu_cfgfs_set_ul(const char *path, unsigned long val)
 {
 	char buf[20];
 
 	sprintf(buf, "%lu", val);
-	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
+	return tcmu_cfgfs_set_str(path, buf, strlen(buf) + 1);
 }
 
 bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name)
@@ -371,12 +371,12 @@ bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name)
 	return true;
 }
 
-int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
+int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
 			       unsigned long val)
 {
 	char path[PATH_MAX];
 
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/action/%s",
 		 dev->tcm_hba_name, dev->tcm_dev_name, name);
-	return tcmu_set_cfgfs_ul(path, val);
+	return tcmu_cfgfs_set_ul(path, val);
 }

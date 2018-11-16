@@ -104,7 +104,7 @@ static int fbo_open(struct tcmu_device *dev, bool reopen)
 	/* TBD: If we can figure out how the hw_block_size attribute
 	 * gets set (and change it), we could use that in the future.
 	 */
-	state->block_size = tcmu_get_attribute(dev, "hw_block_size");
+	state->block_size = tcmu_cfgfs_dev_get_attr(dev, "hw_block_size");
 	if (state->block_size == -1) {
 		tcmu_err("Could not get device block size\n");
 		goto err;

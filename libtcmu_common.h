@@ -146,13 +146,13 @@ void tcmu_unblock_device(struct tcmu_device *dev);
 void tcmu_flush_device(struct tcmu_device *dev);
 
 /* Helper routines for processing commands */
-char *tcmu_get_cfgfs_str(const char *path);
-int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len);
-int tcmu_get_cfgfs_int(const char *path);
-int tcmu_set_cfgfs_ul(const char *path, unsigned long val);
-int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
+char *tcmu_cfgfs_get_str(const char *path);
+int tcmu_cfgfs_set_str(const char *path, const char *val, int val_len);
+int tcmu_cfgfs_get_int(const char *path);
+int tcmu_cfgfs_set_ul(const char *path, unsigned long val);
+int tcmu_cfgfs_dev_get_attr(struct tcmu_device *dev, const char *name);
 bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name);
-int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
+int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
 			       unsigned long val);
 int tcmu_set_dev_size(struct tcmu_device *dev);
 long long tcmu_get_dev_size(struct tcmu_device *dev);

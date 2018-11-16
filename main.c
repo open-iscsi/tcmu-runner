@@ -743,7 +743,7 @@ static int dev_added(struct tcmu_device *dev)
 	rdev->dev = dev;
 
 	ret = -EINVAL;
-	block_size = tcmu_get_attribute(dev, "hw_block_size");
+	block_size = tcmu_cfgfs_dev_get_attr(dev, "hw_block_size");
 	if (block_size <= 0) {
 		tcmu_dev_err(dev, "Could not get hw_block_size\n");
 		goto free_rdev;
@@ -757,7 +757,7 @@ static int dev_added(struct tcmu_device *dev)
 	}
 	tcmu_set_dev_num_lbas(dev, dev_size / block_size);
 
-	max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
+	max_sectors = tcmu_cfgfs_dev_get_attr(dev, "hw_max_sectors");
 	if (max_sectors < 0)
 		goto free_rdev;
 	tcmu_set_dev_max_xfer_len(dev, max_sectors);
