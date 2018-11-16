@@ -150,7 +150,7 @@ char *tcmu_cfgfs_get_str(const char *path);
 int tcmu_cfgfs_set_str(const char *path, const char *val, int val_len);
 int tcmu_cfgfs_get_int(const char *path);
 int tcmu_cfgfs_set_u32(const char *path, uint32_t val);
-int tcmu_cfgfs_dev_get_attr(struct tcmu_device *dev, const char *name);
+int tcmu_cfgfs_dev_get_attr_int(struct tcmu_device *dev, const char *name);
 bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name);
 int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
 			       unsigned long val);

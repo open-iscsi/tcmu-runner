@@ -1052,7 +1052,7 @@ static int zbc_evpd_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		 */
 		data[5] = 0x01;
 
-		block_size = tcmu_cfgfs_dev_get_attr(dev, "hw_block_size");
+		block_size = tcmu_cfgfs_dev_get_attr_int(dev, "hw_block_size");
 		if (block_size <= 0)
 			return tcmu_set_sense_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,

@@ -52,7 +52,7 @@ int tcmu_cfgfs_get_int(const char *path)
 	return val;
 }
 
-int tcmu_cfgfs_dev_get_attr(struct tcmu_device *dev, const char *name)
+int tcmu_cfgfs_dev_get_attr_int(struct tcmu_device *dev, const char *name)
 {
 	char path[PATH_MAX];
 
