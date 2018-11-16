@@ -379,7 +379,7 @@ bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name)
 }
 
 int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
-			       unsigned long val)
+			       uint32_t val)
 {
 	char path[PATH_MAX];
 

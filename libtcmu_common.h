@@ -153,7 +153,7 @@ int tcmu_cfgfs_set_u32(const char *path, uint32_t val);
 int tcmu_cfgfs_dev_get_attr_int(struct tcmu_device *dev, const char *name);
 bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name);
 int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
-			       unsigned long val);
+			       uint32_t val);
 int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
 			        uint64_t val);
 uint64_t tcmu_cfgfs_dev_get_info_u64(struct tcmu_device *dev, const char *name,
