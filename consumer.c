@@ -67,7 +67,7 @@ static int foo_handle_cmd(
 	size_t iov_cnt,
 	uint8_t *sense)
 {
-	struct foo_state *state = tcmu_get_dev_private(dev);
+	struct foo_state *state = tcmu_dev_get_private(dev);
 	uint8_t cmd;
 
 	cmd = cdb[0];
@@ -149,7 +149,7 @@ int main(int argc, char **argv)
 		pollfds[0].revents = 0;
 
 		for (i = 0; i < dev_array_len; i++) {
-			pollfds[i+1].fd = tcmu_get_dev_fd(tcmu_dev_array[i]);
+			pollfds[i+1].fd = tcmu_dev_get_fd(tcmu_dev_array[i]);
 			pollfds[i+1].events = POLLIN;
 			pollfds[i+1].revents = 0;
 		}

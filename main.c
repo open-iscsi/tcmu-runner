@@ -650,7 +650,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 		if (completed)
 			tcmulib_processing_complete(dev);
 
-		pfd.fd = tcmu_get_dev_fd(dev);
+		pfd.fd = tcmu_dev_get_fd(dev);
 		pfd.events = POLLIN;
 		pfd.revents = 0;
 
@@ -696,7 +696,7 @@ static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
-	if (tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev) ==
+	if (tcmu_dev_get_num_lbas(dev) * tcmu_dev_get_block_size(dev) ==
 	    cfg->data.dev_size)
 		return 0;
 
@@ -704,11 +704,10 @@ static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 	if (ret)
 		return ret;
 
-	ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
-	if (!ret)
-		tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
-
-	return ret;
+	tcmu_dev_set_num_lbas(dev, cfg->data.dev_size /
+			      tcmu_dev_get_block_size(dev));
+	tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+	return 0;
 }
 
 static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
@@ -748,33 +747,33 @@ static int dev_added(struct tcmu_device *dev)
 		tcmu_dev_err(dev, "Could not get hw_block_size\n");
 		goto free_rdev;
 	}
-	tcmu_set_dev_block_size(dev, block_size);
+	tcmu_dev_set_block_size(dev, block_size);
 
 	dev_size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get device size\n");
 		goto free_rdev;
 	}
-	tcmu_set_dev_num_lbas(dev, dev_size / block_size);
+	tcmu_dev_set_num_lbas(dev, dev_size / block_size);
 
 	max_sectors = tcmu_cfgfs_dev_get_attr_int(dev, "hw_max_sectors");
 	if (max_sectors < 0)
 		goto free_rdev;
-	tcmu_set_dev_max_xfer_len(dev, max_sectors);
+	tcmu_dev_set_max_xfer_len(dev, max_sectors);
 
 	/*
 	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
 	 * alignment starts at the begining of the device. Handlers can
 	 * override in their open function.
 	 */
-	tcmu_set_dev_max_unmap_len(dev, VPD_MAX_UNMAP_LBA_COUNT);
-	tcmu_set_dev_opt_unmap_gran(dev, max_sectors, true);
-	tcmu_set_dev_unmap_gran_align(dev, 0);
+	tcmu_dev_set_max_unmap_len(dev, VPD_MAX_UNMAP_LBA_COUNT);
+	tcmu_dev_set_opt_unmap_gran(dev, max_sectors, true);
+	tcmu_dev_set_unmap_gran_align(dev, 0);
 	/*
 	 * By default we will try to do RWs for xcopys in max_sector chunks,
 	 * but handlers that can do larger internal IOs should override.
 	 */
-	tcmu_set_dev_opt_xcopy_rw_len(dev, max_sectors);
+	tcmu_dev_set_opt_xcopy_rw_len(dev, max_sectors);
 
 	tcmu_dev_dbg(dev, "Got block_size %d, size in bytes %"PRId64"\n",
 		     block_size, dev_size);

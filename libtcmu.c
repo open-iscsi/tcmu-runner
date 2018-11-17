@@ -362,7 +362,7 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 	return NULL;
 }
 
-void tcmu_flush_device(struct tcmu_device *dev)
+void tcmu_dev_flush_ring(struct tcmu_device *dev)
 {
 	struct tcmu_mailbox *mb = dev->map;
 
@@ -563,7 +563,7 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 	 */
 	if (should_block) {
 		tcmu_cfgfs_dev_block(dev);
-		tcmu_flush_device(dev);
+		tcmu_dev_flush_ring(dev);
 	}
 
 	darray_remove(ctx->devices, i);
@@ -747,159 +747,145 @@ void tcmu_set_daemon_dev_private(struct tcmu_device *dev, void *private)
 	dev->d_private = private;
 }
 
-void *tcmu_get_dev_private(struct tcmu_device *dev)
+void *tcmu_dev_get_private(struct tcmu_device *dev)
 {
 	return dev->hm_private;
 }
 
-void tcmu_set_dev_private(struct tcmu_device *dev, void *private)
+void tcmu_dev_set_private(struct tcmu_device *dev, void *private)
 {
 	dev->hm_private = private;
 }
 
-void tcmu_set_dev_num_lbas(struct tcmu_device *dev, uint64_t num_lbas)
+void tcmu_dev_set_num_lbas(struct tcmu_device *dev, uint64_t num_lbas)
 {
 	dev->num_lbas = num_lbas;
 }
 
-uint64_t tcmu_get_dev_num_lbas(struct tcmu_device *dev)
+uint64_t tcmu_dev_get_num_lbas(struct tcmu_device *dev)
 {
 	return dev->num_lbas;
 }
 
-/**
- * tcmu_update_num_lbas - Update num LBAs based on the new size.
- * @dev: tcmu device to update
- * @new_size: new device size in bytes
- */
-int tcmu_update_num_lbas(struct tcmu_device *dev, uint64_t new_size)
-{
-	if (!new_size)
-		return -EINVAL;
-
-	tcmu_set_dev_num_lbas(dev, new_size / tcmu_get_dev_block_size(dev));
-	return 0;
-}
-
-void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size)
+void tcmu_dev_set_block_size(struct tcmu_device *dev, uint32_t block_size)
 {
 	dev->block_size = block_size;
 }
 
-uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_block_size(struct tcmu_device *dev)
 {
 	return dev->block_size;
 }
 
 /**
- * tcmu_set_dev_max_xfer_len - set device's max command size
+ * tcmu_dev_set_max_xfer_len - set device's max command size
  * @dev: tcmu device
  * @len: max transfer length in block_size sectors
  */
-void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len)
+void tcmu_dev_set_max_xfer_len(struct tcmu_device *dev, uint32_t len)
 {
 	dev->max_xfer_len = len;
 }
 
-uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_max_xfer_len(struct tcmu_device *dev)
 {
 	return dev->max_xfer_len;
 }
 
 /**
- * tcmu_set_dev_opt_xcopy_rw_len - set device's emulated xcopy chunk len
+ * tcmu_dev_set_opt_xcopy_rw_len - set device's emulated xcopy chunk len
  * @dev: tcmu device
  * @len: optimal RW len, in block_size sectors, for emulate xcopy operations
  */
-void tcmu_set_dev_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len)
+void tcmu_dev_set_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len)
 {
 	dev->opt_xcopy_rw_len = len;
 }
 
-uint32_t tcmu_get_dev_opt_xcopy_rw_len(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_opt_xcopy_rw_len(struct tcmu_device *dev)
 {
 	return dev->opt_xcopy_rw_len;
 }
 
 /**
- * tcmu_set/get_dev_opt_unmap_gran - set/get device's optimal unmap granularity
+ * tcmu_dev_set/get_opt_unmap_gran - set/get device's optimal unmap granularity
  * @dev: tcmu device
  * @len: optimal unmap granularity length in block_size sectors
  * @split: true if handler needs unmaps larger then len to be split for it.
  */
-void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
+void tcmu_dev_set_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
 				 bool split)
 {
 	dev->split_unmaps = split;
 	dev->opt_unmap_gran = len;
 }
 
-uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_opt_unmap_gran(struct tcmu_device *dev)
 {
 	return dev->opt_unmap_gran;
 }
 
 /**
- * tcmu_set/get_dev_max_unmap_len - set/get device's man unmap len
+ * tcmu_dev_set/get_max_unmap_len - set/get device's man unmap len
  * @dev: tcmu device
  * @len: max unmap len in block_size sectors
  */
-void tcmu_set_dev_max_unmap_len(struct tcmu_device *dev, uint32_t len)
+void tcmu_dev_set_max_unmap_len(struct tcmu_device *dev, uint32_t len)
 {
 	dev->max_unmap_len = len;
 }
 
-uint32_t tcmu_get_dev_max_unmap_len(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_max_unmap_len(struct tcmu_device *dev)
 {
 	return dev->max_unmap_len;
 }
 
 /**
- * tcmu_set/get_dev_unmap_gran_align - set/get device's unmap granularity alignment
+ * tcmu_dev_set/get_unmap_gran_align - set/get device's unmap granularity alignment
  * @dev: tcmu device
  * @len: unmap granularity alignment length in block_size sectors
  */
-void tcmu_set_dev_unmap_gran_align(struct tcmu_device *dev, uint32_t len)
+void tcmu_dev_set_unmap_gran_align(struct tcmu_device *dev, uint32_t len)
 {
 	dev->unmap_gran_align = len;
 }
 
-uint32_t tcmu_get_dev_unmap_gran_align(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_unmap_gran_align(struct tcmu_device *dev)
 {
 	return dev->unmap_gran_align;
 }
 
-void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled)
+void tcmu_dev_set_write_cache_enabled(struct tcmu_device *dev, bool enabled)
 {
 	dev->write_cache_enabled = enabled;
 }
 
-bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev)
+bool tcmu_dev_get_write_cache_enabled(struct tcmu_device *dev)
 {
 	return dev->write_cache_enabled;
 }
 
-void tcmu_set_dev_solid_state_media(struct tcmu_device *dev, bool solid_state)
+void tcmu_dev_set_solid_state_media(struct tcmu_device *dev, bool solid_state)
 {
 	dev->solid_state_media = solid_state;
 }
 
-bool tcmu_get_dev_solid_state_media(struct tcmu_device *dev)
+bool tcmu_dev_get_solid_state_media(struct tcmu_device *dev)
 {
 	return dev->solid_state_media;
 }
 
-int tcmu_get_dev_fd(struct tcmu_device *dev)
+int tcmu_dev_get_fd(struct tcmu_device *dev)
 {
 	return dev->fd;
 }
 
-char *tcmu_get_dev_cfgstring(struct tcmu_device *dev)
+char *tcmu_dev_get_cfgstring(struct tcmu_device *dev)
 {
 	return dev->cfgstring;
 }
 
-struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)
+struct tcmulib_handler *tcmu_dev_get_handler(struct tcmu_device *dev)
 {
 	return dev->handler;
 }

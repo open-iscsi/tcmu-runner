@@ -114,34 +114,33 @@ struct tcmulib_cmd {
 };
 
 /* Set/Get methods for the opaque tcmu_device */
-void *tcmu_get_dev_private(struct tcmu_device *dev);
-void tcmu_set_dev_private(struct tcmu_device *dev, void *priv);
+void *tcmu_dev_get_private(struct tcmu_device *dev);
+void tcmu_dev_set_private(struct tcmu_device *dev, void *priv);
 void *tcmu_get_daemon_dev_private(struct tcmu_device *dev);
 void tcmu_set_daemon_dev_private(struct tcmu_device *dev, void *priv);
-int tcmu_get_dev_fd(struct tcmu_device *dev);
-char *tcmu_get_dev_cfgstring(struct tcmu_device *dev);
-void tcmu_set_dev_num_lbas(struct tcmu_device *dev, uint64_t num_lbas);
-uint64_t tcmu_get_dev_num_lbas(struct tcmu_device *dev);
-int tcmu_update_num_lbas(struct tcmu_device *dev, uint64_t new_size);
-void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size);
-uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev);
-void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len);
-uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev);
-void tcmu_set_dev_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len);
-uint32_t tcmu_get_dev_opt_xcopy_rw_len(struct tcmu_device *dev);
-void tcmu_set_dev_max_unmap_len(struct tcmu_device *dev, uint32_t len);
-uint32_t tcmu_get_dev_max_unmap_len(struct tcmu_device *dev);
-void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
+int tcmu_dev_get_fd(struct tcmu_device *dev);
+char *tcmu_dev_get_cfgstring(struct tcmu_device *dev);
+void tcmu_dev_set_num_lbas(struct tcmu_device *dev, uint64_t num_lbas);
+uint64_t tcmu_dev_get_num_lbas(struct tcmu_device *dev);
+void tcmu_dev_set_block_size(struct tcmu_device *dev, uint32_t block_size);
+uint32_t tcmu_dev_get_block_size(struct tcmu_device *dev);
+void tcmu_dev_set_max_xfer_len(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_dev_get_max_xfer_len(struct tcmu_device *dev);
+void tcmu_dev_set_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_dev_get_opt_xcopy_rw_len(struct tcmu_device *dev);
+void tcmu_dev_set_max_unmap_len(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_dev_get_max_unmap_len(struct tcmu_device *dev);
+void tcmu_dev_set_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
 				 bool split);
-uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev);
-void tcmu_set_dev_unmap_gran_align(struct tcmu_device *dev, uint32_t len);
-uint32_t tcmu_get_dev_unmap_gran_align(struct tcmu_device *dev);
-void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled);
-bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev);
-void tcmu_set_dev_solid_state_media(struct tcmu_device *dev, bool solid_state);
-bool tcmu_get_dev_solid_state_media(struct tcmu_device *dev);
-struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
-void tcmu_flush_device(struct tcmu_device *dev);
+uint32_t tcmu_dev_get_opt_unmap_gran(struct tcmu_device *dev);
+void tcmu_dev_set_unmap_gran_align(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_dev_get_unmap_gran_align(struct tcmu_device *dev);
+void tcmu_dev_set_write_cache_enabled(struct tcmu_device *dev, bool enabled);
+bool tcmu_dev_get_write_cache_enabled(struct tcmu_device *dev);
+void tcmu_dev_set_solid_state_media(struct tcmu_device *dev, bool solid_state);
+bool tcmu_dev_get_solid_state_media(struct tcmu_device *dev);
+struct tcmulib_handler *tcmu_dev_get_handler(struct tcmu_device *dev);
+void tcmu_dev_flush_ring(struct tcmu_device *dev);
 
 /* Helper routines for processing commands */
 char *tcmu_cfgfs_get_str(const char *path);

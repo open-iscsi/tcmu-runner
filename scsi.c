@@ -84,7 +84,7 @@ bool char_to_hex(unsigned char *val, char c)
 
 struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
 {
-        struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
+        struct tcmulib_handler *handler = tcmu_dev_get_handler(dev);
 
         return handler->hm_private;
 }
@@ -362,7 +362,7 @@ finish_page83:
 		 * Daemons like runner may override the user requested
 		 * value due to device specific limits.
 		 */
-		max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
+		max_xfer_length = tcmu_dev_get_max_xfer_len(dev);
 
 		val32 = htobe32(max_xfer_length);
 		/* Max xfer length */
@@ -380,12 +380,12 @@ finish_page83:
 			memcpy(&data[24], &val32, 4);
 
 			/* OPTIMAL UNMAP GRANULARITY */
-			opt_unmap_gran = tcmu_get_dev_opt_unmap_gran(dev);
+			opt_unmap_gran = tcmu_dev_get_opt_unmap_gran(dev);
 			val32 = htobe32(opt_unmap_gran);
 			memcpy(&data[28], &val32, 4);
 
 			/* UNMAP GRANULARITY ALIGNMENT */
-			unmap_gran_align = tcmu_get_dev_unmap_gran_align(dev);
+			unmap_gran_align = tcmu_dev_get_unmap_gran_align(dev);
 			val32 = htobe32(unmap_gran_align);
 			memcpy(&data[32], &val32, 4);
 
@@ -422,7 +422,7 @@ finish_page83:
 		val16 = htobe16(0x003c);
 		memcpy(&data[2], &val16, 2);
 
-		if (tcmu_get_dev_solid_state_media(dev)) {
+		if (tcmu_dev_get_solid_state_media(dev)) {
 			val16 = htobe16(0x0001);
 			memcpy(&data[4], &val16, 2);
 		}
@@ -628,7 +628,7 @@ static int handle_cache_page(struct tcmu_device *dev, uint8_t *ret_buf,
 	 * If device supports a writeback cache then set writeback
 	 * cache enable (WCE)
 	 */
-	if (tcmu_get_dev_write_cache_enabled(dev))
+	if (tcmu_dev_get_write_cache_enabled(dev))
 		buf[2] = 0x4;
 
 	copy_to_response_buf(ret_buf, ret_buf_len, buf, 20);

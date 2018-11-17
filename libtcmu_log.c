@@ -232,7 +232,7 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 
 	/* Format the log msg */
 	if (dev) {
-		handler = tcmu_get_dev_handler(dev);
+		handler = tcmu_dev_get_handler(dev);
 		n = sprintf(buf, "%s:%d %s/%s: ", funcname, linenr,
 		            handler ? handler->subtype: "",
 		            dev ? dev->tcm_dev_name: "");

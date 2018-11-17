@@ -354,7 +354,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 	 * the STPG.
 	 */
 	if (!is_sync)
-		tcmu_flush_device(dev);
+		tcmu_dev_flush_ring(dev);
 
 	reopen = false;
 	pthread_mutex_lock(&rdev->state_lock);
