@@ -145,14 +145,14 @@ static bool tcmu_cfgfs_mod_param_is_supported(const char *name)
 	return true;
 }
 
-void tcmu_block_netlink(void)
+int tcmu_cfgfs_nl_block(void)
 {
 	char path[PATH_MAX];
 	int rc;
 
 	if (!tcmu_cfgfs_mod_param_is_supported("block_netlink")) {
 		tcmu_warn("Kernel does not support blocking netlink.\n");
-		return;
+		return -EOPNOTSUPP;
 	}
 
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/block_netlink");
@@ -161,19 +161,20 @@ void tcmu_block_netlink(void)
 	rc = tcmu_cfgfs_set_u32(path, 1);
 	if (rc) {
 		tcmu_warn("Could not block netlink %d.\n", rc);
-		return;
+		return rc;
 	}
 	tcmu_dbg("block netlink done\n");
+	return 0;
 }
 
-void tcmu_unblock_netlink(void)
+int tcmu_cfgfs_nl_unblock(void)
 {
 	char path[PATH_MAX];
 	int rc;
 
 	if (!tcmu_cfgfs_mod_param_is_supported("block_netlink")) {
 		tcmu_warn("Kernel does not support unblocking netlink.\n");
-		return;
+		return -EOPNOTSUPP;
 	}
 
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/block_netlink");
@@ -182,9 +183,10 @@ void tcmu_unblock_netlink(void)
 	rc = tcmu_cfgfs_set_u32(path, 0);
 	if (rc) {
 		tcmu_warn("Could not unblock netlink %d.\n", rc);
-		return;
+		return rc;
 	}
 	tcmu_dbg("unblock netlink done\n");
+	return 0;
 }
 
 /*
@@ -198,14 +200,14 @@ void tcmu_unblock_netlink(void)
  * This must be called after blocking the netlink, and after this unblocking
  * is a must.
  */
-void tcmu_reset_netlink(void)
+int tcmu_cfgfs_nl_reset(void)
 {
 	char path[PATH_MAX];
 	int rc;
 
 	if (!tcmu_cfgfs_mod_param_is_supported("reset_netlink")) {
 		tcmu_warn("Kernel does not support reseting netlink.\n");
-		return;
+		return -EOPNOTSUPP;
 	}
 
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/reset_netlink");
@@ -214,10 +216,54 @@ void tcmu_reset_netlink(void)
 	rc = tcmu_cfgfs_set_u32(path, 1);
 	if (rc) {
 		tcmu_warn("Could not reset netlink: %d\n", rc);
-		return;
+		return rc;
 	}
 
 	tcmu_dbg("reset netlink done\n");
+	return 0;
+}
+
+int tcmu_cfgfs_dev_block(struct tcmu_device *dev)
+{
+	int rc;
+
+	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
+		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
+		return -EOPNOTSUPP;
+	}
+
+	/*
+	 * Afer we set block_dev=1 the kernel will have freed
+	 * cmds in the qfull queue and no new commands will be sent to
+	 * us.
+	 */
+	tcmu_dev_dbg(dev, "blocking kernel device\n");
+	rc = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
+	if (rc) {
+		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
+		return rc;
+	}
+	tcmu_dev_dbg(dev, "block done\n");
+	return 0;
+}
+
+int tcmu_cfgfs_dev_unblock(struct tcmu_device *dev)
+{
+	int rc;
+
+	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
+		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
+		return -EOPNOTSUPP;
+	}
+
+	tcmu_dev_dbg(dev, "unblocking kernel device\n");
+	rc = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
+	if (rc) {
+		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
+		return rc;
+	}
+	tcmu_dev_dbg(dev, "unblock done\n");
+	return 0;
 }
 
 /*

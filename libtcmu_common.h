@@ -141,8 +141,6 @@ bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev);
 void tcmu_set_dev_solid_state_media(struct tcmu_device *dev, bool solid_state);
 bool tcmu_get_dev_solid_state_media(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
-void tcmu_block_device(struct tcmu_device *dev);
-void tcmu_unblock_device(struct tcmu_device *dev);
 void tcmu_flush_device(struct tcmu_device *dev);
 
 /* Helper routines for processing commands */
@@ -159,9 +157,12 @@ int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
 uint64_t tcmu_cfgfs_dev_get_info_u64(struct tcmu_device *dev, const char *name,
                                      int *fn_ret);
 char *tcmu_cfgfs_dev_get_wwn(struct tcmu_device *dev);
-void tcmu_reset_netlink(void);
-void tcmu_block_netlink(void);
-void tcmu_unblock_netlink(void);
+int tcmu_cfgfs_nl_reset(void);
+int tcmu_cfgfs_nl_block(void);
+int tcmu_cfgfs_nl_unblock(void);
+int tcmu_cfgfs_dev_block(struct tcmu_device *dev);
+int tcmu_cfgfs_dev_unblock(struct tcmu_device *dev);
+
 int tcmu_get_cdb_length(uint8_t *cdb);
 uint64_t tcmu_get_lba(uint8_t *cdb);
 uint32_t tcmu_get_xfer_length(uint8_t *cdb);

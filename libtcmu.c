@@ -372,47 +372,6 @@ void tcmu_flush_device(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "ring clear\n");
 }
 
-void tcmu_block_device(struct tcmu_device *dev)
-{
-	int rc;
-
-	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
-		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
-		return;
-	}
-
-	/*
-	 * Afer we set block_dev=1 the kernel will have freed
-	 * cmds in the qfull queue and no new commands will be sent to
-	 * us.
-	 */
-	tcmu_dev_dbg(dev, "blocking kernel device\n");
-	rc = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
-	if (rc) {
-		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
-		return;
-	}
-	tcmu_dev_dbg(dev, "block done\n");
-}
-
-void tcmu_unblock_device(struct tcmu_device *dev)
-{
-	int rc;
-
-	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
-		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
-		return;
-	}
-
-	tcmu_dev_dbg(dev, "unblocking kernel device\n");
-	rc = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
-	if (rc) {
-		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
-		return;
-	}
-	tcmu_dev_dbg(dev, "unblock done\n");
-}
-
 static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		      char *cfgstring, bool reopen)
 {
@@ -492,7 +451,7 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		 * from a fresh slate. We will unblock below when we are
 		 * completely setup.
 		 */
-		tcmu_block_device(dev);
+		tcmu_cfgfs_dev_block(dev);
 		/*
 		 * Force a retry of the outstanding commands.
 		 */
@@ -557,7 +516,7 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 	darray_append(ctx->devices, dev);
 
 	if (reopen)
-		tcmu_unblock_device(dev);
+		tcmu_cfgfs_dev_unblock(dev);
 
 	return 0;
 
@@ -567,7 +526,7 @@ err_fd_close:
 	close(dev->fd);
 err_unblock:
 	if (reopen)
-		tcmu_unblock_device(dev);
+		tcmu_cfgfs_dev_unblock(dev);
 err_free:
 	free(dev);
 
@@ -603,7 +562,7 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 	 * shutdown and allow IO to complete normally.
 	 */
 	if (should_block) {
-		tcmu_block_device(dev);
+		tcmu_cfgfs_dev_block(dev);
 		tcmu_flush_device(dev);
 	}
 
@@ -621,7 +580,7 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 	}
 
 	if (should_block)
-		tcmu_unblock_device(dev);
+		tcmu_cfgfs_dev_unblock(dev);
 
 	tcmu_dev_dbg(dev, "removed from tcmulib.\n");
 	free(dev);
