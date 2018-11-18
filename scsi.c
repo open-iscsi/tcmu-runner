@@ -753,7 +753,7 @@ int tcmu_emulate_mode_sense(
 	bool sense_ten = (cdb[0] == MODE_SENSE_10);
 	uint8_t page_code = cdb[2] & 0x3f;
 	uint8_t subpage_code = cdb[3];
-	size_t alloc_len = tcmu_get_xfer_length(cdb);
+	size_t alloc_len = tcmu_cdb_get_xfer_length(cdb);
 	int i;
 	int ret;
 	size_t used_len;
@@ -838,7 +838,7 @@ int tcmu_emulate_mode_select(
 	bool select_ten = (cdb[0] == MODE_SELECT_10);
 	uint8_t page_code = cdb[2] & 0x3f;
 	uint8_t subpage_code = cdb[3];
-	size_t alloc_len = tcmu_get_xfer_length(cdb);
+	size_t alloc_len = tcmu_cdb_get_xfer_length(cdb);
 	int i;
 	int ret = 0;
 	size_t hdr_len = select_ten ? 8 : 4;

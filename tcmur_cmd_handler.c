@@ -127,7 +127,7 @@ static int check_lba_and_length(struct tcmu_device *dev,
 				struct tcmulib_cmd *cmd, uint32_t sectors)
 {
 	uint8_t *cdb = cmd->cdb;
-	uint64_t start_lba = tcmu_get_lba(cdb);
+	uint64_t start_lba = tcmu_cdb_get_lba(cdb);
 	int ret;
 
 	ret = check_iovec_length(dev, cmd, sectors);
@@ -154,7 +154,7 @@ static int read_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	return rhandler->read(dev, cmd, cmd->iovec, cmd->iov_cnt,
 			      tcmu_iovec_length(cmd->iovec, cmd->iov_cnt),
-			      block_size * tcmu_get_lba(cmd->cdb));
+			      block_size * tcmu_cdb_get_lba(cmd->cdb));
 }
 
 static int write_work_fn(struct tcmu_device *dev,
@@ -165,7 +165,7 @@ static int write_work_fn(struct tcmu_device *dev,
 
 	return rhandler->write(dev, cmd, cmd->iovec, cmd->iov_cnt,
 				tcmu_iovec_length(cmd->iovec, cmd->iov_cnt),
-				block_size * tcmu_get_lba(cmd->cdb));
+				block_size * tcmu_cdb_get_lba(cmd->cdb));
 }
 
 struct unmap_state {
@@ -443,7 +443,7 @@ state_unlock:
 static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 {
 	uint8_t *cdb = origcmd->cdb;
-	size_t copied, data_length = tcmu_get_xfer_length(cdb);
+	size_t copied, data_length = tcmu_cdb_get_xfer_length(cdb);
 	struct unmap_state *state;
 	uint8_t *par;
 	uint16_t dl, bddl;
@@ -629,9 +629,9 @@ finish_err:
 static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
-	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
+	uint32_t lba_cnt = tcmu_cdb_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
-	uint64_t start_lba = tcmu_get_lba(cdb);
+	uint64_t start_lba = tcmu_cdb_get_lba(cdb);
 	int ret;
 
 	if (cmd->iov_cnt != 1 || cmd->iovec->iov_len != block_size) {
@@ -679,8 +679,8 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 				     struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
-	uint64_t lba = tcmu_get_lba(cdb);
-	uint64_t nlbas = tcmu_get_xfer_length(cdb);
+	uint64_t lba = tcmu_cdb_get_lba(cdb);
+	uint64_t nlbas = tcmu_cdb_get_xfer_length(cdb);
 	struct unmap_state *state;
 	unsigned int refcount;
 	int ret;
@@ -710,9 +710,9 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint8_t *cdb = cmd->cdb;
-	uint32_t lba_cnt = tcmu_get_xfer_length(cdb);
+	uint32_t lba_cnt = tcmu_cdb_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
-	uint64_t start_lba = tcmu_get_lba(cdb);
+	uint64_t start_lba = tcmu_cdb_get_lba(cdb);
 	uint64_t write_lbas;
 	size_t max_xfer_length, length = 1024 * 1024;
 	struct write_same *write_same;
@@ -767,8 +767,8 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 	tcmur_writesame_fn_t write_same_fn = cmd->cmdstate;
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint8_t *cdb = cmd->cdb;
-	uint64_t off = block_size * tcmu_get_lba(cdb);
-	uint32_t len = block_size * tcmu_get_xfer_length(cdb);
+	uint64_t off = block_size * tcmu_cdb_get_lba(cdb);
+	uint32_t len = block_size * tcmu_cdb_get_xfer_length(cdb);
 
 	cmd->done = handle_generic_cbk;
 
@@ -884,12 +884,12 @@ static void handle_write_verify_read_cbk(struct tcmu_device *dev,
 		goto done;
 
 	ret = TCMU_STS_OK;
-	cmp_offset = tcmu_compare_with_iovec(state->read_buf, state->w_iovec,
-					     state->requested);
+	cmp_offset = tcmu_iovec_compare(state->read_buf, state->w_iovec,
+					state->requested);
 	if (cmp_offset != -1) {
 		tcmu_dev_err(dev, "Verify failed at offset %u\n", cmp_offset);
 		ret =  TCMU_STS_MISCOMPARE;
-		tcmu_set_sense_info(sense, cmp_offset);
+		tcmu_sense_set_info(sense, cmp_offset);
 	}
 
 done:
@@ -922,9 +922,10 @@ static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
 	uint8_t *cdb = cmd->cdb;
-	size_t length = tcmu_get_xfer_length(cdb) * tcmu_dev_get_block_size(dev);
+	size_t length = tcmu_cdb_get_xfer_length(cdb) *
+						tcmu_dev_get_block_size(dev);
 
-	ret = check_lba_and_length(dev, cmd, tcmu_get_xfer_length(cmd->cdb));
+	ret = check_lba_and_length(dev, cmd, tcmu_cdb_get_xfer_length(cmd->cdb));
 	if (ret)
 		return ret;
 
@@ -1268,7 +1269,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 				      struct xcopy *xcopy)
 {
 	uint8_t *cdb = cmd->cdb;
-	size_t data_length = tcmu_get_xfer_length(cdb);
+	size_t data_length = tcmu_cdb_get_xfer_length(cdb);
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
 	uint32_t inline_dl;
@@ -1538,7 +1539,7 @@ static int xcopy_read_work_fn(struct tcmu_device *src_dev, struct tcmulib_cmd *c
 static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
-	size_t data_length = tcmu_get_xfer_length(cdb);
+	size_t data_length = tcmu_cdb_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint32_t max_sectors, src_max_sectors, copy_lbas, dst_max_sectors;
 	struct xcopy *xcopy;
@@ -1689,17 +1690,17 @@ static void handle_caw_read_cbk(struct tcmu_device *dev,
 	if (ret != TCMU_STS_OK)
 		goto finish_err;
 
-	cmp_offset = tcmu_compare_with_iovec(state->read_buf, origcmd->iovec,
-					     state->requested);
+	cmp_offset = tcmu_iovec_compare(state->read_buf, origcmd->iovec,
+					state->requested);
 	if (cmp_offset != -1) {
 		/* verify failed - bail out */
 		ret = TCMU_STS_MISCOMPARE;
-		tcmu_set_sense_info(sense, cmp_offset);
+		tcmu_sense_set_info(sense, cmp_offset);
 		goto finish_err;
 	}
 
 	/* perform write */
-	tcmu_seek_in_cmd_iovec(origcmd, state->requested);
+	tcmu_cmd_seek(origcmd, state->requested);
 	origcmd->done = handle_caw_write_cbk;
 
 	ret = async_handle_cmd(dev, origcmd, write_work_fn);
@@ -1718,7 +1719,7 @@ finish_err:
 static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
-	uint64_t start_lba = tcmu_get_lba(cmd->cdb);
+	uint64_t start_lba = tcmu_cdb_get_lba(cmd->cdb);
 	uint8_t sectors = cmd->cdb[13];
 
 	/* From sbc4r12a section 5.3 COMPARE AND WRITE command
@@ -1794,7 +1795,7 @@ static int tcmur_caw_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	tcmur_caw_fn_t caw_fn = cmd->cmdstate;
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint8_t *cdb = cmd->cdb;
-	uint64_t off = block_size * tcmu_get_lba(cdb);
+	uint64_t off = block_size * tcmu_cdb_get_lba(cdb);
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 
 	cmd->done = handle_generic_cbk;
@@ -1966,7 +1967,7 @@ static int handle_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
 
-	ret = check_lba_and_length(dev, cmd, tcmu_get_xfer_length(cmd->cdb));
+	ret = check_lba_and_length(dev, cmd, tcmu_cdb_get_xfer_length(cmd->cdb));
 	if (ret)
 		return ret;
 
@@ -1979,7 +1980,7 @@ static int handle_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	int ret;
 
-	ret = check_lba_and_length(dev, cmd, tcmu_get_xfer_length(cmd->cdb));
+	ret = check_lba_and_length(dev, cmd, tcmu_cdb_get_xfer_length(cmd->cdb));
 	if (ret)
 		return ret;
 
@@ -2082,7 +2083,7 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	pthread_mutex_lock(&rdev->format_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING) {
 		pthread_mutex_unlock(&rdev->format_lock);
-		tcmu_set_sense_key_specific_info(cmd->sense_buf,
+		tcmu_sense_set_key_specific_info(cmd->sense_buf,
 						 rdev->format_progress);
 		return TCMU_STS_FRMT_IN_PROGRESS;
 	}
@@ -2490,7 +2491,7 @@ int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return ret;
 
 	if (rdev->flags & TCMUR_DEV_FLAG_FORMATTING && cmd->cdb[0] != INQUIRY) {
-		tcmu_set_sense_key_specific_info(cmd->sense_buf,
+		tcmu_sense_set_key_specific_info(cmd->sense_buf,
 						 rdev->format_progress);
 		return TCMU_STS_FRMT_IN_PROGRESS;
 	}

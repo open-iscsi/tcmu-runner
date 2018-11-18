@@ -313,7 +313,7 @@ static int fbo_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec,
 	uint8_t page_control = (cdb[2] >> 6) & 0x3;
 	uint8_t page_code = cdb[2] & 0x3F;
 	bool return_pages = true;
-	size_t alloc_len = tcmu_get_xfer_length(cdb);
+	size_t alloc_len = tcmu_cdb_get_xfer_length(cdb);
 	int i;
 	int ret;
 	int used_len;
@@ -388,7 +388,7 @@ static int fbo_emulate_mode_select(uint8_t *cdb, struct iovec *iovec,
 {
 	bool select_ten = (cdb[0] == MODE_SELECT_10);
 	uint8_t page_code;
-	size_t alloc_len = tcmu_get_xfer_length(cdb);
+	size_t alloc_len = tcmu_cdb_get_xfer_length(cdb);
 	int i;
 	int ret;
 	int used_len;
@@ -776,7 +776,7 @@ static int fbo_emulate_get_event_status_notification(struct tcmu_device *dev,
 {
 	struct fbo_state *state = tcmu_dev_get_private(dev);
 	uint8_t class_req = cdb[4];
-	uint16_t alloc_len = tcmu_get_xfer_length(cdb);
+	uint16_t alloc_len = tcmu_cdb_get_xfer_length(cdb);
 	int used_len;
 	uint8_t buf[8];
 
@@ -1048,8 +1048,8 @@ static int fbo_check_lba_and_length(struct fbo_state *state, uint8_t *cdb,
 	uint64_t lba;
 	uint32_t num_blocks;
 
-	lba = tcmu_get_lba(cdb);
-	num_blocks = tcmu_get_xfer_length(cdb);
+	lba = tcmu_cdb_get_lba(cdb);
+	num_blocks = tcmu_cdb_get_xfer_length(cdb);
 
 	if (lba >= state->num_lbas || lba + num_blocks > state->num_lbas)
 		return TCMU_STS_RANGE;
@@ -1105,7 +1105,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 			rc = TCMU_STS_RD_ERR;
 			break;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
@@ -1154,13 +1154,13 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 			break;
 		}
 
-		cmp_offset = tcmu_compare_with_iovec(buf, iovec, ret);
+		cmp_offset = tcmu_iovec_compare(buf, iovec, ret);
 		if (cmp_offset != -1) {
 			rc = TCMU_STS_MISCOMPARE;
-			tcmu_set_sense_info(sense, cmp_offset);
+			tcmu_sense_set_info(sense, cmp_offset);
 			break;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 
 		offset += ret;
 		remaining -= ret;
@@ -1216,7 +1216,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 			rc = TCMU_STS_WR_ERR;
 			break;
 		}
-		tcmu_seek_in_iovec(write_iovec, ret);
+		tcmu_iovec_seek(write_iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
@@ -1385,7 +1385,7 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 	 */
 	if (state->flags & FBO_FORMATTING) {
 		pthread_mutex_unlock(&state->state_mtx);
-		tcmu_set_sense_key_specific_info(sense, state->format_progress);
+		tcmu_sense_set_key_specific_info(sense, state->format_progress);
 		return TCMU_STS_FRMT_IN_PROGRESS;
 	}
 	state->format_progress = 0;
@@ -1451,7 +1451,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	    cdb[0] != REQUEST_SENSE &&
 	    cdb[0] != GET_CONFIGURATION &&
 	    cdb[0] != GPCMD_GET_EVENT_STATUS_NOTIFICATION) {
-		tcmu_set_sense_key_specific_info(sense, state->format_progress);
+		tcmu_sense_set_key_specific_info(sense, state->format_progress);
 		ret = TCMU_STS_FRMT_IN_PROGRESS;
 		return ret;
 	}

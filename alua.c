@@ -455,7 +455,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	struct tgt_port *port, *enabled_port;
 	int ext_hdr = cmd->cdb[1] & 0x20;
 	uint32_t off = 4, ret_data_len = 0, ret32;
-	uint32_t alloc_len = tcmu_get_xfer_length(cmd->cdb);
+	uint32_t alloc_len = tcmu_cdb_get_xfer_length(cmd->cdb);
 	uint8_t *buf;
 	int ret;
 
@@ -690,7 +690,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 {
 	struct alua_grp *group;
 	struct tgt_port *port;
-	uint32_t off = 4, param_list_len = tcmu_get_xfer_length(cmd->cdb);
+	uint32_t off = 4, param_list_len = tcmu_cdb_get_xfer_length(cmd->cdb);
 	uint16_t id, tmp_id;
 	char *buf, new_state;
 	int found, ret = TCMU_STS_OK;

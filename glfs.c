@@ -759,7 +759,7 @@ static int tcmu_glfs_writesame(struct tcmu_device *dev,
 	glfs_cbk_cookie *cookie;
 	ssize_t ret;
 
-	if (!tcmu_zeroed_iovec(iov, iov_cnt)) {
+	if (!tcmu_iovec_zeroed(iov, iov_cnt)) {
 		tcmu_dev_warn(dev,
 			      "Received none zeroed data, will fall back to writesame emulator instead.\n");
 		return TCMU_STS_NOT_HANDLED;

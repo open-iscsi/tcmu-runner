@@ -963,7 +963,7 @@ static int zbc_evpd_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		/* Device identification */
 		wwn = tcmu_cfgfs_dev_get_wwn(dev);
 		if (!wwn)
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   HARDWARE_ERROR,
 						   ASC_INTERNAL_TARGET_FAILURE);
 
@@ -1054,14 +1054,14 @@ static int zbc_evpd_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 		block_size = tcmu_cfgfs_dev_get_attr_int(dev, "hw_block_size");
 		if (block_size <= 0)
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
 						   ASC_INVALID_FIELD_IN_CDB);
 
 		/* Max xfer length */
 		max_xfer_len = tcmu_dev_get_max_xfer_len(dev);
 		if (!max_xfer_len)
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   HARDWARE_ERROR,
 						   ASC_INTERNAL_TARGET_FAILURE);
 		val32 = htobe32(max_xfer_len);
@@ -1137,7 +1137,7 @@ static int zbc_evpd_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	default:
 		tcmu_dev_dbg(dev, "Vital product data page code 0x%x not supported\n",
 			     cdb[2]);
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+		return tcmu_sense_set_data(cmd->sense_buf, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB);
 	}
 
@@ -1181,7 +1181,7 @@ static int zbc_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	if (cdb[2]) {
 		/* No page code for statndard inquiry */
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB);
 	}
@@ -1278,19 +1278,19 @@ static int zbc_report_zones(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case ZBC_RO_NOT_WP:
 		break;
 	default:
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB);
 	}
 
-	lba = tcmu_get_lba(cdb);
+	lba = tcmu_cdb_get_lba(cdb);
 	if (lba >= zdev->capacity)
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE);
 
 	/* First pass: count zones */
-	len = tcmu_get_xfer_length(cdb);
+	len = tcmu_cdb_get_xfer_length(cdb);
 	if (len > 64)
 		len -= 64;
 	else
@@ -1325,7 +1325,7 @@ static int zbc_report_zones(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	/* Second pass: get zone information */
 	len = tcmu_iovec_length(iovec, iov_cnt);
-	lba = tcmu_get_lba(cdb);
+	lba = tcmu_cdb_get_lba(cdb);
 	zone = zbc_get_zone(zdev, lba, false);
 	while (lba < zdev->capacity && len >= 64) {
 
@@ -1442,7 +1442,7 @@ static int zbc_open_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		}
 
 		if ((zdev->nr_exp_open + nr_closed) > zdev->nr_open_zones)
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 					   DATA_PROTECT,
 					   ASC_INSUFFICIENT_ZONE_RESOURCES);
 
@@ -1456,15 +1456,15 @@ static int zbc_open_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	/* Open the specified zone */
-	lba = tcmu_get_lba(cdb);
+	lba = tcmu_cdb_get_lba(cdb);
 	if (lba > zdev->capacity)
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE);
 
 	zone = zbc_get_zone(zdev, lba, true);
 	if (!zone || zbc_zone_conv(zone))
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB);
 
@@ -1472,7 +1472,7 @@ static int zbc_open_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return TCMU_STS_OK;
 
 	if ((zdev->nr_exp_open + 1) > zdev->nr_open_zones)
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   DATA_PROTECT,
 					   ASC_INSUFFICIENT_ZONE_RESOURCES);
 
@@ -1504,15 +1504,15 @@ static int zbc_close_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	/* Close specified zone */
-	lba = tcmu_get_lba(cdb);
+	lba = tcmu_cdb_get_lba(cdb);
 	if (lba > zdev->capacity)
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE);
 
 	zone = zbc_get_zone(zdev, lba, true);
 	if (!zone || zbc_zone_conv(zone))
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB);
 
@@ -1566,15 +1566,15 @@ static int zbc_finish_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	/* Finish specified zone */
-	lba = tcmu_get_lba(cdb);
+	lba = tcmu_cdb_get_lba(cdb);
 	if (lba > zdev->capacity)
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE);
 
 	zone = zbc_get_zone(zdev, lba, true);
 	if (!zone || zbc_zone_conv(zone))
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB);
 
@@ -1621,15 +1621,15 @@ static int zbc_reset_wp(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	/* Reset specified zone */
-	lba = tcmu_get_lba(cdb);
+	lba = tcmu_cdb_get_lba(cdb);
 	if (lba > zdev->capacity)
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE);
 
 	zone = zbc_get_zone(zdev, lba, true);
 	if (!zone || zbc_zone_conv(zone))
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB);
 
@@ -1651,7 +1651,7 @@ static int zbc_in(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = zbc_report_zones(dev, cmd);
 		break;
 	default:
-		ret = tcmu_set_sense_data(cmd->sense_buf,
+		ret = tcmu_sense_set_data(cmd->sense_buf,
 					  ILLEGAL_REQUEST,
 					  ASC_INVALID_FIELD_IN_CDB);
 		break;
@@ -1682,7 +1682,7 @@ static int zbc_out(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = zbc_reset_wp(dev, cmd);
 		break;
 	default:
-		ret = tcmu_set_sense_data(cmd->sense_buf,
+		ret = tcmu_sense_set_data(cmd->sense_buf,
 					  ILLEGAL_REQUEST,
 					  ASC_INVALID_FIELD_IN_CDB);
 		break;
@@ -1828,7 +1828,7 @@ static int zbc_mode_sense(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	memset(data, 0, sizeof(data));
 
 	/* Mode parameter header. Mode data length filled in at the end. */
-	alloc_len = tcmu_get_xfer_length(cdb);
+	alloc_len = tcmu_cdb_get_xfer_length(cdb);
 	used_len = sense_ten ? 8 : 4;
 
 	if (page_code == 0x3f) {
@@ -1860,7 +1860,7 @@ static int zbc_mode_sense(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	if (!got_sense)
-		return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+		return tcmu_sense_set_data(cmd->sense_buf, ILLEGAL_REQUEST,
 					   ASC_INVALID_FIELD_IN_CDB);
 
 	if (sense_ten) {
@@ -1882,14 +1882,14 @@ static int zbc_check_rdwr(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
-	uint64_t lba = tcmu_get_lba(cdb);
-	size_t nr_lbas = tcmu_get_xfer_length(cdb);
+	uint64_t lba = tcmu_cdb_get_lba(cdb);
+	size_t nr_lbas = tcmu_cdb_get_xfer_length(cdb);
 	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
 
 	if (iov_length != nr_lbas * zdev->lba_size) {
 		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %zu, block size %zu\n",
 			     iov_length, nr_lbas, zdev->lba_size);
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   HARDWARE_ERROR,
 					   ASC_INTERNAL_TARGET_FAILURE);
 	}
@@ -1897,7 +1897,7 @@ static int zbc_check_rdwr(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (lba + nr_lbas > zdev->capacity || lba + nr_lbas < lba) {
 		tcmu_dev_err(dev, "cmd exceeds last lba %llu (lba %"PRIu64", xfer len %zu)\n",
 			     zdev->capacity, lba, nr_lbas);
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   ILLEGAL_REQUEST,
 					   ASC_LBA_OUT_OF_RANGE);
 	}
@@ -1974,7 +1974,7 @@ static int zbc_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
-	uint64_t lba = tcmu_get_lba(cdb);
+	uint64_t lba = tcmu_cdb_get_lba(cdb);
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
 	int zone_type = 0;
@@ -1983,7 +1983,7 @@ static int zbc_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	tcmu_dev_dbg(dev, "Read LBA %llu+%u, %zu vectors\n",
 		     (unsigned long long)lba,
-		     tcmu_get_xfer_length(cdb), iov_cnt);
+		     tcmu_cdb_get_xfer_length(cdb), iov_cnt);
 
 	/* Check LBA and length */
 	ret = zbc_check_rdwr(dev, cmd);
@@ -1996,10 +1996,10 @@ static int zbc_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 				 &zone_type);
 		if (ret <= 0) {
 			if (!zone_type)
-				return tcmu_set_sense_data(cmd->sense_buf,
+				return tcmu_sense_set_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
 						   ASC_ATTEMPT_TO_READ_INVALID_DATA);
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   MEDIUM_ERROR,
 						   ASC_READ_ERROR);
 		}
@@ -2030,7 +2030,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 			tcmu_dev_err(zdev->dev,
 				     "Get zone at LBA %"PRIu64" failed\n",
 				     lba);
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   HARDWARE_ERROR,
 						   ASC_INTERNAL_TARGET_FAILURE);
 		}
@@ -2042,7 +2042,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 			tcmu_dev_err(dev,
 				     "Write boundary violation lba %"PRIu64", xfer len %zu\n",
 				     lba, nr_lbas);
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
 						   ASC_WRITE_BOUNDARY_VIOLATION);
 		}
@@ -2052,7 +2052,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 			tcmu_dev_err(dev,
 				     "Write to FULL zone: zone_type %d, zone_status %d\n",
 				     zone->type, zone->cond);
-				return tcmu_set_sense_data(cmd->sense_buf,
+				return tcmu_sense_set_data(cmd->sense_buf,
 							   ILLEGAL_REQUEST,
 							   ASC_INVALID_FIELD_IN_CDB);
 		}
@@ -2061,7 +2061,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 		if (zbc_zone_seq_req(zone) && lba != zone->wp) {
 			tcmu_dev_err(dev, "Unaligned write lba %"PRIu64", wp %"PRIu64"\n",
 				     lba, (uint64_t)zone->wp);
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
 						   ASC_UNALIGNED_WRITE_COMMAND);
 		}
@@ -2072,7 +2072,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 			tcmu_dev_err(dev,
 				     "Write boundary violation lba %"PRIu64", xfer len %zu\n",
 				     lba, nr_lbas);
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
 						   ASC_WRITE_BOUNDARY_VIOLATION);
 		}
@@ -2101,8 +2101,8 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
-	uint64_t lba = tcmu_get_lba(cdb);
-	size_t nr_lbas = tcmu_get_xfer_length(cdb);
+	uint64_t lba = tcmu_cdb_get_lba(cdb);
+	size_t nr_lbas = tcmu_cdb_get_xfer_length(cdb);
 	size_t count, lba_count;
 	struct iovec *iovec = cmd->iovec;
 	struct zbc_zone *zone;
@@ -2110,7 +2110,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	tcmu_dev_dbg(dev, "Write LBA %llu+%u, %zu vectors\n",
 		     (unsigned long long)lba,
-		     tcmu_get_xfer_length(cdb), cmd->iov_cnt);
+		     tcmu_cdb_get_xfer_length(cdb), cmd->iov_cnt);
 
 	/* Check LBA and length */
 	ret = zbc_check_rdwr(dev, cmd);
@@ -2131,7 +2131,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 			tcmu_dev_err(dev,
 				     "Write boundary violation lba %"PRIu64", xfer len %zu\n",
 				     lba, nr_lbas);
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   ILLEGAL_REQUEST,
 						   ASC_WRITE_BOUNDARY_VIOLATION);
 		}
@@ -2140,7 +2140,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		if (zbc_zone_seq(zone) && !zbc_zone_is_open(zone)) {
 			/* Too many explicit open ? */
 			if (zdev->nr_exp_open >= zdev->nr_open_zones)
-				return tcmu_set_sense_data(cmd->sense_buf,
+				return tcmu_sense_set_data(cmd->sense_buf,
 							   DATA_PROTECT,
 							   ASC_INSUFFICIENT_ZONE_RESOURCES);
 			__zbc_open_zone(zdev, zone, false);
@@ -2159,12 +2159,12 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 			     zdev->meta_size + lba * zdev->lba_size);
 		if (ret <= 0) {
 			tcmu_dev_err(dev, "Write failed: %m\n");
-			return tcmu_set_sense_data(cmd->sense_buf,
+			return tcmu_sense_set_data(cmd->sense_buf,
 						   MEDIUM_ERROR,
 						   ASC_WRITE_ERROR);
 		}
 
-		iovec += tcmu_seek_in_iovec(iovec, ret);
+		iovec += tcmu_iovec_seek(iovec, ret);
 		count = ret / zdev->lba_size;
 
 		/* Adjust write pointer */
@@ -2204,7 +2204,7 @@ static int zbc_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = zbc_flush_meta(zdev);
 	if (ret) {
 		tcmu_dev_err(dev, "flush failed\n");
-		return tcmu_set_sense_data(cmd->sense_buf,
+		return tcmu_sense_set_data(cmd->sense_buf,
 					   MEDIUM_ERROR, ASC_WRITE_ERROR);
 	}
 

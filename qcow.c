@@ -1449,7 +1449,7 @@ static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			ret = TCMU_STS_RD_ERR;
 			goto done;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
@@ -1473,7 +1473,7 @@ static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}

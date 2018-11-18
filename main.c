@@ -624,7 +624,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 		while (!dev_stopping && (cmd = tcmulib_get_next_command(dev)) != NULL) {
 
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
-				tcmu_print_cdb_info(dev, cmd, NULL);
+				tcmu_cdb_print_info(dev, cmd, NULL);
 
 			if (tcmur_handler_is_passthrough_only(rhandler))
 				ret = tcmur_cmd_passthrough_handler(dev, cmd);
@@ -632,7 +632,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 				ret = tcmur_generic_handle_cmd(dev, cmd);
 
 			if (ret == TCMU_STS_NOT_HANDLED)
-				tcmu_print_cdb_info(dev, cmd, "is not supported");
+				tcmu_cdb_print_info(dev, cmd, "is not supported");
 
 			/*
 			 * command (processing) completion is called in the following
@@ -868,7 +868,7 @@ static void dev_removed(struct tcmu_device *dev)
 	if (aio_wait_for_empty_queue(rdev))
 		tcmu_dev_err(dev, "could not flush queue.\n");
 
-	tcmu_cancel_thread(rdev->cmdproc_thread);
+	tcmu_thread_cancel(rdev->cmdproc_thread);
 	tcmur_stop_device(dev);
 
 	cleanup_io_work_queue(dev, false);

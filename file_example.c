@@ -101,11 +101,11 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 		if (ret == 0) {
 			/* EOF, then zeros the iovecs left */
-			tcmu_zero_iovec(iov, iov_cnt);
+			tcmu_iovec_zero(iov, iov_cnt);
 			break;
 		}
 
-		tcmu_seek_in_iovec(iov, ret);
+		tcmu_iovec_seek(iov, ret);
 		offset += ret;
 		remaining -= ret;
 	}
@@ -129,7 +129,7 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
-		tcmu_seek_in_iovec(iov, ret);
+		tcmu_iovec_seek(iov, ret);
 		offset += ret;
 		remaining -= ret;
 	}

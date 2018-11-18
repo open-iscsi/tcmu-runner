@@ -142,7 +142,7 @@ bool tcmu_dev_get_solid_state_media(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_dev_get_handler(struct tcmu_device *dev);
 void tcmu_dev_flush_ring(struct tcmu_device *dev);
 
-/* Helper routines for processing commands */
+/* Set/Get methods for interacting with configfs */
 char *tcmu_cfgfs_get_str(const char *path);
 int tcmu_cfgfs_set_str(const char *path, const char *val, int val_len);
 int tcmu_cfgfs_get_int(const char *path);
@@ -162,27 +162,40 @@ int tcmu_cfgfs_nl_unblock(void);
 int tcmu_cfgfs_dev_block(struct tcmu_device *dev);
 int tcmu_cfgfs_dev_unblock(struct tcmu_device *dev);
 
-int tcmu_get_cdb_length(uint8_t *cdb);
-uint64_t tcmu_get_lba(uint8_t *cdb);
-uint32_t tcmu_get_xfer_length(uint8_t *cdb);
-off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size);
-size_t tcmu_seek_in_iovec(struct iovec *iovec, size_t count);
-void tcmu_seek_in_cmd_iovec(struct tcmulib_cmd *cmd, size_t count);
-void tcmu_zero_iovec(struct iovec *iovec, size_t iov_cnt);
-bool tcmu_zeroed_iovec(struct iovec *iovec, size_t iov_cnt);
-size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src, size_t len);
-size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec, size_t iov_cnt);
+/* Helper routines for processing commands */
+
+/* SCSI CDB processing */
+int tcmu_cdb_get_length(uint8_t *cdb);
+uint64_t tcmu_cdb_get_lba(uint8_t *cdb);
+uint32_t tcmu_cdb_get_xfer_length(uint8_t *cdb);
+void tcmu_cdb_print_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd,
+			 const char *info);
+/* iovec processing */
+off_t tcmu_iovec_compare(void *mem, struct iovec *iovec, size_t size);
+size_t tcmu_iovec_seek(struct iovec *iovec, size_t count);
+void tcmu_iovec_zero(struct iovec *iovec, size_t iov_cnt);
+bool tcmu_iovec_zeroed(struct iovec *iovec, size_t iov_cnt);
 size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
-int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
-void tcmu_set_sense_info(uint8_t *sense_buf, uint32_t info);
-void tcmu_set_sense_key_specific_info(uint8_t *sense_buf, uint16_t info);
-void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
-void tcmu_print_cdb_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd, const char *info);
+
+/* memory mangement */
+size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src,
+			      size_t len);
+size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec,
+			      size_t iov_cnt);
+
+/* tcmulib_cmd processing */
+void tcmu_cmd_seek(struct tcmulib_cmd *cmd, size_t count);
+
+/* SCSI Sense */
+int tcmu_sense_set_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
+void tcmu_sense_set_info(uint8_t *sense_buf, uint32_t info);
+void tcmu_sense_set_key_specific_info(uint8_t *sense_buf, uint16_t info);
+void __tcmu_sense_set_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
 
 /*
  * Misc
  */
-void tcmu_cancel_thread(pthread_t thread);
+void tcmu_thread_cancel(pthread_t thread);
 
 #ifdef __cplusplus
 }

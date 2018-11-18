@@ -1094,7 +1094,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		tcmu_dev_dbg(dev, "CAW miscompare at offset %u.\n", cmp_offset);
 
 		tcmu_r = TCMU_STS_MISCOMPARE;
-		tcmu_set_sense_info(tcmulib_cmd->sense_buf, cmp_offset);
+		tcmu_sense_set_info(tcmulib_cmd->sense_buf, cmp_offset);
 	} else if (ret == -EINVAL) {
 		tcmu_dev_err(dev, "Invalid IO request.\n");
 		tcmu_r = TCMU_STS_INVALID_CDB;

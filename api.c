@@ -28,7 +28,7 @@
 #include "libtcmu_priv.h"
 #include "be_byteshift.h"
 
-int tcmu_get_cdb_length(uint8_t *cdb)
+int tcmu_cdb_get_length(uint8_t *cdb)
 {
 	uint8_t group_code = cdb[0] >> 5;
 
@@ -59,11 +59,11 @@ cdb_not_supp:
 	return -EINVAL;
 }
 
-uint64_t tcmu_get_lba(uint8_t *cdb)
+uint64_t tcmu_cdb_get_lba(uint8_t *cdb)
 {
 	uint16_t val;
 
-	switch (tcmu_get_cdb_length(cdb)) {
+	switch (tcmu_cdb_get_length(cdb)) {
 	case 6:
 		val = be16toh(*((uint16_t *)&cdb[2]));
 		return ((cdb[1] & 0x1f) << 16) | val;
@@ -79,9 +79,9 @@ uint64_t tcmu_get_lba(uint8_t *cdb)
 	}
 }
 
-uint32_t tcmu_get_xfer_length(uint8_t *cdb)
+uint32_t tcmu_cdb_get_xfer_length(uint8_t *cdb)
 {
-	switch (tcmu_get_cdb_length(cdb)) {
+	switch (tcmu_cdb_get_length(cdb)) {
 	case 6:
 		return cdb[4];
 	case 10:
@@ -100,7 +100,7 @@ uint32_t tcmu_get_xfer_length(uint8_t *cdb)
  * Returns location of first mismatch between bytes in mem and the iovec.
  * If they are the same, return -1.
  */
-off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size)
+off_t tcmu_iovec_compare(void *mem, struct iovec *iovec, size_t size)
 {
 	off_t mem_off;
 	int ret;
@@ -139,7 +139,7 @@ off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size)
 /*
  * Consume an iovec. Count must not exceed the total iovec[] size.
  */
-size_t tcmu_seek_in_iovec(struct iovec *iovec, size_t count)
+size_t tcmu_iovec_seek(struct iovec *iovec, size_t count)
 {
 	size_t consumed = 0;
 
@@ -163,9 +163,9 @@ size_t tcmu_seek_in_iovec(struct iovec *iovec, size_t count)
  * Consume an iovec. Count must not exceed the total iovec[] size.
  * iove count should be updated.
  */
-void tcmu_seek_in_cmd_iovec(struct tcmulib_cmd *cmd, size_t count)
+void tcmu_cmd_seek(struct tcmulib_cmd *cmd, size_t count)
 {
-	cmd->iov_cnt -= tcmu_seek_in_iovec(cmd->iovec, count);
+	cmd->iov_cnt -= tcmu_iovec_seek(cmd->iovec, count);
 }
 
 size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)
@@ -181,7 +181,7 @@ size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt)
 	return length;
 }
 
-void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
+void __tcmu_sense_set_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 {
 	sense_buf[0] |= 0x70;	/* fixed, current */
 	sense_buf[2] = key;
@@ -190,14 +190,14 @@ void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 	sense_buf[13] = asc_ascq & 0xff;
 }
 
-int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
+int tcmu_sense_set_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq)
 {
 	memset(sense_buf, 0, SENSE_BUFFERSIZE);
-	__tcmu_set_sense_data(sense_buf, key, asc_ascq);
+	__tcmu_sense_set_data(sense_buf, key, asc_ascq);
 	return TCMU_STS_PASSTHROUGH_ERR;
 }
 
-void tcmu_set_sense_key_specific_info(uint8_t *sense_buf, uint16_t info)
+void tcmu_sense_set_key_specific_info(uint8_t *sense_buf, uint16_t info)
 {
 	memset(sense_buf, 0, 18);
 
@@ -206,7 +206,7 @@ void tcmu_set_sense_key_specific_info(uint8_t *sense_buf, uint16_t info)
 	sense_buf[15] |= 0x80;
 }
 
-void tcmu_set_sense_info(uint8_t *sense_buf, uint32_t info)
+void tcmu_sense_set_info(uint8_t *sense_buf, uint32_t info)
 {
 	memset(sense_buf, 0, 18);
 
@@ -218,7 +218,7 @@ void tcmu_set_sense_info(uint8_t *sense_buf, uint32_t info)
 /*
  * Zero iovec.
  */
-void tcmu_zero_iovec(struct iovec *iovec, size_t iov_cnt)
+void tcmu_iovec_zero(struct iovec *iovec, size_t iov_cnt)
 {
 	while (iov_cnt) {
 		bzero(iovec->iov_base, iovec->iov_len);
@@ -240,7 +240,7 @@ static inline bool tcmu_zeroed_mem(const char *buf, size_t size)
     return true;
 }
 
-bool tcmu_zeroed_iovec(struct iovec *iovec, size_t iov_cnt)
+bool tcmu_iovec_zeroed(struct iovec *iovec, size_t iov_cnt)
 {
     int i;
 
@@ -317,7 +317,7 @@ size_t tcmu_memcpy_from_iovec(
 #define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)
 #define CDB_FIX_BYTES 64 /* 64 bytes for default */
 #define CDB_FIX_SIZE CDB_TO_BUF_SIZE(CDB_FIX_BYTES)
-void tcmu_print_cdb_info(struct tcmu_device *dev,
+void tcmu_cdb_print_info(struct tcmu_device *dev,
 			 const struct tcmulib_cmd *cmd,
 			 const char *info)
 {
@@ -326,7 +326,7 @@ void tcmu_print_cdb_info(struct tcmu_device *dev,
 
 	buf = fix;
 
-	bytes = tcmu_get_cdb_length(cmd->cdb);
+	bytes = tcmu_cdb_get_length(cmd->cdb);
 	if (bytes < 0)
 		return;
 
@@ -357,7 +357,7 @@ void tcmu_print_cdb_info(struct tcmu_device *dev,
 		free(buf);
 }
 
-void tcmu_cancel_thread(pthread_t thread)
+void tcmu_thread_cancel(pthread_t thread)
 {
 	void *join_retval;
 	int ret;
