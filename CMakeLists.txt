@@ -162,6 +162,7 @@ if (with-fbo)
 	# Stuff for building the file optical handler
 	add_library(handler_file_optical
   	SHARED
+	scsi.c
   	file_optical.c
   	)
 	set_target_properties(handler_file_optical
@@ -186,6 +187,7 @@ if (with-zbc)
 	# Stuff for building the file zbc handler
 	add_library(handler_file_zbc
 	  SHARED
+	  scsi.c
 	  file_zbc.c
 	  )
 	set_target_properties(handler_file_zbc

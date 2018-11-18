@@ -24,7 +24,6 @@
 
 #include "libtcmu_log.h"
 #include "libtcmu.h"
-#include "libtcmu_priv.h"
 #include "tcmu-runner.h"
 #include "target.h"
 #include "alua.h"
@@ -225,7 +224,8 @@ int tcmu_emulate_evpd_inquiry(
 		ptr[0] = 2; /* code set: ASCII */
 		ptr[1] = 0; /* identifier: vendor-specific */
 
-		len = snprintf(&ptr[4], sizeof(data) - used - 4, "%s", dev->cfgstring);
+		len = snprintf(&ptr[4], sizeof(data) - used - 4, "%s",
+			       tcmu_dev_get_cfgstring(dev));
 		ptr[3] = len + 1;
 
 		used += (uint8_t)ptr[3] + 4;
