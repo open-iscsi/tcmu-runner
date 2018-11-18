@@ -35,6 +35,7 @@
 #include "scsi_defs.h"
 #include "libtcmu.h"
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 
 struct file_state {
 	int fd;
@@ -49,7 +50,7 @@ static int file_open(struct tcmu_device *dev, bool reopen)
 	if (!state)
 		return -ENOMEM;
 
-	tcmu_dev_set_private(dev, state);
+	tcmur_dev_set_private(dev, state);
 
 	config = strchr(tcmu_dev_get_cfgstring(dev), '/');
 	if (!config) {
@@ -77,7 +78,7 @@ err:
 
 static void file_close(struct tcmu_device *dev)
 {
-	struct file_state *state = tcmu_dev_get_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 
 	close(state->fd);
 	free(state);
@@ -87,7 +88,7 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		     struct iovec *iov, size_t iov_cnt, size_t length,
 		     off_t offset)
 {
-	struct file_state *state = tcmu_dev_get_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -118,7 +119,7 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		      struct iovec *iov, size_t iov_cnt, size_t length,
 		      off_t offset)
 {
-	struct file_state *state = tcmu_dev_get_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -140,7 +141,7 @@ done:
 
 static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct file_state *state = tcmu_dev_get_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
 	if (fsync(state->fd)) {

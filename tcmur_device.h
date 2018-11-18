@@ -40,6 +40,7 @@ enum {
 
 struct tcmur_device {
 	struct tcmu_device *dev;
+	void *hm_private;
 
 	pthread_t cmdproc_thread;
 
@@ -88,5 +89,8 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync, uint16_t tag);
 void tcmu_release_dev_lock(struct tcmu_device *dev);
 int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag);
 void tcmu_update_dev_lock_state(struct tcmu_device *dev);
+
+void tcmur_dev_set_private(struct tcmu_device *dev, void *private);
+void *tcmur_dev_get_private(struct tcmu_device *dev);
 
 #endif

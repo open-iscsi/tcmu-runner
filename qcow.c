@@ -62,6 +62,7 @@
 #endif
 
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 #include "scsi_defs.h"
 #include "qcow.h"
 #include "qcow2.h"
@@ -1394,7 +1395,7 @@ static int qcow_open(struct tcmu_device *dev, bool reopen)
 	if (!bdev)
 		return -1;
 
-	tcmu_dev_set_private(dev, bdev);
+	tcmur_dev_set_private(dev, bdev);
 
 	bdev->block_size = tcmu_dev_get_block_size(dev);
 	bdev->size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
@@ -1428,7 +1429,7 @@ err:
 
 static void qcow_close(struct tcmu_device *dev)
 {
-	struct bdev *bdev = tcmu_dev_get_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 
 	bdev->ops->close(bdev);
 	free(bdev);
@@ -1438,7 +1439,7 @@ static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		     struct iovec *iovec, size_t iov_cnt, size_t length,
 		     off_t offset)
 {
-	struct bdev *bdev = tcmu_dev_get_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -1462,7 +1463,7 @@ static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		      struct iovec *iovec, size_t iov_cnt, size_t length,
 		      off_t offset)
 {
-	struct bdev *bdev = tcmu_dev_get_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -1484,7 +1485,7 @@ done:
 
 static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct bdev *bdev = tcmu_dev_get_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 	int ret;
 
 	if (fsync(bdev->fd)) {

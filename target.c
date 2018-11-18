@@ -278,7 +278,7 @@ done:
 
 int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct list_head alua_list;
 	struct alua_grp *group;
 	struct tgt_port_grp *tpg;

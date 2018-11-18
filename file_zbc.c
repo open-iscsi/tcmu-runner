@@ -31,6 +31,7 @@
 #include "scsi_defs.h"
 #include "libtcmu.h"
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 
 /*
  * SCSI commands.
@@ -773,7 +774,7 @@ static int zbc_init_meta(struct zbc_dev *zdev)
  */
 static int zbc_open_backstore(struct tcmu_device *dev)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	struct zbc_dev_config *cfg = &zdev->cfg;
 	struct stat st;
 	int ret;
@@ -873,7 +874,7 @@ static int zbc_open(struct tcmu_device *dev, bool reopen)
 	if (!zdev)
 		return -ENOMEM;
 
-	tcmu_dev_set_private(dev, zdev);
+	tcmur_dev_set_private(dev, zdev);
 	zdev->dev = dev;
 
 	/* Parse config */
@@ -911,7 +912,7 @@ err:
  */
 static void zbc_close(struct tcmu_device *dev)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 
 	zbc_unmap_meta(zdev);
 
@@ -925,7 +926,7 @@ static void zbc_close(struct tcmu_device *dev)
  */
 static int zbc_evpd_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
@@ -1149,7 +1150,7 @@ static int zbc_evpd_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  */
 static int zbc_std_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	uint8_t buf[36];
 
 	memset(buf, 0, sizeof(buf));
@@ -1250,7 +1251,7 @@ static bool zbc_should_report_zone(struct zbc_zone *zone,
  */
 static int zbc_report_zones(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
 	struct zbc_zone *zone;
 	struct iovec *iovec = cmd->iovec;
@@ -1425,7 +1426,7 @@ static void __zbc_open_zone(struct zbc_dev *zdev, struct zbc_zone *zone,
  */
 static int zbc_open_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	struct zbc_zone *zone;
 	uint8_t *cdb = cmd->cdb;
 	bool all = cdb[14] & 0x01;
@@ -1489,7 +1490,7 @@ static int zbc_open_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  */
 static int zbc_close_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	struct zbc_zone *zone;
 	uint8_t *cdb = cmd->cdb;
 	bool all = cdb[14] & 0x01;
@@ -1551,7 +1552,7 @@ static void __zbc_finish_zone(struct zbc_dev *zdev, struct zbc_zone *zone,
  */
 static int zbc_finish_zone(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	struct zbc_zone *zone;
 	uint8_t *cdb = cmd->cdb;
 	bool all = cdb[14] & 0x01;
@@ -1606,7 +1607,7 @@ static void __zbc_reset_wp(struct zbc_dev *zdev, struct zbc_zone *zone)
  */
 static int zbc_reset_wp(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	struct zbc_zone *zone;
 	uint8_t *cdb = cmd->cdb;
 	bool all = cdb[14] & 0x01;
@@ -1696,7 +1697,7 @@ static int zbc_out(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  */
 static int zbc_read_capacity(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
 	uint64_t val64;
@@ -1880,7 +1881,7 @@ static int zbc_mode_sense(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  */
 static int zbc_check_rdwr(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
 	uint64_t lba = tcmu_cdb_get_lba(cdb);
 	size_t nr_lbas = tcmu_cdb_get_xfer_length(cdb);
@@ -1972,7 +1973,7 @@ static ssize_t __zbc_read(struct zbc_dev *zdev, void *buf,
  */
 static int zbc_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
 	uint64_t lba = tcmu_cdb_get_lba(cdb);
 	struct iovec *iovec = cmd->iovec;
@@ -2017,7 +2018,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
 				 struct tcmulib_cmd *cmd,
 				 size_t nr_lbas, uint64_t lba)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	struct zbc_zone *zone;
 	int zone_type = 0;
 	size_t count;
@@ -2099,7 +2100,7 @@ static int zbc_write_check_zones(struct tcmu_device *dev,
  */
 static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
 	uint64_t lba = tcmu_cdb_get_lba(cdb);
 	size_t nr_lbas = tcmu_cdb_get_xfer_length(cdb);
@@ -2196,7 +2197,7 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  */
 static int zbc_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct zbc_dev *zdev = tcmu_dev_get_private(dev);
+	struct zbc_dev *zdev = tcmur_dev_get_private(dev);
 	int ret;
 
 	ret = fsync(zdev->fd);

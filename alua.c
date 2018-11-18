@@ -83,7 +83,7 @@ static void tcmu_free_alua_grp(struct alua_grp *group)
 static struct alua_grp *
 tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct alua_grp *group;
 	struct tgt_port *port;
 	char *str_val, *orig_str_val, *member;
@@ -393,7 +393,7 @@ static int alua_sync_state(struct tcmu_device *dev,
 			   struct list_head *group_list,
 			   uint16_t enabled_group_id)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct alua_grp *group;
 	uint16_t ao_group_id;
@@ -547,7 +547,7 @@ static void *alua_lock_thread_fn(void *arg)
 
 int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	pthread_attr_t attr;
 	int ret = TCMU_STS_OK;
 
@@ -765,7 +765,7 @@ free_buf:
 
 int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
 	if (rdev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
 		if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {

@@ -737,16 +737,6 @@ int tcmulib_master_fd_ready(struct tcmulib_context *ctx)
 	return nl_recvmsgs_default(ctx->nl_sock);
 }
 
-void *tcmu_get_daemon_dev_private(struct tcmu_device *dev)
-{
-	return dev->d_private;
-}
-
-void tcmu_set_daemon_dev_private(struct tcmu_device *dev, void *private)
-{
-	dev->d_private = private;
-}
-
 void *tcmu_dev_get_private(struct tcmu_device *dev)
 {
 	return dev->hm_private;

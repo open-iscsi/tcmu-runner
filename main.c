@@ -566,7 +566,7 @@ static void tcmur_stop_device(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	bool is_open = false;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -608,7 +608,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct pollfd pfd;
 	int ret;
 	bool dev_stopping = false;
@@ -737,7 +737,8 @@ static int dev_added(struct tcmu_device *dev)
 	rdev = calloc(1, sizeof(*rdev));
 	if (!rdev)
 		return -ENOMEM;
-	tcmu_set_daemon_dev_private(dev, rdev);
+
+	tcmu_dev_set_private(dev, rdev);
 	list_node_init(&rdev->recovery_entry);
 	rdev->dev = dev;
 
@@ -849,7 +850,7 @@ free_rdev:
 
 static void dev_removed(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int ret;
 
 	pthread_mutex_lock(&rdev->state_lock);
