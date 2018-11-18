@@ -48,7 +48,7 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		      char *cfgstring, bool reopen);
 static void remove_device(struct tcmulib_context *ctx, char *dev_name,
-			  char *cfgstring, bool should_block);
+			  bool should_block);
 static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 			  struct genl_info *info, void *arg);
 
@@ -218,9 +218,7 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 		break;
 	case TCMU_CMD_REMOVED_DEVICE:
 		reply_cmd = TCMU_CMD_REMOVED_DEVICE_DONE;
-		remove_device(ctx, buf,
-			      nla_get_string(info->attrs[TCMU_ATTR_DEVICE]),
-			      false);
+		remove_device(ctx, buf, false);
 		ret = 0;
 		break;
 	case TCMU_CMD_RECONFIG_DEVICE:
@@ -583,16 +581,15 @@ static void close_devices(struct tcmulib_context *ctx)
 {
 	struct tcmu_device **dev_ptr;
 	struct tcmu_device *dev;
-	char *cfgstring = "";
 
 	darray_foreach_reverse(dev_ptr, ctx->devices) {
 		dev = *dev_ptr;
-		remove_device(ctx, dev->dev_name, cfgstring, true);
+		remove_device(ctx, dev->dev_name, true);
 	}
 }
 
 static void remove_device(struct tcmulib_context *ctx, char *dev_name,
-			  char *cfgstring, bool should_block)
+			  bool should_block)
 {
 	struct tcmu_device *dev;
 	int i, ret;
