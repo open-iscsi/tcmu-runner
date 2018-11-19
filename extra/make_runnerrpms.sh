@@ -1,11 +1,11 @@
 #!/bin/sh
 
-if [ $# -gt 0 -o "$1" == "--help" -o "$1" == "help" ]; then
+if [ "$1" == "--help" -o "$1" == "help" ]; then
 	echo ""
 	echo "  USAGE:"
 	echo ""
 	echo "  # cd tcmu-runner/extra/"
-	echo "  # ./make_runnerrpms.sh"
+	echo "  # ./make_runnerrpms.sh [--without (rbd|glfs|qcow|zbc|fbo)]"
 	echo ""
 	echo "  Will build the RPMs in current dir by using the HEAD commit ID as default."
 	echo ""
@@ -62,4 +62,4 @@ cd $TOPDIR/extra
 rm -rf $TMPDIR
 
 # Build the RPMs
-rpmbuild --define="_topdir $rpmbuild_path" -ba $rpmbuild_path/SPECS/tcmu-runner.spec
+rpmbuild --define="_topdir $rpmbuild_path" -ba $rpmbuild_path/SPECS/tcmu-runner.spec "$@"

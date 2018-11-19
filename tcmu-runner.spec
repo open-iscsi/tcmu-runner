@@ -1,3 +1,32 @@
+%global _hardened_build 1
+
+# without rbd dependency
+# if you wish to exclude rbd handlers in RPM, use below command
+# rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without rbd
+%{?_without_rbd:%global _without_rbd -Dwith-rbd=false}
+
+# without glusterfs dependency
+# if you wish to exclude glfs handlers in RPM, use below command
+# rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without glfs
+%{?_without_glfs:%global _without_glfs -Dwith-glfs=false}
+
+# without qcow dependency
+# if you wish to exclude qcow handlers in RPM, use below command
+# rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without qcow
+%{?_without_qcow:%global _without_qcow -Dwith-qcow=false}
+
+# without zbc dependency
+# if you wish to exclude zbc handlers in RPM, use below command
+# rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without zbc
+%{?_without_zbc:%global _without_zbc -Dwith-zbc=false}
+
+# without file backed optical dependency
+# if you wish to exclude fbo handlers in RPM, use below command
+# rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without fbo
+%{?_without_fbo:%global _without_fbo -Dwith-fbo=false}
+
+
+
 Name:          tcmu-runner
 Summary:       A daemon that handles the userspace side of the LIO TCM-User backstore
 Group:         System Environment/Kernel
@@ -13,9 +42,18 @@ ExclusiveOS:   Linux
 
 BuildRequires: cmake make gcc
 BuildRequires: libnl3-devel glib2-devel zlib-devel kmod-devel
-BuildRequires: glusterfs-api-devel librados2-devel librbd1-devel
 
-Requires(pre): librados2, librbd1, kmod, zlib, libnl3, glib2, glusterfs-api, logrotate
+%if ( 0%{!?_without_rbd:1} )
+BuildRequires: librbd1-devel librados2-devel
+Requires(pre): librados2, librbd1
+%endif
+
+%if ( 0%{!?_without_glfs:1} )
+BuildRequires: glusterfs-api-devel
+Requires(pre): glusterfs-api
+%endif
+
+Requires(pre): kmod, zlib, libnl3, glib2, logrotate
 
 %description
 A daemon that handles the userspace side of the LIO TCM-User backstore.
@@ -45,7 +83,14 @@ userspace libraries they like.
 %setup -n %{name}-%{version}%{?_RC:-%{_RC}}
 
 %build
-%{__cmake} -DSUPPORT_SYSTEMD=ON -DCMAKE_INSTALL_PREFIX=%{_usr} .
+%{__cmake} \
+ -DSUPPORT_SYSTEMD=ON -DCMAKE_INSTALL_PREFIX=%{_usr} \
+ %{?_without_rbd} \
+ %{?_without_zbc} \
+ %{?_without_qcow} \
+ %{?_without_glfs} \
+ %{?_without_fbo} \
+ .
 %{__make}
 
 %install
@@ -68,7 +113,7 @@ userspace libraries they like.
 %dir %{_datadir}/dbus-1/system-services/
 %{_datadir}/dbus-1/system-services/org.kernel.TCMUService1.service
 %{_unitdir}/tcmu-runner.service
-%dir %{_usr}/lib64/tcmu-runner/
+%dir %{_libdir}/tcmu-runner/
 %{_libdir}/libtcmu*
 %{_libdir}/tcmu-runner/*.so
 %{_mandir}/man8/*
@@ -78,6 +123,9 @@ userspace libraries they like.
 %config(noreplace) %{_sysconfdir}/logrotate.d/tcmu-runner
 
 %changelog
+* Thu Nov 15 2018 Amar Tumballi <amarts@redhat.com>
+- Add options to exclude few dependencies while doing rpmbuild
+
 * Tue Nov 06 2018 Amar Tumballi <amarts@redhat.com>
 - Fix build errors
 
