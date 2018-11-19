@@ -55,6 +55,13 @@ static struct tcmu_config *tcmu_cfg;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
+struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
+{
+	struct tcmulib_handler *handler = tcmu_dev_get_handler(dev);
+
+	return handler->hm_private;
+}
+
 int tcmur_register_handler(struct tcmur_handler *handler)
 {
 	struct tcmur_handler *h;
@@ -775,6 +782,9 @@ static int dev_added(struct tcmu_device *dev)
 	 * but handlers that can do larger internal IOs should override.
 	 */
 	tcmu_dev_set_opt_xcopy_rw_len(dev, max_sectors);
+
+	if (rhandler->unmap)
+		tcmu_dev_set_unmap_enabled(dev, true);
 
 	tcmu_dev_dbg(dev, "Got block_size %d, size in bytes %"PRId64"\n",
 		     block_size, dev_size);

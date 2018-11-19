@@ -20,6 +20,7 @@
 #include "tcmu-runner.h"
 #include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
+#include "tcmu_runner_priv.h"
 #include "target.h"
 
 bool tcmu_dev_in_recovery(struct tcmu_device *dev)

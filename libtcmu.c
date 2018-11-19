@@ -865,6 +865,16 @@ bool tcmu_dev_get_solid_state_media(struct tcmu_device *dev)
 	return dev->solid_state_media;
 }
 
+void tcmu_dev_set_unmap_enabled(struct tcmu_device *dev, bool enabled)
+{
+	dev->unmap_enabled = enabled;
+}
+
+bool tcmu_dev_get_unmap_enabled(struct tcmu_device *dev)
+{
+	return dev->unmap_enabled;
+}
+
 int tcmu_dev_get_fd(struct tcmu_device *dev)
 {
 	return dev->fd;

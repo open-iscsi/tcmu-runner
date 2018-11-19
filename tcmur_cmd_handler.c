@@ -24,6 +24,7 @@
 #include "tcmur_aio.h"
 #include "tcmur_device.h"
 #include "tcmu-runner.h"
+#include "tcmu_runner_priv.h"
 #include "tcmur_cmd_handler.h"
 #include "alua.h"
 

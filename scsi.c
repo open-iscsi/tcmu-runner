@@ -81,13 +81,6 @@ bool char_to_hex(unsigned char *val, char c)
 	return false;
 }
 
-struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
-{
-        struct tcmulib_handler *handler = tcmu_dev_get_handler(dev);
-
-        return handler->hm_private;
-}
-
 int tcmu_emulate_evpd_inquiry(
 	struct tcmu_device *dev,
 	struct tgt_port *port,
@@ -95,8 +88,6 @@ int tcmu_emulate_evpd_inquiry(
 	struct iovec *iovec,
 	size_t iov_cnt)
 {
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-
 	switch (cdb[2]) {
 	case 0x0: /* Supported VPD pages */
 	{
@@ -370,7 +361,7 @@ finish_page83:
 		/* Optimal xfer length */
 		memcpy(&data[12], &val32, 4);
 
-		if (rhandler->unmap) {
+		if (tcmu_dev_get_unmap_enabled(dev)) {
 			/* MAXIMUM UNMAP LBA COUNT */
 			val32 = htobe32(VPD_MAX_UNMAP_LBA_COUNT);
 			memcpy(&data[20], &val32, 4);
@@ -467,7 +458,7 @@ finish_page83:
 		 * This will enable the UNMAP command for the device server and write
 		 * same(10|16) command.
 		 */
-		if (rhandler->unmap)
+		if (tcmu_dev_get_unmap_enabled(dev))
 			data[5] |= 0xe0;
 
 		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, sizeof(data));
