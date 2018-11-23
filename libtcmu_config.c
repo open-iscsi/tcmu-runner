@@ -169,7 +169,8 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg)
 
 	/* set log_dir path option */
 	TCMU_PARSE_CFG_STR(cfg, log_dir_path, TCMU_LOG_DIR_DEFAULT);
-	tcmu_resetup_log_file(cfg->log_dir_path);
+	if (cfg->log_dir_path)
+		tcmu_resetup_log_file(cfg->log_dir_path);
 
 	/* add your new config options */
 }
