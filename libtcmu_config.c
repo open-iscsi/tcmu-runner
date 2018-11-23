@@ -163,9 +163,7 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg)
 {
 	/* set log_level option */
 	TCMU_PARSE_CFG_INT(cfg, log_level, TCMU_CONF_LOG_INFO);
-	if (cfg->log_level) {
-		tcmu_set_log_level(cfg->log_level);
-	}
+	tcmu_set_log_level(cfg->log_level);
 
 	/* set log_dir path option */
 	TCMU_PARSE_CFG_STR(cfg, log_dir_path, TCMU_LOG_DIR_DEFAULT);

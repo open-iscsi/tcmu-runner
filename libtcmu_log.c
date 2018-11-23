@@ -67,6 +67,8 @@ static pthread_mutex_t tcmu_log_dir_lock = PTHREAD_MUTEX_INITIALIZER;
 static inline int to_syslog_level(int level)
 {
 	switch (level) {
+	case TCMU_CONF_LOG_CRIT:
+		return TCMU_LOG_CRIT;
 	case TCMU_CONF_LOG_ERROR:
 		return TCMU_LOG_ERROR;
 	case TCMU_CONF_LOG_WARN:
@@ -95,7 +97,7 @@ void tcmu_set_log_level(int level)
 	else if (level < TCMU_CONF_LOG_LEVEL_MIN)
 		level = TCMU_CONF_LOG_LEVEL_MIN;
 
-	tcmu_info("log level now is %s\n", log_level_lookup[level]);
+	tcmu_crit("log level now is %s\n", log_level_lookup[level]);
 	tcmu_log_level = to_syslog_level(level);
 }
 
@@ -254,6 +256,16 @@ log_internal(int pri, struct tcmu_device *dev, const char *funcname,
 	pthread_cleanup_pop(0);
 }
 
+void tcmu_crit_message(struct tcmu_device *dev, const char *funcname,
+		       int linenr, const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	log_internal(TCMU_LOG_CRIT, dev, funcname, linenr, fmt, args);
+	va_end(args);
+}
+
 void tcmu_err_message(struct tcmu_device *dev, const char *funcname,
 		      int linenr, const char *fmt, ...)
 {
@@ -360,6 +372,8 @@ static int create_syslog_output(struct log_buf *logbuf, int pri,
 static const char *loglevel_string(int priority)
 {
 	switch (priority) {
+	case TCMU_LOG_CRIT:
+		return "CRIT";
 	case TCMU_LOG_ERROR:
 		return "ERROR";
 	case TCMU_LOG_WARN:
@@ -458,7 +472,7 @@ static int create_file_output(struct log_buf *logbuf, int pri,
 	pthread_mutex_unlock(&logbuf->file_out_lock);
 	pthread_cleanup_pop(0);
 
-	tcmu_info("log file path now is '%s'\n", log_file_path);
+	tcmu_crit("log file path now is '%s'\n", log_file_path);
 	return 0;
 }
 
