@@ -14,6 +14,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 
+#define TCMU_LOG_CRIT	LOG_CRIT	/* critical conditions */
 #define TCMU_LOG_ERROR	LOG_ERR		/* error conditions */
 #define TCMU_LOG_WARN	LOG_WARNING	/* warning conditions */
 #define TCMU_LOG_INFO	LOG_INFO	/* informational */
@@ -33,6 +34,8 @@ int tcmu_make_absolute_logfile(char *path, const char *filename);
 int tcmu_resetup_log_file(char *log_dir_path);
 
 __attribute__ ((format (printf, 4, 5)))
+void tcmu_crit_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
+__attribute__ ((format (printf, 4, 5)))
 void tcmu_err_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 __attribute__ ((format (printf, 4, 5)))
 void tcmu_warn_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
@@ -43,6 +46,7 @@ void tcmu_dbg_message(struct tcmu_device *dev, const char *funcname, int linenr,
 __attribute__ ((format (printf, 4, 5)))
 void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);
 
+#define tcmu_dev_crit(dev, ...)  do { tcmu_crit_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_dev_err(dev, ...)  do { tcmu_err_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_dev_warn(dev, ...) do { tcmu_warn_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_dev_info(dev, ...) do { tcmu_info_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
@@ -50,6 +54,7 @@ void tcmu_dbg_scsi_cmd_message(struct tcmu_device *dev, const char *funcname, in
 #define tcmu_dev_dbg_scsi_cmd(dev, ...)  do { tcmu_dbg_scsi_cmd_message(dev, __func__, __LINE__, __VA_ARGS__);} while (0)
 
 
+#define tcmu_crit(...) do { tcmu_crit_message(NULL, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_err(...)  do { tcmu_err_message(NULL, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_warn(...) do { tcmu_warn_message(NULL, __func__, __LINE__, __VA_ARGS__);} while (0)
 #define tcmu_info(...) do { tcmu_info_message(NULL, __func__, __LINE__, __VA_ARGS__);} while (0)

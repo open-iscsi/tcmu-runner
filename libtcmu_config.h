@@ -23,7 +23,8 @@ struct tcmu_config {
 };
 
 /*
- * There are 5 logging levels supported in tcmu.conf:
+ * There are 6 logging levels supported in tcmu.conf:
+ *    0: CRIT
  *    1: ERROR
  *    2: WARNING
  *    3: INFO
@@ -31,7 +32,8 @@ struct tcmu_config {
  *    5: DEBUG SCSI CMD
  */
 enum {
-	TCMU_CONF_LOG_LEVEL_MIN = 1,
+	TCMU_CONF_LOG_LEVEL_MIN = 0,
+	TCMU_CONF_LOG_CRIT = 0,
 	TCMU_CONF_LOG_ERROR = 1,
 	TCMU_CONF_LOG_WARN,
 	TCMU_CONF_LOG_INFO,
@@ -41,6 +43,7 @@ enum {
 };
 
 static const char *const log_level_lookup[] = {
+	[TCMU_CONF_LOG_CRIT]	= "CRIT",
 	[TCMU_CONF_LOG_ERROR]	= "ERROR",
 	[TCMU_CONF_LOG_WARN]	= "WARNING",
 	[TCMU_CONF_LOG_INFO]	= "INFO",
