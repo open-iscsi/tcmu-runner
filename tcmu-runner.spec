@@ -53,7 +53,7 @@ BuildRequires: glusterfs-api-devel
 Requires(pre): glusterfs-api
 %endif
 
-Requires(pre): kmod, zlib, libnl3, glib2, logrotate
+Requires(pre): kmod, zlib, libnl3, glib2, logrotate, rsyslog
 
 %description
 A daemon that handles the userspace side of the LIO TCM-User backstore.
