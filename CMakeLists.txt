@@ -32,6 +32,11 @@ find_package(PkgConfig)
 pkg_check_modules(GLIB REQUIRED gio-unix-2.0)
 pkg_check_modules(KMOD REQUIRED libkmod)
 
+find_program(RSYSLOG rsyslogd)
+if (NOT RSYSLOG)
+  message(FATAL_ERROR "rsyslog not found!")
+endif ()
+
 find_library(PTHREAD pthread)
 find_library(DL dl)
 
