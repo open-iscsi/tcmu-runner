@@ -121,13 +121,3 @@ userspace libraries they like.
 %dir %{_sysconfdir}/tcmu/
 %config %{_sysconfdir}/tcmu/tcmu.conf
 %config(noreplace) %{_sysconfdir}/logrotate.d/tcmu-runner
-
-%changelog
-* Thu Nov 15 2018 Amar Tumballi <amarts@redhat.com>
-- Add options to exclude few dependencies while doing rpmbuild
-
-* Tue Nov 06 2018 Amar Tumballi <amarts@redhat.com>
-- Fix build errors
-
-* Tue Oct 31 2017 Xiubo Li <lixiubo@cmss.chinamobile.com> - 1.3.0-rc4
-- Initial tcmu-runner packaging
