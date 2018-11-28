@@ -1,6 +1,7 @@
 [Unit]
 Description=LIO Userspace-passthrough daemon
-After=network.target
+Wants=rsyslog.service
+After=network.target rsyslog.service
 
 [Service]
 LimitNOFILE=1000000
