@@ -108,6 +108,29 @@ static struct tcmu_conf_option * tcmu_get_option(const char *key)
 	return NULL;
 }
 
+static struct tcmu_conf_option *
+tcmu_register_option(char *key, tcmu_option_type type)
+{
+	struct tcmu_conf_option *option;
+
+	option = calloc(1, sizeof(*option));
+	if (!option)
+		return NULL;
+
+	option->key = strdup(key);
+	if (!option->key)
+		goto free_option;
+	option->type = type;
+	list_node_init(&option->list);
+
+	list_add_tail(&tcmu_options, &option->list);
+	return option;
+
+free_option:
+	free(option);
+	return NULL;
+}
+
 /* The default value should be specified here,
  * so the next time when users comment out an
  * option in config file, here it will set the
@@ -117,35 +140,42 @@ static struct tcmu_conf_option * tcmu_get_option(const char *key)
 do { \
 	struct tcmu_conf_option *option; \
 	option = tcmu_get_option(#key); \
-	if (option) { \
+	if (!option) { \
+		option = tcmu_register_option(#key, TCMU_OPT_INT); \
+		cfg->key = def; \
+	} else { \
 		cfg->key = option->opt_int; \
-		option->opt_int = def; \
 	} \
+	option->opt_int = def; \
 } while (0)
 
 #define TCMU_PARSE_CFG_BOOL(cfg, key, def) \
 do { \
 	struct tcmu_conf_option *option; \
 	option = tcmu_get_option(#key); \
-	if (option) { \
+	if (!option) { \
+		option = tcmu_register_option(#key, TCMU_OPT_BOOL); \
+		cfg->key = def; \
+	} else { \
 		cfg->key = option->opt_bool; \
-		option->opt_bool = def; \
 	} \
+	option->opt_bool = def; \
 } while (0)
 
 #define TCMU_PARSE_CFG_STR(cfg, key, def) \
 do { \
 	struct tcmu_conf_option *option; \
-	char buf[1024]; \
 	option = tcmu_get_option(#key); \
 	memset(cfg->key, 0, sizeof(cfg->key)); \
-	if (option) { \
+	if (!option) { \
+		option = tcmu_register_option(#key, TCMU_OPT_STR); \
+		snprintf(cfg->key, sizeof(cfg->key), def); \
+	} else { \
 		snprintf(cfg->key, sizeof(cfg->key), option->opt_str); \
 		if (option->opt_str) \
 			free(option->opt_str); \
-		sprintf(buf, "%s", def); \
-		option->opt_str = strdup(buf); \
 	} \
+	option->opt_str = strdup(def); \
 } while (0);
 
 static void tcmu_conf_set_options(struct tcmu_config *cfg)
@@ -204,29 +234,6 @@ static int tcmu_read_config(int fd, char *buf, int count)
 
 #define MAX_KEY_LEN 64
 #define MAX_VAL_STR_LEN 256
-
-static struct tcmu_conf_option *
-tcmu_register_option(char *key, tcmu_option_type type)
-{
-	struct tcmu_conf_option *option;
-
-	option = calloc(1, sizeof(*option));
-	if (!option)
-		return NULL;
-
-	option->key = strdup(key);
-	if (!option->key)
-		goto free_option;
-	option->type = type;
-	list_node_init(&option->list);
-
-	list_add_tail(&tcmu_options, &option->list);
-	return option;
-
-free_option:
-	free(option);
-	return NULL;
-}
 
 static void tcmu_parse_option(char **cur, const char *end)
 {

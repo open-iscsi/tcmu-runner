@@ -1222,8 +1222,6 @@ free_config:
 free_opt:
 	if (new_path)
 		free(handler_path);
-	if (log_dir)
-		free(log_dir);
 
 	exit(1);
 }
