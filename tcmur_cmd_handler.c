@@ -101,9 +101,9 @@ static inline int check_iovec_length(struct tcmu_device *dev,
 {
 	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
 
-	if (iov_length != sectors * tcmu_get_dev_block_size(dev)) {
-		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %u, block size %u\n",
-			     iov_length, sectors, tcmu_get_dev_block_size(dev));
+	if (iov_length < sectors * tcmu_get_dev_block_size(dev)) {
+		tcmu_dev_err(dev, "iov size %zu is not enough and needs at least %u\n",
+			     iov_length, sectors * tcmu_get_dev_block_size(dev));
 		return TCMU_STS_HW_ERR;
 	}
 	return TCMU_STS_OK;
