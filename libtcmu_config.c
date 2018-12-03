@@ -404,6 +404,8 @@ static void *dyn_config_start(void *arg)
 	struct tcmu_config *cfg = arg;
 	int monitor, wd, len;
 	char buf[BUF_LEN];
+	char cfg_dir[PATH_MAX];
+	char *p;
 
 	monitor = inotify_init();
 	if (monitor == -1) {
@@ -411,18 +413,35 @@ static void *dyn_config_start(void *arg)
 		return NULL;
 	}
 
-	wd = inotify_add_watch(monitor, cfg->path, IN_ALL_EVENTS);
+	snprintf(cfg_dir, PATH_MAX, cfg->path);
+	p = strrchr(cfg_dir, '/');
+	if (p) {
+		*(p + 1) = '\0';
+	} else {
+		snprintf(cfg_dir, PATH_MAX, "/etc/tcmu/");
+	}
+
+	/* Editors (vim, nano ..) follow different approaches to save conf file.
+	 * The two commonly followed techniques are to overwrite the existing
+	 * file, or to write to a new file (.swp, .tmp ..) and move it to actual
+	 * file name later. In the later case, the inotify fails, because the
+	 * file it's been intended to watch no longer exists, as the new file
+	 * is a different file with just a same name.
+	 * To handle both the file save approaches mentioned above, it is better
+	 * we watch the directory and filter for MODIFY events.
+	 */
+	wd = inotify_add_watch(monitor, cfg_dir, IN_MODIFY);
 	if (wd == -1) {
-		tcmu_err("Failed to add \"%s\" to inotify %m\n", cfg->path);
+		tcmu_err("Failed to add \"%s\" to inotify %m\n", cfg_dir);
 		return NULL;
 	}
 
-	tcmu_info("Inotify is watching \"%s\", wd: %d, mask: IN_ALL_EVENTS\n",
-		  cfg->path, wd);
+	tcmu_info("Inotify is watching \"%s\", wd: %d, mask: IN_MODIFY\n",
+		  cfg_dir, wd);
+
 
 	while (1) {
 		struct inotify_event *event;
-		char *p;
 
 		len = read(monitor, buf, BUF_LEN);
 		if (len == -1) {
@@ -430,7 +449,8 @@ static void *dyn_config_start(void *arg)
 			continue;
 		}
 
-		for (p = buf; p < buf + len;) {
+		for (p = buf; p < buf + len;
+		     p += sizeof(struct inotify_event) + event->len) {
 			event = (struct inotify_event *)p;
 
 			tcmu_info("event->mask: 0x%x\n", event->mask);
@@ -438,20 +458,9 @@ static void *dyn_config_start(void *arg)
 			if (event->wd != wd)
 				continue;
 
-			/*
-			 * If force to write to the unwritable or crashed
-			 * config file, the vi/vim will try to move and
-			 * delete the config file and then recreate it again
-			 * via the *.swp
-			 */
-			if ((event->mask & IN_IGNORED) && !access(cfg->path, F_OK))
-				wd = inotify_add_watch(monitor, cfg->path, IN_ALL_EVENTS);
-
 			/* Try to reload the config file */
-			if (event->mask & IN_MODIFY || event->mask & IN_IGNORED)
+			if (event->mask & IN_MODIFY)
 				tcmu_load_config(cfg);
-
-			p += sizeof(struct inotify_event) + event->len;
 		}
 	}
 
