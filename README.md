@@ -156,11 +156,11 @@ uncomment the following line in /etc/tcmu/tcmu.conf and set your level number:
 The priority of the logdir setting can be managed via following options:
 
 1. Cli argument
-</br>eg: --tcmu_log_dir/-l `LOG_DIR_PATH` [Highest prio]
+</br>eg: --tcmu_log_dir/-l `TCMU_LOGDIR` [Highest prio]
 2. Environment variable
 </br>eg: export TCMU_LOGDIR="/var/log/mylogdir/"
 3. Configuration file
-</br>eg: uncommenting and adjusting value of 'log_dir_path' at /etc/tcmu/tcmu.conf
+</br>eg: uncommenting and adjusting value of 'log_dir' at /etc/tcmu/tcmu.conf
 4. Default logdir as hard coded i.e. '/var/log/' [Least prio]
 
 - System configuration:

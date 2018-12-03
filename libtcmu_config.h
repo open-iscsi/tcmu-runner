@@ -16,10 +16,10 @@
 
 struct tcmu_config {
 	pthread_t thread_id;
-	char *path;
+	char path[PATH_MAX];
 
 	int log_level;
-	char *log_dir_path;
+	char log_dir[PATH_MAX];
 };
 
 /*

@@ -88,11 +88,6 @@ struct tcmu_conf_option {
  *		TCMU_PARSE_CFG_INT(cfg, log_level);
  *		TCMU_CONF_CHECK_LOG_LEVEL(log_level);
  *	}
- * 4, Then add your own free method in if it's a STR KEY:
- *	static void tcmu_conf_free_str_keys(struct tcmu_config *cfg)
- *	{
- *		TCMU_FREE_CFG_STR_KEY(cfg, 'STR KEY');
- *	}
  *
  * Note: For now, if the options have been changed in config file, the
  * system config reload thread daemon will try to update them for all the
@@ -143,20 +138,14 @@ do { \
 	struct tcmu_conf_option *option; \
 	char buf[1024]; \
 	option = tcmu_get_option(#key); \
+	memset(cfg->key, 0, sizeof(cfg->key)); \
 	if (option) { \
-		if (cfg->key) \
-			free(cfg->key); \
-		cfg->key = strdup(option->opt_str); \
+		snprintf(cfg->key, sizeof(cfg->key), option->opt_str); \
 		if (option->opt_str) \
 			free(option->opt_str); \
 		sprintf(buf, "%s", def); \
 		option->opt_str = strdup(buf); \
 	} \
-} while (0);
-
-#define TCMU_FREE_CFG_STR_KEY(cfg, key) \
-do { \
-	free(cfg->key); \
 } while (0);
 
 static void tcmu_conf_set_options(struct tcmu_config *cfg)
@@ -166,21 +155,10 @@ static void tcmu_conf_set_options(struct tcmu_config *cfg)
 	tcmu_set_log_level(cfg->log_level);
 
 	/* set log_dir path option */
-	TCMU_PARSE_CFG_STR(cfg, log_dir_path, TCMU_LOG_DIR_DEFAULT);
-	if (cfg->log_dir_path)
-		tcmu_resetup_log_file(cfg->log_dir_path);
+	TCMU_PARSE_CFG_STR(cfg, log_dir, TCMU_LOG_DIR_DEFAULT);
+	tcmu_resetup_log_file(cfg->log_dir);
 
 	/* add your new config options */
-}
-
-static void tcmu_conf_free_str_keys(struct tcmu_config *cfg)
-{
-	/* add your str type config options
-	 *
-	 * For example:
-	 * TCMU_FREE_CFG_STR_KEY(cfg, 'STR KEY');
-	 */
-	TCMU_FREE_CFG_STR_KEY(cfg, log_dir_path);
 }
 
 #define TCMU_MAX_CFG_FILE_SIZE (2 * 1024 * 1024)
@@ -480,21 +458,14 @@ struct tcmu_config *tcmu_parse_config(const char *path)
 	if (!path)
 		path = "/etc/tcmu/tcmu.conf"; /* the default config file */
 
-	cfg->path = strdup(path);
-	if (!cfg->path) {
-		tcmu_err("failed to copy path: %s\n", path);
-		goto free_cfg;
-	}
-
+	snprintf(cfg->path, PATH_MAX, path);
 	if (tcmu_load_config(cfg)) {
 		tcmu_err("Loading TCMU config failed!\n");
-		goto free_path;
+		goto free_cfg;
 	}
 
 	return cfg;
 
-free_path:
-	free(cfg->path);
 free_cfg:
 	free(cfg);
 	return NULL;
@@ -526,7 +497,5 @@ void tcmu_free_config(struct tcmu_config *cfg)
 		free(option);
 	}
 
-	tcmu_conf_free_str_keys(cfg);
-	free(cfg->path);
 	free(cfg);
 }
