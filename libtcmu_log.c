@@ -396,7 +396,7 @@ static int output_to_fd(int pri, const char *timestamp,
 	char *buf, *msg;
 	int count, ret, written = 0, r, pid = 0;
 
-	if (fd < 0)
+	if (fd == -1)
 		return -1;
 
 	pid = getpid();
@@ -449,7 +449,7 @@ static int create_file_output(struct log_buf *logbuf, int pri,
 	tcmu_dbg("Attempting to use '%s' as the log file path\n", log_file_path);
 
 	fd = open(log_file_path, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
-	if (fd < 0) {
+	if (fd == -1) {
 		tcmu_err("Failed to open %s:%m\n", log_file_path);
 		return fd;
 	}

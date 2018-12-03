@@ -376,7 +376,7 @@ static int tcmu_load_config(struct tcmu_config *cfg)
 		return -ENOMEM;
 
 	fd = open(cfg->path, O_RDONLY);
-	if (fd < 0) {
+	if (fd == -1) {
 		tcmu_err("Failed to open file '%s', %m\n", cfg->path);
 		goto free_buf;
 	}
