@@ -19,7 +19,10 @@ struct tcmu_config {
 	char path[PATH_MAX];
 
 	int log_level;
+	int def_log_level;
+
 	char log_dir[PATH_MAX];
+	char def_log_dir[PATH_MAX];
 };
 
 /*

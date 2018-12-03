@@ -136,56 +136,56 @@ free_option:
  * option in config file, here it will set the
  * default value back.
  */
-#define TCMU_PARSE_CFG_INT(cfg, key, def) \
+#define TCMU_PARSE_CFG_INT(cfg, key) \
 do { \
 	struct tcmu_conf_option *option; \
 	option = tcmu_get_option(#key); \
 	if (!option) { \
 		option = tcmu_register_option(#key, TCMU_OPT_INT); \
-		cfg->key = def; \
+		cfg->key = cfg->def_##key; \
 	} else { \
 		cfg->key = option->opt_int; \
 	} \
-	option->opt_int = def; \
+	option->opt_int = cfg->def_##key;\
 } while (0)
 
-#define TCMU_PARSE_CFG_BOOL(cfg, key, def) \
+#define TCMU_PARSE_CFG_BOOL(cfg, key) \
 do { \
 	struct tcmu_conf_option *option; \
 	option = tcmu_get_option(#key); \
 	if (!option) { \
 		option = tcmu_register_option(#key, TCMU_OPT_BOOL); \
-		cfg->key = def; \
+		cfg->key = cfg->def_##key; \
 	} else { \
 		cfg->key = option->opt_bool; \
 	} \
-	option->opt_bool = def; \
+	option->opt_bool = cfg->def_##key; \
 } while (0)
 
-#define TCMU_PARSE_CFG_STR(cfg, key, def) \
+#define TCMU_PARSE_CFG_STR(cfg, key) \
 do { \
 	struct tcmu_conf_option *option; \
 	option = tcmu_get_option(#key); \
 	memset(cfg->key, 0, sizeof(cfg->key)); \
 	if (!option) { \
 		option = tcmu_register_option(#key, TCMU_OPT_STR); \
-		snprintf(cfg->key, sizeof(cfg->key), def); \
+		snprintf(cfg->key, sizeof(cfg->key), cfg->def_##key); \
 	} else { \
 		snprintf(cfg->key, sizeof(cfg->key), option->opt_str); \
 		if (option->opt_str) \
 			free(option->opt_str); \
 	} \
-	option->opt_str = strdup(def); \
+	option->opt_str = strdup(cfg->def_##key); \
 } while (0);
 
 static void tcmu_conf_set_options(struct tcmu_config *cfg)
 {
 	/* set log_level option */
-	TCMU_PARSE_CFG_INT(cfg, log_level, TCMU_CONF_LOG_INFO);
+	TCMU_PARSE_CFG_INT(cfg, log_level);
 	tcmu_set_log_level(cfg->log_level);
 
 	/* set log_dir path option */
-	TCMU_PARSE_CFG_STR(cfg, log_dir, TCMU_LOG_DIR_DEFAULT);
+	TCMU_PARSE_CFG_STR(cfg, log_dir);
 	tcmu_resetup_log_file(cfg->log_dir);
 
 	/* add your new config options */
@@ -475,8 +475,8 @@ struct tcmu_config* tcmu_initialize_config(void)
 	}
 
 	log_dir = getenv("TCMU_LOGDIR");
-	snprintf(cfg->log_dir, PATH_MAX, log_dir ? log_dir : TCMU_LOG_DIR_DEFAULT);
-	cfg->log_level = TCMU_CONF_LOG_INFO;
+	snprintf(cfg->def_log_dir, PATH_MAX, log_dir ? log_dir : TCMU_LOG_DIR_DEFAULT);
+	cfg->def_log_level = TCMU_CONF_LOG_INFO;
 	snprintf(cfg->path, PATH_MAX, TCMU_CONFIGFILE_DEFAULT);
 
 	return cfg;

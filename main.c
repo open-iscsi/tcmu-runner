@@ -1017,7 +1017,7 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			snprintf(tcmu_cfg->log_dir, PATH_MAX, optarg);
+			snprintf(tcmu_cfg->def_log_dir, PATH_MAX, optarg);
 			break;
 		case 'f':
 			nr_files = atol(optarg);
@@ -1032,7 +1032,7 @@ int main(int argc, char **argv)
 				goto free_config;
 			break;
 		case 'd':
-			tcmu_cfg->log_level = TCMU_CONF_LOG_DEBUG_SCSI_CMD;
+			tcmu_cfg->def_log_level = TCMU_CONF_LOG_DEBUG_SCSI_CMD;
 			break;
 		case 'V':
 			tcmu_info("tcmu-runner %s\n", TCMUR_VERSION);
