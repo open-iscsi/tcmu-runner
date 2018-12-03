@@ -1057,7 +1057,7 @@ int main(int argc, char **argv)
 	if (tcmu_setup_log(tcmu_cfg->log_dir))
 		goto free_config;
 
-	tcmu_info("Starting...\n");
+	tcmu_crit("Starting...\n");
 
 	if (tcmu_watch_config(tcmu_cfg)) {
 		tcmu_warn("Dynamic config file changes is not supported.\n");
@@ -1178,7 +1178,7 @@ int main(int argc, char **argv)
 	}
 	g_main_loop_run(loop);
 
-	tcmu_info("Exiting...\n");
+	tcmu_crit("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
 	g_source_remove(watch_id);
