@@ -350,7 +350,7 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 	tcmu_conf_set_options(cfg);
 }
 
-static int tcmu_load_config(struct tcmu_config *cfg)
+int tcmu_load_config(struct tcmu_config *cfg)
 {
 	int ret = -1;
 	int fd, len;
@@ -452,32 +452,6 @@ static void *dyn_config_start(void *arg)
 	return NULL;
 }
 
-struct tcmu_config *tcmu_parse_config(const char *path)
-{
-	struct tcmu_config *cfg;
-
-	cfg = calloc(1, sizeof(*cfg));
-	if (cfg == NULL) {
-		tcmu_err("Alloc TCMU config failed!\n");
-		return NULL;
-	}
-
-	if (!path)
-		path = "/etc/tcmu/tcmu.conf"; /* the default config file */
-
-	snprintf(cfg->path, PATH_MAX, path);
-	if (tcmu_load_config(cfg)) {
-		tcmu_err("Loading TCMU config failed!\n");
-		goto free_cfg;
-	}
-
-	return cfg;
-
-free_cfg:
-	free(cfg);
-	return NULL;
-}
-
 int tcmu_watch_config(struct tcmu_config *cfg)
 {
 	return pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg);
@@ -486,6 +460,26 @@ int tcmu_watch_config(struct tcmu_config *cfg)
 void tcmu_unwatch_config(struct tcmu_config *cfg)
 {
 	tcmu_thread_cancel(cfg->thread_id);
+}
+
+struct tcmu_config* tcmu_initialize_config(void)
+{
+	struct tcmu_config *cfg;
+	char *log_dir;
+
+	cfg = calloc(1, sizeof(*cfg));
+	if (cfg == NULL) {
+		tcmu_err("allocating TCMU config failed: %m\n");
+		errno = ENOMEM;
+		return NULL;
+	}
+
+	log_dir = getenv("TCMU_LOGDIR");
+	snprintf(cfg->log_dir, PATH_MAX, log_dir ? log_dir : TCMU_LOG_DIR_DEFAULT);
+	cfg->log_level = TCMU_CONF_LOG_INFO;
+	snprintf(cfg->path, PATH_MAX, TCMU_CONFIGFILE_DEFAULT);
+
+	return cfg;
 }
 
 void tcmu_free_config(struct tcmu_config *cfg)

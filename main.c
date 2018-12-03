@@ -992,9 +992,13 @@ int main(int argc, char **argv)
 	bool new_path = false;
 	bool watching_cfg = false;
 	struct flock lock_fd = {0, };
-	char *log_dir = NULL;
 	int fd;
 	int ret;
+
+	if ((tcmu_cfg = tcmu_initialize_config()) == NULL) {
+		tcmu_err("initializing the tcmu config failed: %m\n");
+		exit(EXIT_FAILURE);
+	}
 
 	while (1) {
 		int option_index = 0;
@@ -1013,9 +1017,7 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			log_dir = strdup(optarg);
-			if (!log_dir)
-				goto free_opt;
+			snprintf(tcmu_cfg->log_dir, PATH_MAX, optarg);
 			break;
 		case 'f':
 			nr_files = atol(optarg);
@@ -1023,23 +1025,23 @@ int main(int argc, char **argv)
 				tcmu_err("--nofile=%d should be in [%lu, %lu]\n", nr_files,
 					(unsigned long)TCMUR_MIN_OPEN_FD,
 					(unsigned long)TCMUR_MAX_OPEN_FD);
-				goto free_opt;
+				goto free_config;
 			}
 
 			ret = tcmu_set_max_fd_limit(nr_files);
 			if (ret)
-				goto free_opt;
+				goto free_config;
 			break;
 		case 'd':
-			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG_SCSI_CMD);
+			tcmu_cfg->log_level = TCMU_CONF_LOG_DEBUG_SCSI_CMD;
 			break;
 		case 'V':
 			tcmu_info("tcmu-runner %s\n", TCMUR_VERSION);
-			goto free_opt;
+			goto free_config;
 		default:
 		case 'h':
 			usage();
-			goto free_opt;
+			goto free_config;
 		}
 	}
 
@@ -1048,11 +1050,12 @@ int main(int argc, char **argv)
 	 * the log directory may be configured via the system config file
 	 * which will be used in logger setting up.
 	 */
-	tcmu_cfg = tcmu_parse_config(NULL);
-	if (!tcmu_cfg)
-		goto free_opt;
+	if (tcmu_load_config(tcmu_cfg)) {
+		tcmu_err("Loading TCMU config failed!\n");
+		goto free_config;
+	}
 
-	if (tcmu_setup_log(log_dir))
+	if (tcmu_setup_log(tcmu_cfg->log_dir))
 		goto free_config;
 
 	tcmu_info("Starting...\n");
@@ -1219,7 +1222,6 @@ unwatch_cfg:
 	tcmu_destroy_log();
 free_config:
 	tcmu_free_config(tcmu_cfg);
-free_opt:
 	if (new_path)
 		free(handler_path);
 

@@ -652,13 +652,6 @@ int tcmu_setup_log(char *log_dir)
 	struct log_buf *logbuf;
 	int ret;
 
-	if (!log_dir)
-		log_dir = getenv("TCMU_LOGDIR");
-	if (!log_dir)
-		log_dir = tcmu_log_dir;
-	if (!log_dir)
-		log_dir = TCMU_LOG_DIR_DEFAULT;
-
 	ret = tcmu_log_dir_create(log_dir);
 	if (ret) {
 		tcmu_err("Could not setup log dir %s. Error %d.\n", log_dir,
