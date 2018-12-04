@@ -355,12 +355,21 @@ int tcmu_load_config(struct tcmu_config *cfg)
 	int ret = -1;
 	int fd, len;
 	char *buf;
+	int i;
 
 	buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
 	if (!buf)
 		return -ENOMEM;
 
-	fd = open(cfg->path, O_RDONLY);
+	for (i = 0; i < 5; i++) {
+		if ((fd = open(cfg->path, O_RDONLY)) == -1) {
+			/* give a moment for editor to restore
+			 * the conf-file after edit and save */
+			sleep(1);
+			continue;
+		}
+		break;
+	}
 	if (fd == -1) {
 		tcmu_err("Failed to open file '%s', %m\n", cfg->path);
 		goto free_buf;
