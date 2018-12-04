@@ -30,8 +30,13 @@ int tcmu_cfgfs_get_int(const char *path)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read attribute %s: %s\n",
-			 path, strerror(errno));
+                if (errno == ENOENT) {
+			tcmu_err("Kernel does not support configfs file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open configfs file %s: %s\n",
+				 path, strerror(errno));
+		}
 		return -errno;
 	}
 
@@ -78,9 +83,14 @@ uint64_t tcmu_cfgfs_dev_get_info_u64(struct tcmu_device *dev, const char *name,
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read dev info: %s\n",
-			 strerror(errno));
-		*fn_ret = -EINVAL;
+                if (errno == ENOENT) {
+			tcmu_err("Kernel does not support device info file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open device info file %s: %s\n",
+				 path, strerror(errno));
+		}
+		*fn_ret = -errno;
 		return 0;
 	}
 
@@ -285,8 +295,13 @@ char *tcmu_cfgfs_dev_get_wwn(struct tcmu_device *dev)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read unit serial: %s\n",
-			 strerror(errno));
+                if (errno == ENOENT) {
+			tcmu_err("Kernel does not support unit serial file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open unit serial file %s: %s\n",
+				 path, strerror(errno));
+		}
 		return NULL;
 	}
 
@@ -322,8 +337,13 @@ char *tcmu_cfgfs_get_str(const char *path)
 	memset(buf, 0, sizeof(buf));
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read attribute %s: %s\n",
-			  path, strerror(errno));
+                if (errno == ENOENT) {
+			tcmu_err("Kernel does not support configfs file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open configfs file %s: %s\n",
+				 path, strerror(errno));
+		}
 		return NULL;
 	}
 
@@ -387,8 +407,13 @@ int tcmu_cfgfs_set_str(const char *path, const char *val, int val_len)
 
 	fd = open(path, O_WRONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to write attribute %s: %s\n",
-			 path, strerror(errno));
+                if (errno == ENOENT) {
+			tcmu_err("Kernel does not support configfs file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open configfs file %s: %s\n",
+				 path, strerror(errno));
+		}
 		return -errno;
 	}
 
