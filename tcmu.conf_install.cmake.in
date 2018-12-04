@@ -1,3 +1,4 @@
-if (NOT EXISTS "/etc/tcmu/tcmu.conf")
-	file(INSTALL "${PROJECT_SOURCE_DIR}/tcmu.conf" DESTINATION "/etc/tcmu")
+if (EXISTS "/etc/tcmu/tcmu.conf")
+	file(INSTALL "/etc/tcmu/tcmu.conf" DESTINATION "/etc/tcmu/" RENAME "tcmu.conf.old")
 endif()
+file(INSTALL "${PROJECT_SOURCE_DIR}/tcmu.conf" DESTINATION "/etc/tcmu/")
