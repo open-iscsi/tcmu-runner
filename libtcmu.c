@@ -378,6 +378,7 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 	struct tcmu_device *dev;
 	struct tcmu_mailbox *mb;
 	char str_buf[256];
+	bool reset_supp = true;
 	int fd;
 	int ret;
 	char *ptr, *oldptr;
@@ -451,11 +452,17 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		 * from a fresh slate. We will unblock below when we are
 		 * completely setup.
 		 */
-		tcmu_cfgfs_dev_block(dev);
+		ret = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
 		/*
-		 * Force a retry of the outstanding commands.
+		 * As long as the block_dev file existed, try to reset
+		 * just in case the kernel was in a invald state.
 		 */
-		if (tcmu_cfgfs_file_is_supported(dev, "action")) {
+		if (ret == -ENOENT) {
+			reset_supp = false;
+		} else {
+			/*
+			 * Force a retry of the outstanding commands.
+			 */
 			ret = tcmu_cfgfs_dev_exec_action(dev, "reset_ring", 1);
 			if (ret)
 				tcmu_dev_err(dev, "Could not reset ring %d.\n", ret);
@@ -515,8 +522,8 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 
 	darray_append(ctx->devices, dev);
 
-	if (reopen)
-		tcmu_cfgfs_dev_unblock(dev);
+	if (reopen && reset_supp)
+		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
 	return 0;
 
@@ -525,8 +532,8 @@ err_munmap:
 err_fd_close:
 	close(dev->fd);
 err_unblock:
-	if (reopen)
-		tcmu_cfgfs_dev_unblock(dev);
+	if (reopen && reset_supp)
+		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 err_free:
 	free(dev);
 
@@ -562,7 +569,7 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 	 * shutdown and allow IO to complete normally.
 	 */
 	if (should_block) {
-		tcmu_cfgfs_dev_block(dev);
+		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
 		tcmu_dev_flush_ring(dev);
 	}
 
@@ -580,7 +587,7 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 	}
 
 	if (should_block)
-		tcmu_cfgfs_dev_unblock(dev);
+		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
 	tcmu_dev_dbg(dev, "removed from tcmulib.\n");
 	free(dev);

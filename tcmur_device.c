@@ -340,7 +340,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 	bool reopen;
 
 	/* Block the kernel device. */
-	tcmu_cfgfs_dev_block(dev);
+	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
 
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	if (aio_wait_for_empty_queue(rdev)) {
@@ -411,7 +411,7 @@ done:
 	pthread_cond_signal(&rdev->lock_cond);
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	tcmu_cfgfs_dev_unblock(dev);
+	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
 	return ret;
 }

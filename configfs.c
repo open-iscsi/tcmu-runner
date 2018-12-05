@@ -233,49 +233,6 @@ int tcmu_cfgfs_nl_reset(void)
 	return 0;
 }
 
-int tcmu_cfgfs_dev_block(struct tcmu_device *dev)
-{
-	int rc;
-
-	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
-		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
-		return -EOPNOTSUPP;
-	}
-
-	/*
-	 * Afer we set block_dev=1 the kernel will have freed
-	 * cmds in the qfull queue and no new commands will be sent to
-	 * us.
-	 */
-	tcmu_dev_dbg(dev, "blocking kernel device\n");
-	rc = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
-	if (rc) {
-		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
-		return rc;
-	}
-	tcmu_dev_dbg(dev, "block done\n");
-	return 0;
-}
-
-int tcmu_cfgfs_dev_unblock(struct tcmu_device *dev)
-{
-	int rc;
-
-	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
-		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
-		return -EOPNOTSUPP;
-	}
-
-	tcmu_dev_dbg(dev, "unblocking kernel device\n");
-	rc = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
-	if (rc) {
-		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
-		return rc;
-	}
-	tcmu_dev_dbg(dev, "unblock done\n");
-	return 0;
-}
-
 /*
  * Return a string that contains the device's WWN, or NULL.
  *
@@ -436,25 +393,16 @@ int tcmu_cfgfs_set_u32(const char *path, uint32_t val)
 	return tcmu_cfgfs_set_str(path, buf, strlen(buf) + 1);
 }
 
-bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name)
-{
-	char path[PATH_MAX];
-
-	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/%s",
-		 dev->tcm_hba_name, dev->tcm_dev_name, name);
-
-	if (access(path, F_OK) == -1)
-		return false;
-
-	return true;
-}
-
 int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
 			       uint32_t val)
 {
 	char path[PATH_MAX];
+	int ret;
 
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/action/%s",
 		 dev->tcm_hba_name, dev->tcm_dev_name, name);
-	return tcmu_cfgfs_set_u32(path, val);
+	tcmu_dev_dbg(dev, "executing action %s\n", name);
+	ret = tcmu_cfgfs_set_u32(path, val);
+	tcmu_dev_dbg(dev, "action %s done\n", name);
+	return ret;
 }
