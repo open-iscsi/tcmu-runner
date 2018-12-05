@@ -55,6 +55,13 @@ static struct tcmu_config *tcmu_cfg;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
 
+struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
+{
+	struct tcmulib_handler *handler = tcmu_dev_get_handler(dev);
+
+	return handler->hm_private;
+}
+
 int tcmur_register_handler(struct tcmur_handler *handler)
 {
 	struct tcmur_handler *h;
@@ -566,7 +573,7 @@ static void tcmur_stop_device(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	bool is_open = false;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -608,7 +615,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct pollfd pfd;
 	int ret;
 	bool dev_stopping = false;
@@ -624,7 +631,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 		while (!dev_stopping && (cmd = tcmulib_get_next_command(dev)) != NULL) {
 
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
-				tcmu_print_cdb_info(dev, cmd, NULL);
+				tcmu_cdb_print_info(dev, cmd, NULL);
 
 			if (tcmur_handler_is_passthrough_only(rhandler))
 				ret = tcmur_cmd_passthrough_handler(dev, cmd);
@@ -632,7 +639,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 				ret = tcmur_generic_handle_cmd(dev, cmd);
 
 			if (ret == TCMU_STS_NOT_HANDLED)
-				tcmu_print_cdb_info(dev, cmd, "is not supported");
+				tcmu_cdb_print_info(dev, cmd, "is not supported");
 
 			/*
 			 * command (processing) completion is called in the following
@@ -650,7 +657,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 		if (completed)
 			tcmulib_processing_complete(dev);
 
-		pfd.fd = tcmu_get_dev_fd(dev);
+		pfd.fd = tcmu_dev_get_fd(dev);
 		pfd.events = POLLIN;
 		pfd.revents = 0;
 
@@ -696,7 +703,7 @@ static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
-	if (tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev) ==
+	if (tcmu_dev_get_num_lbas(dev) * tcmu_dev_get_block_size(dev) ==
 	    cfg->data.dev_size)
 		return 0;
 
@@ -704,11 +711,10 @@ static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 	if (ret)
 		return ret;
 
-	ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
-	if (!ret)
-		tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
-
-	return ret;
+	tcmu_dev_set_num_lbas(dev, cfg->data.dev_size /
+			      tcmu_dev_get_block_size(dev));
+	tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+	return 0;
 }
 
 static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
@@ -738,43 +744,47 @@ static int dev_added(struct tcmu_device *dev)
 	rdev = calloc(1, sizeof(*rdev));
 	if (!rdev)
 		return -ENOMEM;
-	tcmu_set_daemon_dev_private(dev, rdev);
+
+	tcmu_dev_set_private(dev, rdev);
 	list_node_init(&rdev->recovery_entry);
 	rdev->dev = dev;
 
 	ret = -EINVAL;
-	block_size = tcmu_get_attribute(dev, "hw_block_size");
+	block_size = tcmu_cfgfs_dev_get_attr_int(dev, "hw_block_size");
 	if (block_size <= 0) {
 		tcmu_dev_err(dev, "Could not get hw_block_size\n");
 		goto free_rdev;
 	}
-	tcmu_set_dev_block_size(dev, block_size);
+	tcmu_dev_set_block_size(dev, block_size);
 
-	dev_size = tcmu_get_dev_size(dev);
-	if (dev_size < 0) {
+	dev_size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
+	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get device size\n");
 		goto free_rdev;
 	}
-	tcmu_set_dev_num_lbas(dev, dev_size / block_size);
+	tcmu_dev_set_num_lbas(dev, dev_size / block_size);
 
-	max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
+	max_sectors = tcmu_cfgfs_dev_get_attr_int(dev, "hw_max_sectors");
 	if (max_sectors < 0)
 		goto free_rdev;
-	tcmu_set_dev_max_xfer_len(dev, max_sectors);
+	tcmu_dev_set_max_xfer_len(dev, max_sectors);
 
 	/*
 	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
 	 * alignment starts at the begining of the device. Handlers can
 	 * override in their open function.
 	 */
-	tcmu_set_dev_max_unmap_len(dev, VPD_MAX_UNMAP_LBA_COUNT);
-	tcmu_set_dev_opt_unmap_gran(dev, max_sectors, true);
-	tcmu_set_dev_unmap_gran_align(dev, 0);
+	tcmu_dev_set_max_unmap_len(dev, VPD_MAX_UNMAP_LBA_COUNT);
+	tcmu_dev_set_opt_unmap_gran(dev, max_sectors, true);
+	tcmu_dev_set_unmap_gran_align(dev, 0);
 	/*
 	 * By default we will try to do RWs for xcopys in max_sector chunks,
 	 * but handlers that can do larger internal IOs should override.
 	 */
-	tcmu_set_dev_opt_xcopy_rw_len(dev, max_sectors);
+	tcmu_dev_set_opt_xcopy_rw_len(dev, max_sectors);
+
+	if (rhandler->unmap)
+		tcmu_dev_set_unmap_enabled(dev, true);
 
 	tcmu_dev_dbg(dev, "Got block_size %d, size in bytes %"PRId64"\n",
 		     block_size, dev_size);
@@ -850,7 +860,7 @@ free_rdev:
 
 static void dev_removed(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int ret;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -869,7 +879,7 @@ static void dev_removed(struct tcmu_device *dev)
 	if (aio_wait_for_empty_queue(rdev))
 		tcmu_dev_err(dev, "could not flush queue.\n");
 
-	tcmu_cancel_thread(rdev->cmdproc_thread);
+	tcmu_thread_cancel(rdev->cmdproc_thread);
 	tcmur_stop_device(dev);
 
 	cleanup_io_work_queue(dev, false);
@@ -978,6 +988,7 @@ int main(int argc, char **argv)
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
 	guint watch_id;
+	bool reset_nl_supp = true;
 	bool new_path = false;
 	bool watching_cfg = false;
 	struct flock lock_fd = {0, };
@@ -1077,8 +1088,24 @@ int main(int argc, char **argv)
 
 	tcmu_dbg("handler path: %s\n", handler_path);
 
-	tcmu_block_netlink();
-	tcmu_reset_netlink();
+	/*
+	 * If this is a restart we need to prevent new nl cmds from being
+	 * sent to us until we have everything ready.
+	 */
+	tcmu_dbg("blocking netlink\n");
+	ret = tcmu_cfgfs_mod_param_set_u32("block_netlink", 1);
+	tcmu_dbg("blocking netlink done\n");
+	if (ret == -ENOENT) {
+		reset_nl_supp = false;
+	} else {
+		/*
+		 * If it exists ignore errors and try to reset in case kernel is
+		 * in an invalid state
+		 */
+		tcmu_dbg("reseting netlink\n");
+		tcmu_cfgfs_mod_param_set_u32("reset_netlink", 1);
+		tcmu_dbg("reset netlink done\n");
+	}
 
 	ret = open_handlers();
 	if (ret < 0) {
@@ -1144,7 +1171,8 @@ int main(int argc, char **argv)
 				NULL  // user date free func
 		);
 
-	tcmu_unblock_netlink();
+	if (reset_nl_supp)
+		tcmu_cfgfs_mod_param_set_u32("block_netlink", 0);
 	g_main_loop_run(loop);
 
 	tcmu_info("Exiting...\n");
@@ -1175,7 +1203,9 @@ err_tcmulib_close:
 err_free_handlers:
 	darray_free(handlers);
 close_fd:
-	tcmu_unblock_netlink();
+	if (reset_nl_supp)
+		tcmu_cfgfs_mod_param_set_u32("block_netlink", 0);
+
 	lock_fd.l_type = F_UNLCK;
 	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
 		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",

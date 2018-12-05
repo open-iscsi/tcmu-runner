@@ -22,7 +22,7 @@
 #include "darray.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
-#include "tcmu-runner.h"
+#include "libtcmu_common.h"
 
 #include "ccan/list/list.h"
 
@@ -498,7 +498,7 @@ int tcmu_watch_config(struct tcmu_config *cfg)
 
 void tcmu_unwatch_config(struct tcmu_config *cfg)
 {
-	tcmu_cancel_thread(cfg->thread_id);
+	tcmu_thread_cancel(cfg->thread_id);
 }
 
 void tcmu_free_config(struct tcmu_config *cfg)

@@ -62,6 +62,7 @@
 #endif
 
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 #include "scsi_defs.h"
 #include "qcow.h"
 #include "qcow2.h"
@@ -1388,34 +1389,35 @@ static int qcow_open(struct tcmu_device *dev, bool reopen)
 {
 	struct bdev *bdev;
 	char *config;
+	int ret;
 
 	bdev = calloc(1, sizeof(*bdev));
 	if (!bdev)
 		return -1;
 
-	tcmu_set_dev_private(dev, bdev);
+	tcmur_dev_set_private(dev, bdev);
 
-	bdev->block_size = tcmu_get_dev_block_size(dev);
-	bdev->size = tcmu_get_dev_size(dev);
-	if (bdev->size < 0) {
+	bdev->block_size = tcmu_dev_get_block_size(dev);
+	bdev->size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
+	if (ret < 0) {
 		tcmu_err("Could not get device size\n");
 		goto err;
 	}
 
-	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
+	config = strchr(tcmu_dev_get_cfgstring(dev), '/');
 	if (!config) {
 		tcmu_err("no configuration found in cfgstring\n");
 		goto err;
 	}
 	config += 1; /* get past '/' */
 
-	tcmu_dbg("%s\n", tcmu_get_dev_cfgstring(dev));
+	tcmu_dbg("%s\n", tcmu_dev_get_cfgstring(dev));
 	tcmu_dbg("%s\n", config);
 
 	/*
 	 * Force WCE=1 until we support reconfig for WCE
 	 */
-	tcmu_set_dev_write_cache_enabled(dev, 1);
+	tcmu_dev_set_write_cache_enabled(dev, 1);
 
 	if (bdev_open(bdev, AT_FDCWD, config, O_RDWR) == -1)
 		goto err;
@@ -1427,7 +1429,7 @@ err:
 
 static void qcow_close(struct tcmu_device *dev)
 {
-	struct bdev *bdev = tcmu_get_dev_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 
 	bdev->ops->close(bdev);
 	free(bdev);
@@ -1437,7 +1439,7 @@ static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		     struct iovec *iovec, size_t iov_cnt, size_t length,
 		     off_t offset)
 {
-	struct bdev *bdev = tcmu_get_dev_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -1448,7 +1450,7 @@ static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			ret = TCMU_STS_RD_ERR;
 			goto done;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
@@ -1461,7 +1463,7 @@ static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		      struct iovec *iovec, size_t iov_cnt, size_t length,
 		      off_t offset)
 {
-	struct bdev *bdev = tcmu_get_dev_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -1472,7 +1474,7 @@ static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
@@ -1483,7 +1485,7 @@ done:
 
 static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct bdev *bdev = tcmu_get_dev_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 	int ret;
 
 	if (fsync(bdev->fd)) {

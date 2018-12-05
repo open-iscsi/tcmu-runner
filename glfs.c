@@ -466,7 +466,7 @@ static char* tcmu_get_path( struct tcmu_device *dev)
 {
 	char *config;
 
-	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
+	config = strchr(tcmu_dev_get_cfgstring(dev), '/');
 	if (!config) {
 		tcmu_dev_err(dev, "no configuration found in cfgstring\n");
 		return NULL;
@@ -483,14 +483,14 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 	struct stat st;
 	int ret = -EIO;
 	long long dev_size;
-	uint32_t block_size = tcmu_get_dev_block_size(dev);
+	uint32_t block_size = tcmu_dev_get_block_size(dev);
 
 	gfsp = calloc(1, sizeof(*gfsp));
 	if (!gfsp)
 		return -ENOMEM;
 
-	tcmu_set_dev_private(dev, gfsp);
-	tcmu_set_dev_write_cache_enabled(dev, 1);
+	tcmur_dev_set_private(dev, gfsp);
+	tcmu_dev_set_write_cache_enabled(dev, 1);
 
 	config = tcmu_get_path(dev);
 	if (!config) {
@@ -516,7 +516,7 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 		goto close;
 	}
 
-	dev_size = tcmu_get_dev_num_lbas(dev) * block_size;
+	dev_size = tcmu_dev_get_num_lbas(dev) * block_size;
 	if (st.st_size != dev_size) {
 		/*
 		 * The glfs allows the backend file size not to align
@@ -560,7 +560,7 @@ fail:
 
 static void tcmu_glfs_close(struct tcmu_device *dev)
 {
-	struct glfs_state *gfsp = tcmu_get_dev_private(dev);
+	struct glfs_state *gfsp = tcmur_dev_get_private(dev);
 
 	glfs_close(gfsp->gfd);
 	gluster_cache_refresh(gfsp->fs, tcmu_get_path(dev));
@@ -601,7 +601,7 @@ static int tcmu_glfs_read(struct tcmu_device *dev,
                           struct iovec *iov, size_t iov_cnt,
                           size_t length, off_t offset)
 {
-	struct glfs_state *state = tcmu_get_dev_private(dev);
+	struct glfs_state *state = tcmur_dev_get_private(dev);
 	glfs_cbk_cookie *cookie;
 
 	cookie = calloc(1, sizeof(*cookie));
@@ -633,7 +633,7 @@ static int tcmu_glfs_write(struct tcmu_device *dev,
                            struct iovec *iov, size_t iov_cnt,
                            size_t length, off_t offset)
 {
-	struct glfs_state *state = tcmu_get_dev_private(dev);
+	struct glfs_state *state = tcmur_dev_get_private(dev);
 	glfs_cbk_cookie *cookie;
 
 	cookie = calloc(1, sizeof(*cookie));
@@ -663,7 +663,7 @@ out:
 static int tcmu_glfs_reconfig(struct tcmu_device *dev,
                               struct tcmulib_cfg_info *cfg)
 {
-	struct glfs_state *gfsp = tcmu_get_dev_private(dev);
+	struct glfs_state *gfsp = tcmur_dev_get_private(dev);
 	struct stat st;
 	int ret = -EIO;
 
@@ -693,7 +693,7 @@ static int tcmu_glfs_reconfig(struct tcmu_device *dev,
 static int tcmu_glfs_flush(struct tcmu_device *dev,
                            struct tcmulib_cmd *cmd)
 {
-	struct glfs_state *state = tcmu_get_dev_private(dev);
+	struct glfs_state *state = tcmur_dev_get_private(dev);
 	glfs_cbk_cookie *cookie;
 
 	cookie = calloc(1, sizeof(*cookie));
@@ -722,7 +722,7 @@ out:
 static int tcmu_glfs_discard(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
                              uint64_t offset, uint64_t length)
 {
-	struct glfs_state *state = tcmu_get_dev_private(dev);
+	struct glfs_state *state = tcmur_dev_get_private(dev);
 	glfs_cbk_cookie *cookie;
 	ssize_t ret;
 
@@ -755,11 +755,11 @@ static int tcmu_glfs_writesame(struct tcmu_device *dev,
 			       uint64_t offset, uint64_t length,
 			       struct iovec *iov, size_t iov_cnt)
 {
-	struct glfs_state *state = tcmu_get_dev_private(dev);
+	struct glfs_state *state = tcmur_dev_get_private(dev);
 	glfs_cbk_cookie *cookie;
 	ssize_t ret;
 
-	if (!tcmu_zeroed_iovec(iov, iov_cnt)) {
+	if (!tcmu_iovec_zeroed(iov, iov_cnt)) {
 		tcmu_dev_warn(dev,
 			      "Received none zeroed data, will fall back to writesame emulator instead.\n");
 		return TCMU_STS_NOT_HANDLED;

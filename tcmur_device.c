@@ -20,11 +20,12 @@
 #include "tcmu-runner.h"
 #include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
+#include "tcmu_runner_priv.h"
 #include "target.h"
 
 bool tcmu_dev_in_recovery(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int in_recov = false;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -39,7 +40,7 @@ bool tcmu_dev_in_recovery(struct tcmu_device *dev)
  */
 int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret, attempt = 0;
 	bool needs_close = false;
@@ -120,7 +121,7 @@ done:
  */
 int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
 	pthread_mutex_lock(&rdev->state_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY) {
@@ -135,7 +136,7 @@ int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 
 void tcmu_cancel_recovery(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
 	/*
 	 * Only file and qcow can be canceled in their open/close calls, but
@@ -164,7 +165,7 @@ void tcmu_cancel_recovery(struct tcmu_device *dev)
  */
 void tcmu_notify_conn_lost(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
 	pthread_mutex_lock(&rdev->state_lock);
 
@@ -202,7 +203,7 @@ unlock:
  */
 void tcmu_notify_lock_lost(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
 	pthread_mutex_lock(&rdev->state_lock);
 	tcmu_dev_warn(dev, "Async lock drop. Old state %d\n", rdev->lock_state);
@@ -219,7 +220,7 @@ void tcmu_notify_lock_lost(struct tcmu_device *dev)
 
 int tcmu_cancel_lock_thread(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int ret;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -241,7 +242,7 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev)
 void tcmu_release_dev_lock(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int ret;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -268,7 +269,7 @@ void tcmu_release_dev_lock(struct tcmu_device *dev)
 int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int retry = 0, ret;
 
 	if (rdev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT)
@@ -334,12 +335,12 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 			  uint16_t tag)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int retries = 0, ret = TCMU_STS_HW_ERR;
 	bool reopen;
 
 	/* Block the kernel device. */
-	tcmu_block_device(dev);
+	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
 
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	if (aio_wait_for_empty_queue(rdev)) {
@@ -354,7 +355,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 	 * the STPG.
 	 */
 	if (!is_sync)
-		tcmu_flush_device(dev);
+		tcmu_dev_flush_ring(dev);
 
 	reopen = false;
 	pthread_mutex_lock(&rdev->state_lock);
@@ -410,7 +411,7 @@ done:
 	pthread_cond_signal(&rdev->lock_cond);
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	tcmu_unblock_device(dev);
+	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
 	return ret;
 }
@@ -418,7 +419,7 @@ done:
 void tcmu_update_dev_lock_state(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int state;
 
 	if (!rhandler->get_lock_state)
@@ -433,4 +434,18 @@ void tcmu_update_dev_lock_state(struct tcmu_device *dev)
 		rdev->lock_lost = true;
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
+}
+
+void tcmur_dev_set_private(struct tcmu_device *dev, void *private)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+
+	rdev->hm_private = private;
+}
+
+void *tcmur_dev_get_private(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+
+	return rdev->hm_private;
 }

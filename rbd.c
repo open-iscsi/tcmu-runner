@@ -113,7 +113,7 @@ struct rbd_aio_cb {
 static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
 					   bool has_lock)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	char *status_buf = NULL;
 	int ret;
 
@@ -136,7 +136,7 @@ static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
 
 static int tcmu_rbd_service_register(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	struct utsname u;
 	char *daemon_buf = NULL;
 	char *metadata_buf = NULL;
@@ -240,7 +240,7 @@ static bool tcmu_rbd_match_device_class(struct tcmu_device *dev,
 					const char *crush_rule,
 					const char *device_class)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	char *mon_cmd_bufs[2] = {NULL, NULL};
 	char *mon_buf = NULL, *mon_status_buf = NULL;
 	size_t mon_buf_len = 0, mon_status_buf_len = 0;
@@ -280,7 +280,7 @@ static bool tcmu_rbd_match_device_class(struct tcmu_device *dev,
 
 static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	char *mon_cmd_bufs[2] = {NULL, NULL};
 	char *mon_buf = NULL, *mon_status_buf = NULL;
 	size_t mon_buf_len = 0, mon_status_buf_len = 0;
@@ -337,7 +337,7 @@ static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 	    tcmu_rbd_match_device_class(dev, crush_rule, "nvme")) {
 		tcmu_dev_dbg(dev, "Pool %s associated to solid state device class.\n",
 			     state->pool_name);
-		tcmu_set_dev_solid_state_media(dev, true);
+		tcmu_dev_set_solid_state_media(dev, true);
 	}
 
 	free(crush_rule);
@@ -345,7 +345,7 @@ static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 
 static void tcmu_rbd_image_close(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 
 	rbd_close(state->image);
 	rados_ioctx_destroy(state->io_ctx);
@@ -358,7 +358,7 @@ static void tcmu_rbd_image_close(struct tcmu_device *dev)
 
 static int timer_check_and_set_def(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	char buf[128];
 	int grace, interval, ret, len;
 	float timeout;
@@ -429,7 +429,7 @@ set:
 
 static int tcmu_rbd_image_open(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
 	ret = rados_create(&state->cluster, state->id);
@@ -507,7 +507,7 @@ rados_shutdown:
  */
 static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret, is_owner;
 
 	ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
@@ -550,7 +550,7 @@ static int tcmu_rbd_get_lock_state(struct tcmu_device *dev)
  */
 static int tcmu_rbd_lock_break(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	rbd_lock_mode_t lock_mode;
 	char *owners[1];
 	size_t num_owners = 1;
@@ -604,7 +604,7 @@ static int tcmu_rbd_to_sts(int rc)
 
 static int tcmu_rbd_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	char *metadata_owner, *owners[1];
 	size_t num_owners = 1;
 	rbd_lock_mode_t lock_mode;
@@ -671,7 +671,7 @@ done:
 
 static int tcmu_rbd_set_lock_tag(struct tcmu_device *dev, uint16_t tcmu_tag)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	rbd_lock_mode_t lock_mode;
 	char *owners[1];
 	size_t num_owners = 1;
@@ -715,7 +715,7 @@ free_owners:
 
 static int tcmu_rbd_unlock(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
 	if (tcmu_rbd_has_lock(dev) != 1)
@@ -731,7 +731,7 @@ static int tcmu_rbd_unlock(struct tcmu_device *dev)
 
 static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
 	ret = tcmu_rbd_has_lock(dev);
@@ -765,7 +765,7 @@ done:
 
 static void tcmu_rbd_check_excl_lock_enabled(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	uint64_t features = 0;
 	int ret;
 
@@ -806,7 +806,7 @@ static void tcmu_rbd_state_free(struct tcmu_rbd_state *state)
 
 static int tcmu_rbd_check_image_size(struct tcmu_device *dev, uint64_t new_size)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	uint64_t rbd_size;
 	int ret;
 
@@ -838,9 +838,9 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	state = calloc(1, sizeof(*state));
 	if (!state)
 		return -ENOMEM;
-	tcmu_set_dev_private(dev, state);
+	tcmur_dev_set_private(dev, state);
 
-	dev_cfg_dup = strdup(tcmu_get_dev_cfgstring(dev));
+	dev_cfg_dup = strdup(tcmu_dev_get_cfgstring(dev));
 	config = dev_cfg_dup;
 	if (!config) {
 		ret = -ENOMEM;
@@ -848,8 +848,8 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	}
 
 	tcmu_dev_dbg(dev, "tcmu_rbd_open config %s block size %u num lbas %" PRIu64 ".\n",
-		     config, tcmu_get_dev_block_size(dev),
-		     tcmu_get_dev_num_lbas(dev));
+		     config, tcmu_dev_get_block_size(dev),
+		     tcmu_dev_get_num_lbas(dev));
 
 	config = strchr(config, '/');
 	if (!config) {
@@ -922,8 +922,8 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 
 	tcmu_rbd_check_excl_lock_enabled(dev);
 
-	ret = tcmu_rbd_check_image_size(dev, tcmu_get_dev_block_size(dev) *
-					tcmu_get_dev_num_lbas(dev));
+	ret = tcmu_rbd_check_image_size(dev, tcmu_dev_get_block_size(dev) *
+					tcmu_dev_get_num_lbas(dev));
 	if (ret) {
 		goto stop_image;
 	}
@@ -940,12 +940,12 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	 * overflowing the OSD/ceph side queues with discards/RWs limit it to
 	 * up to 4.
 	 */
-	max_blocks = (image_info.obj_size * 4) / tcmu_get_dev_block_size(dev);
-	tcmu_set_dev_opt_xcopy_rw_len(dev, max_blocks);
-	tcmu_set_dev_max_unmap_len(dev, max_blocks);
-	tcmu_set_dev_opt_unmap_gran(dev, image_info.obj_size /
-				    tcmu_get_dev_block_size(dev), false);
-	tcmu_set_dev_write_cache_enabled(dev, 0);
+	max_blocks = (image_info.obj_size * 4) / tcmu_dev_get_block_size(dev);
+	tcmu_dev_set_opt_xcopy_rw_len(dev, max_blocks);
+	tcmu_dev_set_max_unmap_len(dev, max_blocks);
+	tcmu_dev_set_opt_unmap_gran(dev, image_info.obj_size /
+				    tcmu_dev_get_block_size(dev), false);
+	tcmu_dev_set_write_cache_enabled(dev, 0);
 
 	free(dev_cfg_dup);
 	return 0;
@@ -961,7 +961,7 @@ free_state:
 
 static void tcmu_rbd_close(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 
 	tcmu_rbd_image_close(dev);
 	tcmu_rbd_state_free(state);
@@ -1009,7 +1009,7 @@ static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev,
 
 static rbd_image_t tcmu_dev_to_image(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	return state->image;
 }
 
@@ -1025,7 +1025,7 @@ static int tcmu_rbd_aio_read(struct tcmu_device *dev, struct rbd_aio_cb *aio_cb,
 			     rbd_completion_t completion, struct iovec *iov,
 			     size_t iov_cnt, size_t length, off_t offset)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
 	aio_cb->bounce_buffer = malloc(length);
@@ -1045,7 +1045,7 @@ static int tcmu_rbd_aio_write(struct tcmu_device *dev, struct rbd_aio_cb *aio_cb
 			      rbd_completion_t completion, struct iovec *iov,
 			      size_t iov_cnt, size_t length, off_t offset)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
 	aio_cb->bounce_buffer = malloc(length);
@@ -1094,7 +1094,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		tcmu_dev_dbg(dev, "CAW miscompare at offset %u.\n", cmp_offset);
 
 		tcmu_r = TCMU_STS_MISCOMPARE;
-		tcmu_set_sense_info(tcmulib_cmd->sense_buf, cmp_offset);
+		tcmu_sense_set_info(tcmulib_cmd->sense_buf, cmp_offset);
 	} else if (ret == -EINVAL) {
 		tcmu_dev_err(dev, "Invalid IO request.\n");
 		tcmu_r = TCMU_STS_INVALID_CDB;
@@ -1208,7 +1208,7 @@ out:
 static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			  uint64_t off, uint64_t len)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
 	ssize_t ret;
@@ -1248,7 +1248,7 @@ out:
 
 static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
 	ssize_t ret;
@@ -1293,7 +1293,7 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 				  uint64_t off, uint64_t len,
 				  struct iovec *iov, size_t iov_cnt)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
 	size_t length = tcmu_iovec_length(iov, iov_cnt);
@@ -1347,7 +1347,7 @@ static int tcmu_rbd_aio_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			    uint64_t off, uint64_t len, struct iovec *iov,
 			    size_t iov_cnt)
 {
-	struct tcmu_rbd_state *state = tcmu_get_dev_private(dev);
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	struct rbd_aio_cb *aio_cb;
 	rbd_completion_t completion;
 	uint64_t buffer_length = 2 * len;

@@ -18,6 +18,7 @@
 #include "libtcmu_priv.h"
 #include "tcmur_device.h"
 #include "tcmur_aio.h"
+#include "tcmu_runner_priv.h"
 #include "tcmu-runner.h"
 
 struct tcmu_work {
@@ -139,7 +140,7 @@ static void _cleanup_io_work(void *arg)
 static void *io_work_queue(void *arg)
 {
 	struct tcmu_device *dev = arg;
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 
 	while (1) {
@@ -177,7 +178,7 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			tcmu_work_fn_t fn)
 {
 	struct tcmu_work *work;
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 
 	work = malloc(sizeof(*work));
@@ -250,7 +251,7 @@ void cleanup_aio_tracking(struct tcmur_device *rdev)
 void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 {
 	struct tcmur_handler *r_handler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int i, nr_threads = r_handler->nr_threads;
 
@@ -260,7 +261,7 @@ void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 
 	for (i = 0; i < nr_threads; i++) {
 		if (io_wq->io_wq_threads[i]) {
-			tcmu_cancel_thread(io_wq->io_wq_threads[i]);
+			tcmu_thread_cancel(io_wq->io_wq_threads[i]);
 		}
 	}
 }
@@ -268,7 +269,7 @@ void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 int setup_io_work_queue(struct tcmu_device *dev)
 {
 	struct tcmur_handler *r_handler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int ret, i, nr_threads = r_handler->nr_threads;
 
@@ -314,7 +315,7 @@ out:
 
 void cleanup_io_work_queue(struct tcmu_device *dev, bool cancel)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int ret;
 

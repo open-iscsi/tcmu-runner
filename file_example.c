@@ -35,6 +35,7 @@
 #include "scsi_defs.h"
 #include "libtcmu.h"
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 
 struct file_state {
 	int fd;
@@ -49,16 +50,16 @@ static int file_open(struct tcmu_device *dev, bool reopen)
 	if (!state)
 		return -ENOMEM;
 
-	tcmu_set_dev_private(dev, state);
+	tcmur_dev_set_private(dev, state);
 
-	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
+	config = strchr(tcmu_dev_get_cfgstring(dev), '/');
 	if (!config) {
 		tcmu_err("no configuration found in cfgstring\n");
 		goto err;
 	}
 	config += 1; /* get past '/' */
 
-	tcmu_set_dev_write_cache_enabled(dev, 1);
+	tcmu_dev_set_write_cache_enabled(dev, 1);
 
 	state->fd = open(config, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
 	if (state->fd == -1) {
@@ -66,7 +67,7 @@ static int file_open(struct tcmu_device *dev, bool reopen)
 		goto err;
 	}
 
-	tcmu_dbg("config %s\n", tcmu_get_dev_cfgstring(dev));
+	tcmu_dbg("config %s\n", tcmu_dev_get_cfgstring(dev));
 
 	return 0;
 
@@ -77,7 +78,7 @@ err:
 
 static void file_close(struct tcmu_device *dev)
 {
-	struct file_state *state = tcmu_get_dev_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 
 	close(state->fd);
 	free(state);
@@ -87,7 +88,7 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		     struct iovec *iov, size_t iov_cnt, size_t length,
 		     off_t offset)
 {
-	struct file_state *state = tcmu_get_dev_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -101,11 +102,11 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 		if (ret == 0) {
 			/* EOF, then zeros the iovecs left */
-			tcmu_zero_iovec(iov, iov_cnt);
+			tcmu_iovec_zero(iov, iov_cnt);
 			break;
 		}
 
-		tcmu_seek_in_iovec(iov, ret);
+		tcmu_iovec_seek(iov, ret);
 		offset += ret;
 		remaining -= ret;
 	}
@@ -118,7 +119,7 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		      struct iovec *iov, size_t iov_cnt, size_t length,
 		      off_t offset)
 {
-	struct file_state *state = tcmu_get_dev_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -129,7 +130,7 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
-		tcmu_seek_in_iovec(iov, ret);
+		tcmu_iovec_seek(iov, ret);
 		offset += ret;
 		remaining -= ret;
 	}
@@ -140,7 +141,7 @@ done:
 
 static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct file_state *state = tcmu_get_dev_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
 	if (fsync(state->fd)) {

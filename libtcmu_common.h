@@ -70,12 +70,6 @@ enum {
 #define CFGFS_TARGET_MOD "/sys/module/target_core_user"
 #define CFGFS_MOD_PARAM CFGFS_TARGET_MOD"/parameters"
 
-/* Temporarily limit this to 32M */
-#define VPD_MAX_UNMAP_LBA_COUNT            65536
-#define VPD_MAX_UNMAP_BLOCK_DESC_COUNT     0x04
-/* Temporarily limit this is 0x1 */
-#define MAX_CAW_LENGTH                     0x01
-
 #define max(a, b) ({			\
 	__typeof__ (a) _a = (a);	\
 	__typeof__ (b) _b = (b);	\
@@ -100,8 +94,6 @@ enum {
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-#define VPD_MAX_WRITE_SAME_LENGTH 0xFFFFFFFF
-
 typedef void (*cmd_done_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
 
 struct tcmulib_cmd {
@@ -122,85 +114,85 @@ struct tcmulib_cmd {
 };
 
 /* Set/Get methods for the opaque tcmu_device */
-void *tcmu_get_dev_private(struct tcmu_device *dev);
-void tcmu_set_dev_private(struct tcmu_device *dev, void *priv);
+void *tcmu_dev_get_private(struct tcmu_device *dev);
+void tcmu_dev_set_private(struct tcmu_device *dev, void *priv);
 void *tcmu_get_daemon_dev_private(struct tcmu_device *dev);
 void tcmu_set_daemon_dev_private(struct tcmu_device *dev, void *priv);
-int tcmu_get_dev_fd(struct tcmu_device *dev);
-char *tcmu_get_dev_cfgstring(struct tcmu_device *dev);
-void tcmu_set_dev_num_lbas(struct tcmu_device *dev, uint64_t num_lbas);
-uint64_t tcmu_get_dev_num_lbas(struct tcmu_device *dev);
-int tcmu_update_num_lbas(struct tcmu_device *dev, uint64_t new_size);
-void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size);
-uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev);
-void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len);
-uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev);
-void tcmu_set_dev_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len);
-uint32_t tcmu_get_dev_opt_xcopy_rw_len(struct tcmu_device *dev);
-void tcmu_set_dev_max_unmap_len(struct tcmu_device *dev, uint32_t len);
-uint32_t tcmu_get_dev_max_unmap_len(struct tcmu_device *dev);
-void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
+int tcmu_dev_get_fd(struct tcmu_device *dev);
+char *tcmu_dev_get_cfgstring(struct tcmu_device *dev);
+void tcmu_dev_set_num_lbas(struct tcmu_device *dev, uint64_t num_lbas);
+uint64_t tcmu_dev_get_num_lbas(struct tcmu_device *dev);
+void tcmu_dev_set_block_size(struct tcmu_device *dev, uint32_t block_size);
+uint32_t tcmu_dev_get_block_size(struct tcmu_device *dev);
+void tcmu_dev_set_max_xfer_len(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_dev_get_max_xfer_len(struct tcmu_device *dev);
+void tcmu_dev_set_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_dev_get_opt_xcopy_rw_len(struct tcmu_device *dev);
+void tcmu_dev_set_max_unmap_len(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_dev_get_max_unmap_len(struct tcmu_device *dev);
+void tcmu_dev_set_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
 				 bool split);
-uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev);
-void tcmu_set_dev_unmap_gran_align(struct tcmu_device *dev, uint32_t len);
-uint32_t tcmu_get_dev_unmap_gran_align(struct tcmu_device *dev);
-void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled);
-bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev);
-void tcmu_set_dev_solid_state_media(struct tcmu_device *dev, bool solid_state);
-bool tcmu_get_dev_solid_state_media(struct tcmu_device *dev);
-struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev);
-struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev);
-void tcmu_block_device(struct tcmu_device *dev);
-void tcmu_unblock_device(struct tcmu_device *dev);
-void tcmu_flush_device(struct tcmu_device *dev);
+uint32_t tcmu_dev_get_opt_unmap_gran(struct tcmu_device *dev);
+void tcmu_dev_set_unmap_gran_align(struct tcmu_device *dev, uint32_t len);
+uint32_t tcmu_dev_get_unmap_gran_align(struct tcmu_device *dev);
+void tcmu_dev_set_write_cache_enabled(struct tcmu_device *dev, bool enabled);
+bool tcmu_dev_get_write_cache_enabled(struct tcmu_device *dev);
+void tcmu_dev_set_solid_state_media(struct tcmu_device *dev, bool solid_state);
+bool tcmu_dev_get_solid_state_media(struct tcmu_device *dev);
+void tcmu_dev_set_unmap_enabled(struct tcmu_device *dev, bool enabled);
+bool tcmu_dev_get_unmap_enabled(struct tcmu_device *dev);
+struct tcmulib_handler *tcmu_dev_get_handler(struct tcmu_device *dev);
+void tcmu_dev_flush_ring(struct tcmu_device *dev);
+
+/* Set/Get methods for interacting with configfs */
+char *tcmu_cfgfs_get_str(const char *path);
+int tcmu_cfgfs_set_str(const char *path, const char *val, int val_len);
+int tcmu_cfgfs_get_int(const char *path);
+int tcmu_cfgfs_set_u32(const char *path, uint32_t val);
+int tcmu_cfgfs_dev_get_attr_int(struct tcmu_device *dev, const char *name);
+int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
+			       uint32_t val);
+int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
+			        uint64_t val);
+uint64_t tcmu_cfgfs_dev_get_info_u64(struct tcmu_device *dev, const char *name,
+                                     int *fn_ret);
+char *tcmu_cfgfs_dev_get_wwn(struct tcmu_device *dev);
+int tcmu_cfgfs_mod_param_set_u32(const char *name, uint32_t val);
 
 /* Helper routines for processing commands */
-char *tcmu_get_cfgfs_str(const char *path);
-int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len);
-int tcmu_get_cfgfs_int(const char *path);
-int tcmu_set_cfgfs_ul(const char *path, unsigned long val);
-int tcmu_get_attribute(struct tcmu_device *dev, const char *name);
-bool tcmu_cfgfs_file_is_supported(struct tcmu_device *dev, const char *name);
-int tcmu_exec_cfgfs_dev_action(struct tcmu_device *dev, const char *name,
-			       unsigned long val);
-int tcmu_set_dev_size(struct tcmu_device *dev);
-long long tcmu_get_dev_size(struct tcmu_device *dev);
-char *tcmu_get_wwn(struct tcmu_device *dev);
-int tcmu_set_control(struct tcmu_device *dev, const char *key, unsigned long val);
-void tcmu_reset_netlink(void);
-void tcmu_block_netlink(void);
-void tcmu_unblock_netlink(void);
-int tcmu_get_cdb_length(uint8_t *cdb);
-uint64_t tcmu_get_lba(uint8_t *cdb);
-uint32_t tcmu_get_xfer_length(uint8_t *cdb);
-off_t tcmu_compare_with_iovec(void *mem, struct iovec *iovec, size_t size);
-size_t tcmu_seek_in_iovec(struct iovec *iovec, size_t count);
-void tcmu_seek_in_cmd_iovec(struct tcmulib_cmd *cmd, size_t count);
-void tcmu_zero_iovec(struct iovec *iovec, size_t iov_cnt);
-bool tcmu_zeroed_iovec(struct iovec *iovec, size_t iov_cnt);
-size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src, size_t len);
-size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec, size_t iov_cnt);
-size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
-bool char_to_hex(unsigned char *val, char c);
 
-/* Basic implementations of mandatory SCSI commands */
-int tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
-void tcmu_set_sense_info(uint8_t *sense_buf, uint32_t info);
-void tcmu_set_sense_key_specific_info(uint8_t *sense_buf, uint16_t info);
-void __tcmu_set_sense_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
-int tcmu_emulate_inquiry(struct tcmu_device *dev, struct tgt_port *port, uint8_t *cdb, struct iovec *iovec, size_t iov_cnt);
-int tcmu_emulate_start_stop(struct tcmu_device *dev, uint8_t *cdb);
-int tcmu_emulate_test_unit_ready(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt);
-int tcmu_emulate_read_capacity_10(uint64_t num_lbas, uint32_t block_size, uint8_t *cdb,
-				  struct iovec *iovec, size_t iov_cnt);
-int tcmu_emulate_read_capacity_16(uint64_t num_lbas, uint32_t block_size, uint8_t *cdb,
-				  struct iovec *iovec, size_t iov_cnt);
-int tcmu_emulate_mode_sense(struct tcmu_device *dev, uint8_t *cdb,
-			    struct iovec *iovec, size_t iov_cnt);
-int tcmu_emulate_mode_select(struct tcmu_device *dev, uint8_t *cdb,
-			     struct iovec *iovec, size_t iov_cnt);
-/* SCSI helpers */
-void tcmu_print_cdb_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd, const char *info);
+/* SCSI CDB processing */
+int tcmu_cdb_get_length(uint8_t *cdb);
+uint64_t tcmu_cdb_get_lba(uint8_t *cdb);
+uint32_t tcmu_cdb_get_xfer_length(uint8_t *cdb);
+void tcmu_cdb_print_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd,
+			 const char *info);
+/* iovec processing */
+off_t tcmu_iovec_compare(void *mem, struct iovec *iovec, size_t size);
+size_t tcmu_iovec_seek(struct iovec *iovec, size_t count);
+void tcmu_iovec_zero(struct iovec *iovec, size_t iov_cnt);
+bool tcmu_iovec_zeroed(struct iovec *iovec, size_t iov_cnt);
+size_t tcmu_iovec_length(struct iovec *iovec, size_t iov_cnt);
+
+/* memory mangement */
+size_t tcmu_memcpy_into_iovec(struct iovec *iovec, size_t iov_cnt, void *src,
+			      size_t len);
+size_t tcmu_memcpy_from_iovec(void *dest, size_t len, struct iovec *iovec,
+			      size_t iov_cnt);
+
+/* tcmulib_cmd processing */
+void tcmu_cmd_seek(struct tcmulib_cmd *cmd, size_t count);
+
+/* SCSI Sense */
+int tcmu_sense_set_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
+void tcmu_sense_set_info(uint8_t *sense_buf, uint32_t info);
+void tcmu_sense_set_key_specific_info(uint8_t *sense_buf, uint16_t info);
+void __tcmu_sense_set_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
+
+/*
+ * Misc
+ */
+void tcmu_thread_cancel(pthread_t thread);
 
 #ifdef __cplusplus
 }

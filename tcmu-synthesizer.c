@@ -22,6 +22,7 @@
 #include "version.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+#include "scsi.h"
 
 typedef struct {
 	GIOChannel *gio;
@@ -104,9 +105,9 @@ static int syn_added(struct tcmu_device *dev)
 {
 	syn_dev_t *s = g_new0(syn_dev_t, 1);
 
-	tcmu_dbg("added %s\n", tcmu_get_dev_cfgstring(dev));
-	tcmu_set_dev_private(dev, s);
-	s->gio = g_io_channel_unix_new(tcmu_get_dev_fd(dev));
+	tcmu_dbg("added %s\n", tcmu_dev_get_cfgstring(dev));
+	tcmu_dev_set_private(dev, s);
+	s->gio = g_io_channel_unix_new(tcmu_dev_get_fd(dev));
 	s->watcher_id = g_io_add_watch(s->gio, G_IO_IN,
 				       syn_dev_callback, dev);
 	return 0;
@@ -114,8 +115,8 @@ static int syn_added(struct tcmu_device *dev)
 
 static void syn_removed(struct tcmu_device *dev)
 {
-	syn_dev_t *s = tcmu_get_dev_private(dev);
-	tcmu_dbg("removed %s\n", tcmu_get_dev_cfgstring(dev));
+	syn_dev_t *s = tcmu_dev_get_private(dev);
+	tcmu_dbg("removed %s\n", tcmu_dev_get_cfgstring(dev));
 	g_source_remove(s->watcher_id);
 	g_io_channel_unref(s->gio);
 	g_free(s);

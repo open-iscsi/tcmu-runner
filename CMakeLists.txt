@@ -62,7 +62,7 @@ target_link_libraries(tcmu
   ${LIBNL_GENL_LIB}
   ${GLIB_LIBRARIES}
   )
-install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} NAMELINK_SKIP)
+install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Stuff for building the static library
 add_library(tcmu_static
@@ -92,6 +92,7 @@ add_executable(tcmu-runner
   tcmur_device.c
   target.c
   alua.c
+  scsi.c
   main.c
   tcmuhandler-generated.c
   )
@@ -113,6 +114,7 @@ target_link_libraries(tcmu-runner
 install(TARGETS tcmu-runner RUNTIME DESTINATION bin)
 
 add_executable(tcmu-synthesizer
+  scsi.c
   tcmu-synthesizer.c
   )
 target_link_libraries(tcmu-synthesizer tcmu)
@@ -160,6 +162,7 @@ if (with-fbo)
 	# Stuff for building the file optical handler
 	add_library(handler_file_optical
   	SHARED
+	scsi.c
   	file_optical.c
   	)
 	set_target_properties(handler_file_optical
@@ -175,6 +178,7 @@ endif (with-fbo)
 
 # The minimal library consumer
 add_executable(consumer
+  scsi.c
   consumer.c
   )
 target_link_libraries(consumer tcmu)
@@ -183,6 +187,7 @@ if (with-zbc)
 	# Stuff for building the file zbc handler
 	add_library(handler_file_zbc
 	  SHARED
+	  scsi.c
 	  file_zbc.c
 	  )
 	set_target_properties(handler_file_zbc
@@ -285,6 +290,8 @@ configure_file (
   )
 install(SCRIPT logrotate.conf_install.cmake)
 
+install(FILES libtcmu.h libtcmu_common.h
+  DESTINATION include)
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)
 install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)

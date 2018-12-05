@@ -27,10 +27,7 @@
 #include "libtcmu.h"
 #include "libtcmu_log.h"
 #include "libtcmu_priv.h"
-#include "tcmur_aio.h"
-#include "tcmur_cmd_handler.h"
-#include "tcmu-runner.h"
-#include "tcmur_device.h"
+#include "scsi_defs.h"
 
 #define TCMU_NL_VERSION 2
 
@@ -365,7 +362,7 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 	return NULL;
 }
 
-void tcmu_flush_device(struct tcmu_device *dev)
+void tcmu_dev_flush_ring(struct tcmu_device *dev)
 {
 	struct tcmu_mailbox *mb = dev->map;
 
@@ -375,53 +372,13 @@ void tcmu_flush_device(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "ring clear\n");
 }
 
-void tcmu_block_device(struct tcmu_device *dev)
-{
-	int rc;
-
-	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
-		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
-		return;
-	}
-
-	/*
-	 * Afer we set block_dev=1 the kernel will have freed
-	 * cmds in the qfull queue and no new commands will be sent to
-	 * us.
-	 */
-	tcmu_dev_dbg(dev, "blocking kernel device\n");
-	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 1);
-	if (rc) {
-		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
-		return;
-	}
-	tcmu_dev_dbg(dev, "block done\n");
-}
-
-void tcmu_unblock_device(struct tcmu_device *dev)
-{
-	int rc;
-
-	if (!tcmu_cfgfs_file_is_supported(dev, "action")) {
-		tcmu_dev_warn(dev, "Kernel does not support the block_dev action.\n");
-		return;
-	}
-
-	tcmu_dev_dbg(dev, "unblocking kernel device\n");
-	rc = tcmu_exec_cfgfs_dev_action(dev, "block_dev", 0);
-	if (rc) {
-		tcmu_dev_warn(dev, "Could not block device %d.\n", rc);
-		return;
-	}
-	tcmu_dev_dbg(dev, "unblock done\n");
-}
-
 static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		      char *cfgstring, bool reopen)
 {
 	struct tcmu_device *dev;
 	struct tcmu_mailbox *mb;
 	char str_buf[256];
+	bool reset_supp = true;
 	int fd;
 	int ret;
 	char *ptr, *oldptr;
@@ -495,12 +452,18 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		 * from a fresh slate. We will unblock below when we are
 		 * completely setup.
 		 */
-		tcmu_block_device(dev);
+		ret = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
 		/*
-		 * Force a retry of the outstanding commands.
+		 * As long as the block_dev file existed, try to reset
+		 * just in case the kernel was in a invald state.
 		 */
-		if (tcmu_cfgfs_file_is_supported(dev, "action")) {
-			ret = tcmu_exec_cfgfs_dev_action(dev, "reset_ring", 1);
+		if (ret == -ENOENT) {
+			reset_supp = false;
+		} else {
+			/*
+			 * Force a retry of the outstanding commands.
+			 */
+			ret = tcmu_cfgfs_dev_exec_action(dev, "reset_ring", 1);
 			if (ret)
 				tcmu_dev_err(dev, "Could not reset ring %d.\n", ret);
 		}
@@ -559,8 +522,8 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 
 	darray_append(ctx->devices, dev);
 
-	if (reopen)
-		tcmu_unblock_device(dev);
+	if (reopen && reset_supp)
+		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
 	return 0;
 
@@ -569,8 +532,8 @@ err_munmap:
 err_fd_close:
 	close(dev->fd);
 err_unblock:
-	if (reopen)
-		tcmu_unblock_device(dev);
+	if (reopen && reset_supp)
+		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 err_free:
 	free(dev);
 
@@ -606,8 +569,8 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 	 * shutdown and allow IO to complete normally.
 	 */
 	if (should_block) {
-		tcmu_block_device(dev);
-		tcmu_flush_device(dev);
+		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
+		tcmu_dev_flush_ring(dev);
 	}
 
 	darray_remove(ctx->devices, i);
@@ -624,7 +587,7 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 	}
 
 	if (should_block)
-		tcmu_unblock_device(dev);
+		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
 	tcmu_dev_dbg(dev, "removed from tcmulib.\n");
 	free(dev);
@@ -781,178 +744,157 @@ int tcmulib_master_fd_ready(struct tcmulib_context *ctx)
 	return nl_recvmsgs_default(ctx->nl_sock);
 }
 
-void *tcmu_get_daemon_dev_private(struct tcmu_device *dev)
-{
-	return dev->d_private;
-}
-
-void tcmu_set_daemon_dev_private(struct tcmu_device *dev, void *private)
-{
-	dev->d_private = private;
-}
-
-void *tcmu_get_dev_private(struct tcmu_device *dev)
+void *tcmu_dev_get_private(struct tcmu_device *dev)
 {
 	return dev->hm_private;
 }
 
-void tcmu_set_dev_private(struct tcmu_device *dev, void *private)
+void tcmu_dev_set_private(struct tcmu_device *dev, void *private)
 {
 	dev->hm_private = private;
 }
 
-void tcmu_set_dev_num_lbas(struct tcmu_device *dev, uint64_t num_lbas)
+void tcmu_dev_set_num_lbas(struct tcmu_device *dev, uint64_t num_lbas)
 {
 	dev->num_lbas = num_lbas;
 }
 
-uint64_t tcmu_get_dev_num_lbas(struct tcmu_device *dev)
+uint64_t tcmu_dev_get_num_lbas(struct tcmu_device *dev)
 {
 	return dev->num_lbas;
 }
 
-/**
- * tcmu_update_num_lbas - Update num LBAs based on the new size.
- * @dev: tcmu device to update
- * @new_size: new device size in bytes
- */
-int tcmu_update_num_lbas(struct tcmu_device *dev, uint64_t new_size)
-{
-	if (!new_size)
-		return -EINVAL;
-
-	tcmu_set_dev_num_lbas(dev, new_size / tcmu_get_dev_block_size(dev));
-	return 0;
-}
-
-void tcmu_set_dev_block_size(struct tcmu_device *dev, uint32_t block_size)
+void tcmu_dev_set_block_size(struct tcmu_device *dev, uint32_t block_size)
 {
 	dev->block_size = block_size;
 }
 
-uint32_t tcmu_get_dev_block_size(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_block_size(struct tcmu_device *dev)
 {
 	return dev->block_size;
 }
 
 /**
- * tcmu_set_dev_max_xfer_len - set device's max command size
+ * tcmu_dev_set_max_xfer_len - set device's max command size
  * @dev: tcmu device
  * @len: max transfer length in block_size sectors
  */
-void tcmu_set_dev_max_xfer_len(struct tcmu_device *dev, uint32_t len)
+void tcmu_dev_set_max_xfer_len(struct tcmu_device *dev, uint32_t len)
 {
 	dev->max_xfer_len = len;
 }
 
-uint32_t tcmu_get_dev_max_xfer_len(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_max_xfer_len(struct tcmu_device *dev)
 {
 	return dev->max_xfer_len;
 }
 
 /**
- * tcmu_set_dev_opt_xcopy_rw_len - set device's emulated xcopy chunk len
+ * tcmu_dev_set_opt_xcopy_rw_len - set device's emulated xcopy chunk len
  * @dev: tcmu device
  * @len: optimal RW len, in block_size sectors, for emulate xcopy operations
  */
-void tcmu_set_dev_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len)
+void tcmu_dev_set_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len)
 {
 	dev->opt_xcopy_rw_len = len;
 }
 
-uint32_t tcmu_get_dev_opt_xcopy_rw_len(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_opt_xcopy_rw_len(struct tcmu_device *dev)
 {
 	return dev->opt_xcopy_rw_len;
 }
 
 /**
- * tcmu_set/get_dev_opt_unmap_gran - set/get device's optimal unmap granularity
+ * tcmu_dev_set/get_opt_unmap_gran - set/get device's optimal unmap granularity
  * @dev: tcmu device
  * @len: optimal unmap granularity length in block_size sectors
  * @split: true if handler needs unmaps larger then len to be split for it.
  */
-void tcmu_set_dev_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
+void tcmu_dev_set_opt_unmap_gran(struct tcmu_device *dev, uint32_t len,
 				 bool split)
 {
 	dev->split_unmaps = split;
 	dev->opt_unmap_gran = len;
 }
 
-uint32_t tcmu_get_dev_opt_unmap_gran(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_opt_unmap_gran(struct tcmu_device *dev)
 {
 	return dev->opt_unmap_gran;
 }
 
 /**
- * tcmu_set/get_dev_max_unmap_len - set/get device's man unmap len
+ * tcmu_dev_set/get_max_unmap_len - set/get device's man unmap len
  * @dev: tcmu device
  * @len: max unmap len in block_size sectors
  */
-void tcmu_set_dev_max_unmap_len(struct tcmu_device *dev, uint32_t len)
+void tcmu_dev_set_max_unmap_len(struct tcmu_device *dev, uint32_t len)
 {
 	dev->max_unmap_len = len;
 }
 
-uint32_t tcmu_get_dev_max_unmap_len(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_max_unmap_len(struct tcmu_device *dev)
 {
 	return dev->max_unmap_len;
 }
 
 /**
- * tcmu_set/get_dev_unmap_gran_align - set/get device's unmap granularity alignment
+ * tcmu_dev_set/get_unmap_gran_align - set/get device's unmap granularity alignment
  * @dev: tcmu device
  * @len: unmap granularity alignment length in block_size sectors
  */
-void tcmu_set_dev_unmap_gran_align(struct tcmu_device *dev, uint32_t len)
+void tcmu_dev_set_unmap_gran_align(struct tcmu_device *dev, uint32_t len)
 {
 	dev->unmap_gran_align = len;
 }
 
-uint32_t tcmu_get_dev_unmap_gran_align(struct tcmu_device *dev)
+uint32_t tcmu_dev_get_unmap_gran_align(struct tcmu_device *dev)
 {
 	return dev->unmap_gran_align;
 }
 
-void tcmu_set_dev_write_cache_enabled(struct tcmu_device *dev, bool enabled)
+void tcmu_dev_set_write_cache_enabled(struct tcmu_device *dev, bool enabled)
 {
 	dev->write_cache_enabled = enabled;
 }
 
-bool tcmu_get_dev_write_cache_enabled(struct tcmu_device *dev)
+bool tcmu_dev_get_write_cache_enabled(struct tcmu_device *dev)
 {
 	return dev->write_cache_enabled;
 }
 
-void tcmu_set_dev_solid_state_media(struct tcmu_device *dev, bool solid_state)
+void tcmu_dev_set_solid_state_media(struct tcmu_device *dev, bool solid_state)
 {
 	dev->solid_state_media = solid_state;
 }
 
-bool tcmu_get_dev_solid_state_media(struct tcmu_device *dev)
+bool tcmu_dev_get_solid_state_media(struct tcmu_device *dev)
 {
 	return dev->solid_state_media;
 }
 
-int tcmu_get_dev_fd(struct tcmu_device *dev)
+void tcmu_dev_set_unmap_enabled(struct tcmu_device *dev, bool enabled)
+{
+	dev->unmap_enabled = enabled;
+}
+
+bool tcmu_dev_get_unmap_enabled(struct tcmu_device *dev)
+{
+	return dev->unmap_enabled;
+}
+
+int tcmu_dev_get_fd(struct tcmu_device *dev)
 {
 	return dev->fd;
 }
 
-char *tcmu_get_dev_cfgstring(struct tcmu_device *dev)
+char *tcmu_dev_get_cfgstring(struct tcmu_device *dev)
 {
 	return dev->cfgstring;
 }
 
-struct tcmulib_handler *tcmu_get_dev_handler(struct tcmu_device *dev)
+struct tcmulib_handler *tcmu_dev_get_handler(struct tcmu_device *dev)
 {
 	return dev->handler;
-}
-
-struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
-{
-	struct tcmulib_handler *handler = tcmu_get_dev_handler(dev);
-
-	return handler->hm_private;
 }
 
 static inline struct tcmu_cmd_entry *
@@ -992,7 +934,7 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			int i;
 			struct tcmulib_cmd *cmd;
 			uint8_t *cdb = (uint8_t *) mb + ent->req.cdb_off;
-			int cdb_len = tcmu_get_cdb_length(cdb);
+			int cdb_len = tcmu_cdb_get_length(cdb);
 
 			if (cdb_len < 0) {
 				/*
@@ -1055,96 +997,96 @@ static int tcmu_sts_to_scsi(int tcmu_sts, uint8_t *sense)
 	/* Check Conditions below */
 	case TCMU_STS_RANGE:
 		/* LBA out of range */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2100);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x2100);
 		break;
 	case TCMU_STS_HW_ERR:
 		/* Internal target failure */
-		tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x4400);
+		tcmu_sense_set_data(sense, HARDWARE_ERROR, 0x4400);
 		break;
 	case TCMU_STS_MISCOMPARE:
 		/* Miscompare during verify operation */
-		__tcmu_set_sense_data(sense, MISCOMPARE, 0x1d00);
+		__tcmu_sense_set_data(sense, MISCOMPARE, 0x1d00);
 		break;
 	case TCMU_STS_RD_ERR:
 		/* Read medium error */
-		tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x1100);
+		tcmu_sense_set_data(sense, MEDIUM_ERROR, 0x1100);
 		break;
 	case TCMU_STS_WR_ERR:
 		/* Write medium error */
-		tcmu_set_sense_data(sense, MEDIUM_ERROR, 0x0C00);
+		tcmu_sense_set_data(sense, MEDIUM_ERROR, 0x0C00);
 		break;
 	case TCMU_STS_INVALID_CDB:
 		/* Invalid field in CDB */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2400);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x2400);
 		break;
 	case TCMU_STS_INVALID_PARAM_LIST:
 		/* Invalid field in parameter list */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2600);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x2600);
 		break;
 	case TCMU_STS_INVALID_PARAM_LIST_LEN:
 		/* Invalid list parameter list length */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x1a00);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x1a00);
 		break;
 	case TCMU_STS_NOTSUPP_SEG_DESC_TYPE:
 		/* Unsupported segment descriptor type code */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2609);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x2609);
 		break;
 	case TCMU_STS_NOTSUPP_TGT_DESC_TYPE:
 		/* Unsupported target descriptor type code */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2607);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x2607);
 		break;
 	case TCMU_STS_TOO_MANY_SEG_DESC:
 		/* The number of segment descriptors exceeds the allowed number */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2608);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x2608);
 		break;
 	case TCMU_STS_TOO_MANY_TGT_DESC:
 		/* The number of CSCD descriptors exceeds the allowed number */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2606);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x2606);
 		break;
 	case TCMU_STS_CP_TGT_DEV_NOTCONN:
 		/* Copy target device not reachable */
-		tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D02);
+		tcmu_sense_set_data(sense, COPY_ABORTED, 0x0D02);
 		break;
 	case TCMU_STS_INVALID_CP_TGT_DEV_TYPE:
 		/* Invalid copy target device type */
-		tcmu_set_sense_data(sense, COPY_ABORTED, 0x0D03);
+		tcmu_sense_set_data(sense, COPY_ABORTED, 0x0D03);
 		break;
 	case TCMU_STS_CAPACITY_CHANGED:
 		/* Device capacity has changed */
-		tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A09);
+		tcmu_sense_set_data(sense, UNIT_ATTENTION, 0x2A09);
 		break;
 	case TCMU_STS_TRANSITION:
 		/* ALUA state transition */
-		tcmu_set_sense_data(sense, NOT_READY, 0x040A);
+		tcmu_sense_set_data(sense, NOT_READY, 0x040A);
 		break;
 	case TCMU_STS_IMPL_TRANSITION_ERR:
 		/* Implicit ALUA state transition failed */
-		tcmu_set_sense_data(sense, UNIT_ATTENTION, 0x2A07);
+		tcmu_sense_set_data(sense, UNIT_ATTENTION, 0x2A07);
 		break;
 	case TCMU_STS_EXPL_TRANSITION_ERR:
 		/* STPG failed */
-		tcmu_set_sense_data(sense, HARDWARE_ERROR, 0x670A);
+		tcmu_sense_set_data(sense, HARDWARE_ERROR, 0x670A);
 		break;
 	case TCMU_STS_FENCED:
 		/* ALUA state in standby */
-		tcmu_set_sense_data(sense, NOT_READY, 0x040B);
+		tcmu_sense_set_data(sense, NOT_READY, 0x040B);
 		break;
 	case TCMU_STS_WR_ERR_INCOMPAT_FRMT:
 		/* Can't write - incompatible format */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3005);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x3005);
 		break;
 	case TCMU_STS_NOTSUPP_SAVE_PARAMS:
 		/* Saving params not supported */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x3900);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x3900);
 		break;
 	case TCMU_STS_FRMT_IN_PROGRESS:
 		/* Format in progress */
-		__tcmu_set_sense_data(sense, NOT_READY, 0x0404);
+		__tcmu_sense_set_data(sense, NOT_READY, 0x0404);
 		break;
 	case TCMU_STS_NOT_HANDLED:
 	case TCMU_STS_INVALID_CMD:
 		/* Invalid op code */
-		tcmu_set_sense_data(sense, ILLEGAL_REQUEST, 0x2000);
+		tcmu_sense_set_data(sense, ILLEGAL_REQUEST, 0x2000);
 		break;
 	default:
 		tcmu_err("Invalid tcmu status code %d\n", tcmu_sts);

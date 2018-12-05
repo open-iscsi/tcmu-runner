@@ -23,6 +23,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "libtcmu_priv.h"
+#include "tcmu-runner.h"
 #include "tcmur_device.h"
 #include "target.h"
 #include "alua.h"
@@ -35,7 +36,7 @@ static char *tcmu_get_alua_str_setting(struct alua_grp *group,
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/alua/%s/%s",
 		 group->dev->tcm_hba_name, group->dev->tcm_dev_name,
 		 group->name, setting);
-	return tcmu_get_cfgfs_str(path);
+	return tcmu_cfgfs_get_str(path);
 }
 
 static int tcmu_get_alua_int_setting(struct alua_grp *group,
@@ -46,7 +47,7 @@ static int tcmu_get_alua_int_setting(struct alua_grp *group,
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/alua/%s/%s",
 		 group->dev->tcm_hba_name, group->dev->tcm_dev_name,
 		 group->name, setting);
-	return tcmu_get_cfgfs_int(path);
+	return tcmu_cfgfs_get_int(path);
 }
 
 static int tcmu_set_alua_int_setting(struct alua_grp *group,
@@ -57,7 +58,7 @@ static int tcmu_set_alua_int_setting(struct alua_grp *group,
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/alua/%s/%s",
 		 group->dev->tcm_hba_name, group->dev->tcm_dev_name,
 		 group->name, setting);
-	return tcmu_set_cfgfs_ul(path, val);
+	return tcmu_cfgfs_set_u32(path, val);
 }
 
 static void tcmu_release_tgt_ports(struct alua_grp *group)
@@ -82,7 +83,7 @@ static void tcmu_free_alua_grp(struct alua_grp *group)
 static struct alua_grp *
 tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct alua_grp *group;
 	struct tgt_port *port;
 	char *str_val, *orig_str_val, *member;
@@ -392,7 +393,7 @@ static int alua_sync_state(struct tcmu_device *dev,
 			   struct list_head *group_list,
 			   uint16_t enabled_group_id)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct alua_grp *group;
 	uint16_t ao_group_id;
@@ -454,7 +455,7 @@ int tcmu_emulate_report_tgt_port_grps(struct tcmu_device *dev,
 	struct tgt_port *port, *enabled_port;
 	int ext_hdr = cmd->cdb[1] & 0x20;
 	uint32_t off = 4, ret_data_len = 0, ret32;
-	uint32_t alloc_len = tcmu_get_xfer_length(cmd->cdb);
+	uint32_t alloc_len = tcmu_cdb_get_xfer_length(cmd->cdb);
 	uint8_t *buf;
 	int ret;
 
@@ -546,7 +547,7 @@ static void *alua_lock_thread_fn(void *arg)
 
 int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	pthread_attr_t attr;
 	int ret = TCMU_STS_OK;
 
@@ -689,7 +690,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 {
 	struct alua_grp *group;
 	struct tgt_port *port;
-	uint32_t off = 4, param_list_len = tcmu_get_xfer_length(cmd->cdb);
+	uint32_t off = 4, param_list_len = tcmu_cdb_get_xfer_length(cmd->cdb);
 	uint16_t id, tmp_id;
 	char *buf, new_state;
 	int found, ret = TCMU_STS_OK;
@@ -764,7 +765,7 @@ free_buf:
 
 int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
 	if (rdev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
 		if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
