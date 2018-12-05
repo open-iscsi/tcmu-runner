@@ -157,9 +157,7 @@ int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
 uint64_t tcmu_cfgfs_dev_get_info_u64(struct tcmu_device *dev, const char *name,
                                      int *fn_ret);
 char *tcmu_cfgfs_dev_get_wwn(struct tcmu_device *dev);
-int tcmu_cfgfs_nl_reset(void);
-int tcmu_cfgfs_nl_block(void);
-int tcmu_cfgfs_nl_unblock(void);
+int tcmu_cfgfs_mod_param_set_u32(const char *name, uint32_t val);
 
 /* Helper routines for processing commands */
 

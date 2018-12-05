@@ -143,94 +143,12 @@ int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
 	return tcmu_cfgfs_set_str(path, buf, strlen(buf) + 1);
 }
 
-static bool tcmu_cfgfs_mod_param_is_supported(const char *name)
+int tcmu_cfgfs_mod_param_set_u32(const char *name, uint32_t val)
 {
 	char path[PATH_MAX];
 
 	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/%s", name);
-
-	if (access(path, F_OK) == -1)
-		return false;
-
-	return true;
-}
-
-int tcmu_cfgfs_nl_block(void)
-{
-	char path[PATH_MAX];
-	int rc;
-
-	if (!tcmu_cfgfs_mod_param_is_supported("block_netlink")) {
-		tcmu_warn("Kernel does not support blocking netlink.\n");
-		return -EOPNOTSUPP;
-	}
-
-	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/block_netlink");
-
-	tcmu_dbg("blocking netlink\n");
-	rc = tcmu_cfgfs_set_u32(path, 1);
-	if (rc) {
-		tcmu_warn("Could not block netlink %d.\n", rc);
-		return rc;
-	}
-	tcmu_dbg("block netlink done\n");
-	return 0;
-}
-
-int tcmu_cfgfs_nl_unblock(void)
-{
-	char path[PATH_MAX];
-	int rc;
-
-	if (!tcmu_cfgfs_mod_param_is_supported("block_netlink")) {
-		tcmu_warn("Kernel does not support unblocking netlink.\n");
-		return -EOPNOTSUPP;
-	}
-
-	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/block_netlink");
-
-	tcmu_dbg("unblocking netlink\n");
-	rc = tcmu_cfgfs_set_u32(path, 0);
-	if (rc) {
-		tcmu_warn("Could not unblock netlink %d.\n", rc);
-		return rc;
-	}
-	tcmu_dbg("unblock netlink done\n");
-	return 0;
-}
-
-/*
- * Usually this will be used when the daemon is starting just before
- * it could receive and handle the kernel netlink requests.
- *
- * It will reset all the pending netlink msg, of which the reply maybe
- * lost for some reason, such as the userspace dameon crashed just before
- * it could reply to it, in kernel space.
- *
- * This must be called after blocking the netlink, and after this unblocking
- * is a must.
- */
-int tcmu_cfgfs_nl_reset(void)
-{
-	char path[PATH_MAX];
-	int rc;
-
-	if (!tcmu_cfgfs_mod_param_is_supported("reset_netlink")) {
-		tcmu_warn("Kernel does not support reseting netlink.\n");
-		return -EOPNOTSUPP;
-	}
-
-	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/reset_netlink");
-
-	tcmu_dbg("reseting netlink\n");
-	rc = tcmu_cfgfs_set_u32(path, 1);
-	if (rc) {
-		tcmu_warn("Could not reset netlink: %d\n", rc);
-		return rc;
-	}
-
-	tcmu_dbg("reset netlink done\n");
-	return 0;
+	return tcmu_cfgfs_set_u32(path, val);
 }
 
 /*

@@ -988,6 +988,7 @@ int main(int argc, char **argv)
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
 	guint watch_id;
+	bool reset_nl_supp = true;
 	bool new_path = false;
 	bool watching_cfg = false;
 	struct flock lock_fd = {0, };
@@ -1087,8 +1088,24 @@ int main(int argc, char **argv)
 
 	tcmu_dbg("handler path: %s\n", handler_path);
 
-	tcmu_cfgfs_nl_block();
-	tcmu_cfgfs_nl_reset();
+	/*
+	 * If this is a restart we need to prevent new nl cmds from being
+	 * sent to us until we have everything ready.
+	 */
+	tcmu_dbg("blocking netlink\n");
+	ret = tcmu_cfgfs_mod_param_set_u32("block_netlink", 1);
+	tcmu_dbg("blocking netlink done\n");
+	if (ret == -ENOENT) {
+		reset_nl_supp = false;
+	} else {
+		/*
+		 * If it exists ignore errors and try to reset in case kernel is
+		 * in an invalid state
+		 */
+		tcmu_dbg("reseting netlink\n");
+		tcmu_cfgfs_mod_param_set_u32("reset_netlink", 1);
+		tcmu_dbg("reset netlink done\n");
+	}
 
 	ret = open_handlers();
 	if (ret < 0) {
@@ -1154,7 +1171,8 @@ int main(int argc, char **argv)
 				NULL  // user date free func
 		);
 
-	tcmu_cfgfs_nl_unblock();
+	if (reset_nl_supp)
+		tcmu_cfgfs_mod_param_set_u32("block_netlink", 0);
 	g_main_loop_run(loop);
 
 	tcmu_info("Exiting...\n");
@@ -1185,7 +1203,9 @@ err_tcmulib_close:
 err_free_handlers:
 	darray_free(handlers);
 close_fd:
-	tcmu_cfgfs_nl_unblock();
+	if (reset_nl_supp)
+		tcmu_cfgfs_mod_param_set_u32("block_netlink", 0);
+
 	lock_fd.l_type = F_UNLCK;
 	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
 		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",
