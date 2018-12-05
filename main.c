@@ -988,12 +988,12 @@ int main(int argc, char **argv)
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
 	guint watch_id;
-	bool reset_nl_supp = true;
+	bool reset_nl_supp = false;
 	bool new_path = false;
 	bool watching_cfg = false;
 	struct flock lock_fd = {0, };
 	int fd;
-	int ret;
+	int ret = -1;
 
 	if ((tcmu_cfg = tcmu_initialize_config()) == NULL) {
 		tcmu_err("initializing the tcmu config failed: %m\n");
@@ -1028,8 +1028,7 @@ int main(int argc, char **argv)
 				goto free_config;
 			}
 
-			ret = tcmu_set_max_fd_limit(nr_files);
-			if (ret)
+			if (tcmu_set_max_fd_limit(nr_files))
 				goto free_config;
 			break;
 		case 'd':
@@ -1083,8 +1082,7 @@ int main(int argc, char **argv)
 		goto close_fd;
 	}
 
-	ret = load_our_module();
-	if (ret < 0) {
+	if (load_our_module() < 0) {
 		tcmu_err("couldn't load module\n");
 		goto close_fd;
 	}
@@ -1096,6 +1094,7 @@ int main(int argc, char **argv)
 	 * sent to us until we have everything ready.
 	 */
 	tcmu_dbg("blocking netlink\n");
+	reset_nl_supp = true;
 	ret = tcmu_cfgfs_mod_param_set_u32("block_netlink", 1);
 	tcmu_dbg("blocking netlink done\n");
 	if (ret == -ENOENT) {
@@ -1116,6 +1115,7 @@ int main(int argc, char **argv)
 		goto close_fd;
 	}
 	tcmu_dbg("%d runner handlers found\n", ret);
+	ret = -1;
 
 	/*
 	 * Convert from tcmu-runner's handler struct to libtcmu's
@@ -1157,8 +1157,6 @@ int main(int argc, char **argv)
 		goto err_tcmulib_close;
 	}
 
-	darray_free(handlers);
-
 	/* Set up event for libtcmu */
 	libtcmu_gio = g_io_channel_unix_new(tcmulib_get_master_fd(tcmulib_context));
 	watch_id = g_io_add_watch(libtcmu_gio, G_IO_IN, tcmulib_callback, tcmulib_context);
@@ -1174,8 +1172,10 @@ int main(int argc, char **argv)
 				NULL  // user date free func
 		);
 
-	if (reset_nl_supp)
+	if (reset_nl_supp) {
 		tcmu_cfgfs_mod_param_set_u32("block_netlink", 0);
+		reset_nl_supp = false;
+	}
 	g_main_loop_run(loop);
 
 	tcmu_info("Exiting...\n");
@@ -1185,21 +1185,8 @@ int main(int argc, char **argv)
 	g_io_channel_shutdown(libtcmu_gio, TRUE, NULL);
 	g_io_channel_unref (libtcmu_gio);
 	g_object_unref(manager);
-	tcmulib_close(tcmulib_context);
 
-	lock_fd.l_type = F_UNLCK;
-	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
-		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",
-		         TCMU_LOCK_FILE);
-	}
-	close(fd);
-
-	if (watching_cfg)
-		tcmu_unwatch_config(tcmu_cfg);
-	tcmu_free_config(tcmu_cfg);
-	tcmu_destroy_log();
-
-	return 0;
+	ret = 0;
 
 err_tcmulib_close:
 	tcmulib_close(tcmulib_context);
@@ -1225,5 +1212,8 @@ free_config:
 	if (new_path)
 		free(handler_path);
 
-	exit(1);
+	if (ret)
+		exit(EXIT_FAILURE);
+
+	return 0;
 }
