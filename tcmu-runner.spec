@@ -29,7 +29,7 @@
 
 Name:          tcmu-runner
 Summary:       A daemon that handles the userspace side of the LIO TCM-User backstore
-Group:         System Environment/Kernel
+Group:         System Environment/Daemons
 License:       Apache 2.0 or LGPLv2.1
 Version:       1.4.0
 URL:           https://github.com/open-iscsi/tcmu-runner
@@ -54,6 +54,7 @@ Requires(pre): glusterfs-api
 %endif
 
 Requires(pre): kmod, zlib, libnl3, glib2, logrotate, rsyslog
+Requires:      libtcmu = %{version}-%{release}
 
 %description
 A daemon that handles the userspace side of the LIO TCM-User backstore.
@@ -76,6 +77,23 @@ pthreads, and DBus -- and exports a more friendly C plugin module API. Modules
 using this API are called "TCMU handlers". Handler authors can write code just
 to handle the SCSI commands as desired, and can also link with whatever
 userspace libraries they like.
+
+%package -n libtcmu
+Summary:       A library supporting LIO TCM-User backstores processing
+Group:         Development/Libraries
+
+%description -n libtcmu
+libtcmu provides a library for processing SCSI commands exposed by the
+LIO kernel target's TCM-User backend.
+
+%package -n libtcmu-devel
+Summary:       Development headers for libtcmu
+Group:         Development/Libraries
+Requires:      %{name} = %{version}-%{release}
+Requires:      libtcmu = %{version}-%{release}
+
+%description -n libtcmu-devel
+Development header(s) for developing against libtcmu.
 
 %global debug_package %{nil}
 
@@ -114,10 +132,17 @@ userspace libraries they like.
 %{_datadir}/dbus-1/system-services/org.kernel.TCMUService1.service
 %{_unitdir}/tcmu-runner.service
 %dir %{_libdir}/tcmu-runner/
-%{_libdir}/libtcmu*
 %{_libdir}/tcmu-runner/*.so
 %{_mandir}/man8/*
 %doc README.md LICENSE.LGPLv2.1 LICENSE.Apache2
 %dir %{_sysconfdir}/tcmu/
 %config %{_sysconfdir}/tcmu/tcmu.conf
 %config(noreplace) %{_sysconfdir}/logrotate.d/tcmu-runner
+
+%files -n libtcmu
+%{_libdir}/libtcmu*.so.*
+
+%files -n libtcmu-devel
+%{_includedir}/libtcmu.h
+%{_includedir}/libtcmu_common.h
+%{_libdir}/libtcmu*.so
