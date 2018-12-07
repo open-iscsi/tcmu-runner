@@ -140,8 +140,8 @@ backstores.
 
 - Logger setting:
 
-There are 5 logging levels supported:
-
+# There are 6 logging levels supported:
+0. CRIT
 1. ERROR
 2. WARNING
 3. INFO
@@ -153,15 +153,15 @@ uncomment the following line in /etc/tcmu/tcmu.conf and set your level number:
 
 \# log_level = 3
 
-The priority of the logdir setting can be managed via following options:
-
-1. Cli argument
-</br>eg: --tcmu_log_dir/-l `LOG_DIR_PATH` [Highest prio]
-2. Environment variable
+The precedence of the config settings is as mentioned belows:
+1. Options set through config file /etc/tcmu/tcmu.conf  [Top Prio]
+</br>eg: uncommenting and adjusting key:value at /etc/tcmu/tcmu.conf
+2. Arguments passed at daemon
+</br>eg: -l/--tcmu-log-dir, -d/--debug
+3. Environment variable.
 </br>eg: export TCMU_LOGDIR="/var/log/mylogdir/"
-3. Configuration file
-</br>eg: uncommenting and adjusting value of 'log_dir_path' at /etc/tcmu/tcmu.conf
-4. Default logdir as hard coded i.e. '/var/log/' [Least prio]
+4. Code level defaults.  [Least Prio]
+</br>eg: TCMU_LOG_DIR_DEFAULT = '/var/log/' & TCMU_CONF_LOG_INFO = INFO
 
 - System configuration:
 

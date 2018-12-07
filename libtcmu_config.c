@@ -88,11 +88,6 @@ struct tcmu_conf_option {
  *		TCMU_PARSE_CFG_INT(cfg, log_level);
  *		TCMU_CONF_CHECK_LOG_LEVEL(log_level);
  *	}
- * 4, Then add your own free method in if it's a STR KEY:
- *	static void tcmu_conf_free_str_keys(struct tcmu_config *cfg)
- *	{
- *		TCMU_FREE_CFG_STR_KEY(cfg, 'STR KEY');
- *	}
  *
  * Note: For now, if the options have been changed in config file, the
  * system config reload thread daemon will try to update them for all the
@@ -113,74 +108,87 @@ static struct tcmu_conf_option * tcmu_get_option(const char *key)
 	return NULL;
 }
 
+static struct tcmu_conf_option *
+tcmu_register_option(char *key, tcmu_option_type type)
+{
+	struct tcmu_conf_option *option;
+
+	option = calloc(1, sizeof(*option));
+	if (!option)
+		return NULL;
+
+	option->key = strdup(key);
+	if (!option->key)
+		goto free_option;
+	option->type = type;
+	list_node_init(&option->list);
+
+	list_add_tail(&tcmu_options, &option->list);
+	return option;
+
+free_option:
+	free(option);
+	return NULL;
+}
+
 /* The default value should be specified here,
  * so the next time when users comment out an
  * option in config file, here it will set the
  * default value back.
  */
-#define TCMU_PARSE_CFG_INT(cfg, key, def) \
+#define TCMU_PARSE_CFG_INT(cfg, key) \
 do { \
 	struct tcmu_conf_option *option; \
 	option = tcmu_get_option(#key); \
-	if (option) { \
+	if (!option) { \
+		option = tcmu_register_option(#key, TCMU_OPT_INT); \
+		cfg->key = cfg->def_##key; \
+	} else { \
 		cfg->key = option->opt_int; \
-		option->opt_int = def; \
 	} \
+	option->opt_int = cfg->def_##key;\
 } while (0)
 
-#define TCMU_PARSE_CFG_BOOL(cfg, key, def) \
+#define TCMU_PARSE_CFG_BOOL(cfg, key) \
 do { \
 	struct tcmu_conf_option *option; \
 	option = tcmu_get_option(#key); \
-	if (option) { \
+	if (!option) { \
+		option = tcmu_register_option(#key, TCMU_OPT_BOOL); \
+		cfg->key = cfg->def_##key; \
+	} else { \
 		cfg->key = option->opt_bool; \
-		option->opt_bool = def; \
 	} \
+	option->opt_bool = cfg->def_##key; \
 } while (0)
 
-#define TCMU_PARSE_CFG_STR(cfg, key, def) \
+#define TCMU_PARSE_CFG_STR(cfg, key) \
 do { \
 	struct tcmu_conf_option *option; \
-	char buf[1024]; \
 	option = tcmu_get_option(#key); \
-	if (option) { \
-		if (cfg->key) \
-			free(cfg->key); \
-		cfg->key = strdup(option->opt_str); \
+	memset(cfg->key, 0, sizeof(cfg->key)); \
+	if (!option) { \
+		option = tcmu_register_option(#key, TCMU_OPT_STR); \
+		snprintf(cfg->key, sizeof(cfg->key), cfg->def_##key); \
+	} else { \
+		snprintf(cfg->key, sizeof(cfg->key), option->opt_str); \
 		if (option->opt_str) \
 			free(option->opt_str); \
-		sprintf(buf, "%s", def); \
-		option->opt_str = strdup(buf); \
 	} \
-} while (0);
-
-#define TCMU_FREE_CFG_STR_KEY(cfg, key) \
-do { \
-	free(cfg->key); \
+	option->opt_str = strdup(cfg->def_##key); \
 } while (0);
 
 static void tcmu_conf_set_options(struct tcmu_config *cfg)
 {
 	/* set log_level option */
-	TCMU_PARSE_CFG_INT(cfg, log_level, TCMU_CONF_LOG_INFO);
+	TCMU_PARSE_CFG_INT(cfg, log_level);
 	tcmu_set_log_level(cfg->log_level);
 
 	/* set log_dir path option */
-	TCMU_PARSE_CFG_STR(cfg, log_dir_path, TCMU_LOG_DIR_DEFAULT);
-	if (cfg->log_dir_path)
-		tcmu_resetup_log_file(cfg->log_dir_path);
+	TCMU_PARSE_CFG_STR(cfg, log_dir);
+	tcmu_resetup_log_file(cfg->log_dir);
 
 	/* add your new config options */
-}
-
-static void tcmu_conf_free_str_keys(struct tcmu_config *cfg)
-{
-	/* add your str type config options
-	 *
-	 * For example:
-	 * TCMU_FREE_CFG_STR_KEY(cfg, 'STR KEY');
-	 */
-	TCMU_FREE_CFG_STR_KEY(cfg, log_dir_path);
 }
 
 #define TCMU_MAX_CFG_FILE_SIZE (2 * 1024 * 1024)
@@ -226,29 +234,6 @@ static int tcmu_read_config(int fd, char *buf, int count)
 
 #define MAX_KEY_LEN 64
 #define MAX_VAL_STR_LEN 256
-
-static struct tcmu_conf_option *
-tcmu_register_option(char *key, tcmu_option_type type)
-{
-	struct tcmu_conf_option *option;
-
-	option = calloc(1, sizeof(*option));
-	if (!option)
-		return NULL;
-
-	option->key = strdup(key);
-	if (!option->key)
-		goto free_option;
-	option->type = type;
-	list_node_init(&option->list);
-
-	list_add_tail(&tcmu_options, &option->list);
-	return option;
-
-free_option:
-	free(option);
-	return NULL;
-}
 
 static void tcmu_parse_option(char **cur, const char *end)
 {
@@ -365,18 +350,27 @@ static void tcmu_parse_options(struct tcmu_config *cfg, char *buf, int len)
 	tcmu_conf_set_options(cfg);
 }
 
-static int tcmu_load_config(struct tcmu_config *cfg)
+int tcmu_load_config(struct tcmu_config *cfg)
 {
 	int ret = -1;
 	int fd, len;
 	char *buf;
+	int i;
 
 	buf = malloc(TCMU_MAX_CFG_FILE_SIZE);
 	if (!buf)
 		return -ENOMEM;
 
-	fd = open(cfg->path, O_RDONLY);
-	if (fd < 0) {
+	for (i = 0; i < 5; i++) {
+		if ((fd = open(cfg->path, O_RDONLY)) == -1) {
+			/* give a moment for editor to restore
+			 * the conf-file after edit and save */
+			sleep(1);
+			continue;
+		}
+		break;
+	}
+	if (fd == -1) {
 		tcmu_err("Failed to open file '%s', %m\n", cfg->path);
 		goto free_buf;
 	}
@@ -404,6 +398,8 @@ static void *dyn_config_start(void *arg)
 	struct tcmu_config *cfg = arg;
 	int monitor, wd, len;
 	char buf[BUF_LEN];
+	char cfg_dir[PATH_MAX];
+	char *p;
 
 	monitor = inotify_init();
 	if (monitor == -1) {
@@ -411,18 +407,35 @@ static void *dyn_config_start(void *arg)
 		return NULL;
 	}
 
-	wd = inotify_add_watch(monitor, cfg->path, IN_ALL_EVENTS);
+	snprintf(cfg_dir, PATH_MAX, cfg->path);
+	p = strrchr(cfg_dir, '/');
+	if (p) {
+		*(p + 1) = '\0';
+	} else {
+		snprintf(cfg_dir, PATH_MAX, "/etc/tcmu/");
+	}
+
+	/* Editors (vim, nano ..) follow different approaches to save conf file.
+	 * The two commonly followed techniques are to overwrite the existing
+	 * file, or to write to a new file (.swp, .tmp ..) and move it to actual
+	 * file name later. In the later case, the inotify fails, because the
+	 * file it's been intended to watch no longer exists, as the new file
+	 * is a different file with just a same name.
+	 * To handle both the file save approaches mentioned above, it is better
+	 * we watch the directory and filter for MODIFY events.
+	 */
+	wd = inotify_add_watch(monitor, cfg_dir, IN_MODIFY);
 	if (wd == -1) {
-		tcmu_err("Failed to add \"%s\" to inotify %m\n", cfg->path);
+		tcmu_err("Failed to add \"%s\" to inotify %m\n", cfg_dir);
 		return NULL;
 	}
 
-	tcmu_info("Inotify is watching \"%s\", wd: %d, mask: IN_ALL_EVENTS\n",
-		  cfg->path, wd);
+	tcmu_info("Inotify is watching \"%s\", wd: %d, mask: IN_MODIFY\n",
+		  cfg_dir, wd);
+
 
 	while (1) {
 		struct inotify_event *event;
-		char *p;
 
 		len = read(monitor, buf, BUF_LEN);
 		if (len == -1) {
@@ -430,7 +443,8 @@ static void *dyn_config_start(void *arg)
 			continue;
 		}
 
-		for (p = buf; p < buf + len;) {
+		for (p = buf; p < buf + len;
+		     p += sizeof(struct inotify_event) + event->len) {
 			event = (struct inotify_event *)p;
 
 			tcmu_info("event->mask: 0x%x\n", event->mask);
@@ -438,56 +452,12 @@ static void *dyn_config_start(void *arg)
 			if (event->wd != wd)
 				continue;
 
-			/*
-			 * If force to write to the unwritable or crashed
-			 * config file, the vi/vim will try to move and
-			 * delete the config file and then recreate it again
-			 * via the *.swp
-			 */
-			if ((event->mask & IN_IGNORED) && !access(cfg->path, F_OK))
-				wd = inotify_add_watch(monitor, cfg->path, IN_ALL_EVENTS);
-
 			/* Try to reload the config file */
-			if (event->mask & IN_MODIFY || event->mask & IN_IGNORED)
+			if (event->mask & IN_MODIFY)
 				tcmu_load_config(cfg);
-
-			p += sizeof(struct inotify_event) + event->len;
 		}
 	}
 
-	return NULL;
-}
-
-struct tcmu_config *tcmu_parse_config(const char *path)
-{
-	struct tcmu_config *cfg;
-
-	cfg = calloc(1, sizeof(*cfg));
-	if (cfg == NULL) {
-		tcmu_err("Alloc TCMU config failed!\n");
-		return NULL;
-	}
-
-	if (!path)
-		path = "/etc/tcmu/tcmu.conf"; /* the default config file */
-
-	cfg->path = strdup(path);
-	if (!cfg->path) {
-		tcmu_err("failed to copy path: %s\n", path);
-		goto free_cfg;
-	}
-
-	if (tcmu_load_config(cfg)) {
-		tcmu_err("Loading TCMU config failed!\n");
-		goto free_path;
-	}
-
-	return cfg;
-
-free_path:
-	free(cfg->path);
-free_cfg:
-	free(cfg);
 	return NULL;
 }
 
@@ -499,6 +469,26 @@ int tcmu_watch_config(struct tcmu_config *cfg)
 void tcmu_unwatch_config(struct tcmu_config *cfg)
 {
 	tcmu_thread_cancel(cfg->thread_id);
+}
+
+struct tcmu_config* tcmu_initialize_config(void)
+{
+	struct tcmu_config *cfg;
+	char *log_dir;
+
+	cfg = calloc(1, sizeof(*cfg));
+	if (cfg == NULL) {
+		tcmu_err("allocating TCMU config failed: %m\n");
+		errno = ENOMEM;
+		return NULL;
+	}
+
+	log_dir = getenv("TCMU_LOGDIR");
+	snprintf(cfg->def_log_dir, PATH_MAX, log_dir ? log_dir : TCMU_LOG_DIR_DEFAULT);
+	cfg->def_log_level = TCMU_CONF_LOG_INFO;
+	snprintf(cfg->path, PATH_MAX, TCMU_CONFIGFILE_DEFAULT);
+
+	return cfg;
 }
 
 void tcmu_free_config(struct tcmu_config *cfg)
@@ -517,7 +507,5 @@ void tcmu_free_config(struct tcmu_config *cfg)
 		free(option);
 	}
 
-	tcmu_conf_free_str_keys(cfg);
-	free(cfg->path);
 	free(cfg);
 }

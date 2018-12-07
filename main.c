@@ -988,13 +988,17 @@ int main(int argc, char **argv)
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
 	guint watch_id;
-	bool reset_nl_supp = true;
+	bool reset_nl_supp = false;
 	bool new_path = false;
 	bool watching_cfg = false;
 	struct flock lock_fd = {0, };
-	char *log_dir = NULL;
 	int fd;
-	int ret;
+	int ret = -1;
+
+	if ((tcmu_cfg = tcmu_initialize_config()) == NULL) {
+		tcmu_err("initializing the tcmu config failed: %m\n");
+		exit(EXIT_FAILURE);
+	}
 
 	while (1) {
 		int option_index = 0;
@@ -1013,9 +1017,7 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			log_dir = strdup(optarg);
-			if (!log_dir)
-				goto free_opt;
+			snprintf(tcmu_cfg->def_log_dir, PATH_MAX, optarg);
 			break;
 		case 'f':
 			nr_files = atol(optarg);
@@ -1023,23 +1025,22 @@ int main(int argc, char **argv)
 				tcmu_err("--nofile=%d should be in [%lu, %lu]\n", nr_files,
 					(unsigned long)TCMUR_MIN_OPEN_FD,
 					(unsigned long)TCMUR_MAX_OPEN_FD);
-				goto free_opt;
+				goto free_config;
 			}
 
-			ret = tcmu_set_max_fd_limit(nr_files);
-			if (ret)
-				goto free_opt;
+			if (tcmu_set_max_fd_limit(nr_files))
+				goto free_config;
 			break;
 		case 'd':
-			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG_SCSI_CMD);
+			tcmu_cfg->def_log_level = TCMU_CONF_LOG_DEBUG_SCSI_CMD;
 			break;
 		case 'V':
 			tcmu_info("tcmu-runner %s\n", TCMUR_VERSION);
-			goto free_opt;
+			goto free_config;
 		default:
 		case 'h':
 			usage();
-			goto free_opt;
+			goto free_config;
 		}
 	}
 
@@ -1048,14 +1049,15 @@ int main(int argc, char **argv)
 	 * the log directory may be configured via the system config file
 	 * which will be used in logger setting up.
 	 */
-	tcmu_cfg = tcmu_parse_config(NULL);
-	if (!tcmu_cfg)
-		goto free_opt;
+	if (tcmu_load_config(tcmu_cfg)) {
+		tcmu_err("Loading TCMU config failed!\n");
+		goto free_config;
+	}
 
-	if (tcmu_setup_log(log_dir))
+	if (tcmu_setup_log(tcmu_cfg->log_dir))
 		goto free_config;
 
-	tcmu_info("Starting...\n");
+	tcmu_crit("Starting...\n");
 
 	if (tcmu_watch_config(tcmu_cfg)) {
 		tcmu_warn("Dynamic config file changes is not supported.\n");
@@ -1080,8 +1082,7 @@ int main(int argc, char **argv)
 		goto close_fd;
 	}
 
-	ret = load_our_module();
-	if (ret < 0) {
+	if (load_our_module() < 0) {
 		tcmu_err("couldn't load module\n");
 		goto close_fd;
 	}
@@ -1093,6 +1094,7 @@ int main(int argc, char **argv)
 	 * sent to us until we have everything ready.
 	 */
 	tcmu_dbg("blocking netlink\n");
+	reset_nl_supp = true;
 	ret = tcmu_cfgfs_mod_param_set_u32("block_netlink", 1);
 	tcmu_dbg("blocking netlink done\n");
 	if (ret == -ENOENT) {
@@ -1113,6 +1115,7 @@ int main(int argc, char **argv)
 		goto close_fd;
 	}
 	tcmu_dbg("%d runner handlers found\n", ret);
+	ret = -1;
 
 	/*
 	 * Convert from tcmu-runner's handler struct to libtcmu's
@@ -1154,8 +1157,6 @@ int main(int argc, char **argv)
 		goto err_tcmulib_close;
 	}
 
-	darray_free(handlers);
-
 	/* Set up event for libtcmu */
 	libtcmu_gio = g_io_channel_unix_new(tcmulib_get_master_fd(tcmulib_context));
 	watch_id = g_io_add_watch(libtcmu_gio, G_IO_IN, tcmulib_callback, tcmulib_context);
@@ -1171,32 +1172,21 @@ int main(int argc, char **argv)
 				NULL  // user date free func
 		);
 
-	if (reset_nl_supp)
+	if (reset_nl_supp) {
 		tcmu_cfgfs_mod_param_set_u32("block_netlink", 0);
+		reset_nl_supp = false;
+	}
 	g_main_loop_run(loop);
 
-	tcmu_info("Exiting...\n");
+	tcmu_crit("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
 	g_source_remove(watch_id);
 	g_io_channel_shutdown(libtcmu_gio, TRUE, NULL);
 	g_io_channel_unref (libtcmu_gio);
 	g_object_unref(manager);
-	tcmulib_close(tcmulib_context);
 
-	lock_fd.l_type = F_UNLCK;
-	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
-		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",
-		         TCMU_LOCK_FILE);
-	}
-	close(fd);
-
-	if (watching_cfg)
-		tcmu_unwatch_config(tcmu_cfg);
-	tcmu_free_config(tcmu_cfg);
-	tcmu_destroy_log();
-
-	return 0;
+	ret = 0;
 
 err_tcmulib_close:
 	tcmulib_close(tcmulib_context);
@@ -1219,11 +1209,11 @@ unwatch_cfg:
 	tcmu_destroy_log();
 free_config:
 	tcmu_free_config(tcmu_cfg);
-free_opt:
 	if (new_path)
 		free(handler_path);
-	if (log_dir)
-		free(log_dir);
 
-	exit(1);
+	if (ret)
+		exit(EXIT_FAILURE);
+
+	return 0;
 }

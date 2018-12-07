@@ -22,7 +22,8 @@
 #define TCMU_LOG_DEBUG_SCSI_CMD	(LOG_DEBUG + 1)	/* scsi cmd debug-level messages */
 
 /* default tcmu log dir path */
-#define TCMU_LOG_DIR_DEFAULT   "/var/log"
+#define TCMU_LOG_DIR_DEFAULT	"/var/log"
+#define TCMU_CONFIGFILE_DEFAULT	"/etc/tcmu/tcmu.conf"
 
 struct tcmu_device;
 
@@ -31,7 +32,7 @@ unsigned int tcmu_get_log_level(void);
 int tcmu_setup_log(char *log_dir);
 void tcmu_destroy_log(void);
 int tcmu_make_absolute_logfile(char *path, const char *filename);
-int tcmu_resetup_log_file(char *log_dir_path);
+int tcmu_resetup_log_file(char *log_dir);
 
 __attribute__ ((format (printf, 4, 5)))
 void tcmu_crit_message(struct tcmu_device *dev, const char *funcname, int linenr, const char *fmt, ...);

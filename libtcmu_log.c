@@ -93,6 +93,11 @@ unsigned int tcmu_get_log_level(void)
 
 void tcmu_set_log_level(int level)
 {
+	if (tcmu_log_level == to_syslog_level(level)) {
+		tcmu_dbg("No changes to current log_level: %s, skipping it.\n",
+		         log_level_lookup[level]);
+		return;
+	}
 	if (level > TCMU_CONF_LOG_LEVEL_MAX)
 		level = TCMU_CONF_LOG_LEVEL_MAX;
 	else if (level < TCMU_CONF_LOG_LEVEL_MIN)
@@ -396,7 +401,7 @@ static int output_to_fd(int pri, const char *timestamp,
 	char *buf, *msg;
 	int count, ret, written = 0, r, pid = 0;
 
-	if (fd < 0)
+	if (fd == -1)
 		return -1;
 
 	pid = getpid();
@@ -449,7 +454,7 @@ static int create_file_output(struct log_buf *logbuf, int pri,
 	tcmu_dbg("Attempting to use '%s' as the log file path\n", log_file_path);
 
 	fd = open(log_file_path, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
-	if (fd < 0) {
+	if (fd == -1) {
 		tcmu_err("Failed to open %s:%m\n", log_file_path);
 		return fd;
 	}
@@ -652,13 +657,6 @@ int tcmu_setup_log(char *log_dir)
 	struct log_buf *logbuf;
 	int ret;
 
-	if (!log_dir)
-		log_dir = getenv("TCMU_LOGDIR");
-	if (!log_dir)
-		log_dir = tcmu_log_dir;
-	if (!log_dir)
-		log_dir = TCMU_LOG_DIR_DEFAULT;
-
 	ret = tcmu_log_dir_create(log_dir);
 	if (ret) {
 		tcmu_err("Could not setup log dir %s. Error %d.\n", log_dir,
@@ -700,9 +698,30 @@ free_log_dir:
 	return -ENOMEM;
 }
 
+static bool is_same_path(const char* path1, const char* path2)
+{
+	struct stat st1 = {0,};
+	struct stat st2 = {0,};
+
+	if (!path1 || !path2)
+		return false;
+
+	if (stat(path1, &st1) == -1 || stat(path2, &st2) == -1) {
+		return false;
+	}
+
+	return st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino;
+}
+
 int tcmu_resetup_log_file(char *log_dir)
 {
 	int ret;
+
+	if (is_same_path(tcmu_log_dir, log_dir)) {
+		tcmu_dbg("No changes to current log_dir: %s, skipping it.\n",
+		         log_dir);
+		return 0;
+	}
 
 	if (log_dir) {
 		ret = tcmu_log_dir_create(log_dir);

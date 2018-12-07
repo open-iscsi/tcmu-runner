@@ -16,10 +16,13 @@
 
 struct tcmu_config {
 	pthread_t thread_id;
-	char *path;
+	char path[PATH_MAX];
 
 	int log_level;
-	char *log_dir_path;
+	int def_log_level;
+
+	char log_dir[PATH_MAX];
+	char def_log_dir[PATH_MAX];
 };
 
 /*
@@ -51,8 +54,9 @@ static const char *const log_level_lookup[] = {
 	[TCMU_CONF_LOG_DEBUG_SCSI_CMD]	= "DEBUG SCSI CMD",
 };
 
+struct tcmu_config* tcmu_initialize_config(void);
 void tcmu_free_config(struct tcmu_config *cfg);
-struct tcmu_config * tcmu_parse_config(const char *path);
+int tcmu_load_config(struct tcmu_config *cfg);
 int tcmu_watch_config(struct tcmu_config *cfg);
 void tcmu_unwatch_config(struct tcmu_config *cfg);
 
