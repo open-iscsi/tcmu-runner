@@ -26,6 +26,9 @@
 
 #include "ccan/list/list.h"
 
+#define TCMU_CONFIG_DIR_DEFAULT "/etc/tcmu"
+#define TCMU_CONFIG_FILE_DEFAULT TCMU_CONFIG_DIR_DEFAULT"/tcmu.conf"
+
 typedef enum {
 	TCMU_OPT_NONE = 0,
 	TCMU_OPT_INT, /* type int */
@@ -362,7 +365,7 @@ int tcmu_load_config(struct tcmu_config *cfg)
 		return -ENOMEM;
 
 	for (i = 0; i < 5; i++) {
-		if ((fd = open(cfg->path, O_RDONLY)) == -1) {
+		if ((fd = open(TCMU_CONFIG_FILE_DEFAULT, O_RDONLY)) == -1) {
 			/* give a moment for editor to restore
 			 * the conf-file after edit and save */
 			sleep(1);
@@ -371,14 +374,15 @@ int tcmu_load_config(struct tcmu_config *cfg)
 		break;
 	}
 	if (fd == -1) {
-		tcmu_err("Failed to open file '%s', %m\n", cfg->path);
+		tcmu_err("Failed to open file '%s', %m\n",
+			  TCMU_CONFIG_FILE_DEFAULT);
 		goto free_buf;
 	}
 
 	len = tcmu_read_config(fd, buf, TCMU_MAX_CFG_FILE_SIZE);
 	close(fd);
 	if (len < 0) {
-		tcmu_err("Failed to read file '%s'\n", cfg->path);
+		tcmu_err("Failed to read file '%s'\n", TCMU_CONFIG_FILE_DEFAULT);
 		goto free_buf;
 	}
 
@@ -398,21 +402,12 @@ static void *dyn_config_start(void *arg)
 	struct tcmu_config *cfg = arg;
 	int monitor, wd, len;
 	char buf[BUF_LEN];
-	char cfg_dir[PATH_MAX];
 	char *p;
 
 	monitor = inotify_init();
 	if (monitor == -1) {
 		tcmu_err("Failed to init inotify %m\n");
 		return NULL;
-	}
-
-	snprintf(cfg_dir, PATH_MAX, cfg->path);
-	p = strrchr(cfg_dir, '/');
-	if (p) {
-		*(p + 1) = '\0';
-	} else {
-		snprintf(cfg_dir, PATH_MAX, "/etc/tcmu/");
 	}
 
 	/* Editors (vim, nano ..) follow different approaches to save conf file.
@@ -424,15 +419,15 @@ static void *dyn_config_start(void *arg)
 	 * To handle both the file save approaches mentioned above, it is better
 	 * we watch the directory and filter for MODIFY events.
 	 */
-	wd = inotify_add_watch(monitor, cfg_dir, IN_MODIFY);
+	wd = inotify_add_watch(monitor, TCMU_CONFIG_DIR_DEFAULT, IN_MODIFY);
 	if (wd == -1) {
-		tcmu_err("Failed to add \"%s\" to inotify %m\n", cfg_dir);
+		tcmu_err("Failed to add \"%s\" to inotify %m\n",
+			 TCMU_CONFIG_DIR_DEFAULT);
 		return NULL;
 	}
 
 	tcmu_info("Inotify is watching \"%s\", wd: %d, mask: IN_MODIFY\n",
-		  cfg_dir, wd);
-
+		  TCMU_CONFIG_DIR_DEFAULT, wd);
 
 	while (1) {
 		struct inotify_event *event;
@@ -486,7 +481,6 @@ struct tcmu_config* tcmu_initialize_config(void)
 	log_dir = getenv("TCMU_LOGDIR");
 	snprintf(cfg->def_log_dir, PATH_MAX, log_dir ? log_dir : TCMU_LOG_DIR_DEFAULT);
 	cfg->def_log_level = TCMU_CONF_LOG_INFO;
-	snprintf(cfg->path, PATH_MAX, TCMU_CONFIGFILE_DEFAULT);
 
 	return cfg;
 }
