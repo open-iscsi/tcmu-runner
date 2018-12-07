@@ -426,8 +426,8 @@ static void *dyn_config_start(void *arg)
 		return NULL;
 	}
 
-	tcmu_info("Inotify is watching \"%s\", wd: %d, mask: IN_MODIFY\n",
-		  TCMU_CONFIG_DIR_DEFAULT, wd);
+	tcmu_dbg("Inotify is watching \"%s\", wd: %d, mask: IN_MODIFY\n",
+		 TCMU_CONFIG_DIR_DEFAULT, wd);
 
 	while (1) {
 		struct inotify_event *event;
@@ -442,7 +442,7 @@ static void *dyn_config_start(void *arg)
 		     p += sizeof(struct inotify_event) + event->len) {
 			event = (struct inotify_event *)p;
 
-			tcmu_info("event->mask: 0x%x\n", event->mask);
+			tcmu_dbg("event->mask: 0x%x\n", event->mask);
 
 			if (event->wd != wd)
 				continue;
