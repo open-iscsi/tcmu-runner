@@ -116,8 +116,6 @@ struct tcmulib_cmd {
 /* Set/Get methods for the opaque tcmu_device */
 void *tcmu_dev_get_private(struct tcmu_device *dev);
 void tcmu_dev_set_private(struct tcmu_device *dev, void *priv);
-void *tcmu_get_daemon_dev_private(struct tcmu_device *dev);
-void tcmu_set_daemon_dev_private(struct tcmu_device *dev, void *priv);
 int tcmu_dev_get_fd(struct tcmu_device *dev);
 char *tcmu_dev_get_cfgstring(struct tcmu_device *dev);
 void tcmu_dev_set_num_lbas(struct tcmu_device *dev, uint64_t num_lbas);
