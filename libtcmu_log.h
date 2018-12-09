@@ -23,7 +23,6 @@
 
 /* default tcmu log dir path */
 #define TCMU_LOG_DIR_DEFAULT	"/var/log"
-#define TCMU_CONFIGFILE_DEFAULT	"/etc/tcmu/tcmu.conf"
 
 struct tcmu_device;
 
