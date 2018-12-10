@@ -235,9 +235,6 @@ static int tcmu_read_config(int fd, char *buf, int count)
 		TCMU_SKIP_COMMENT_LINE((x), (y)); } \
 	} while (0);
 
-#define MAX_KEY_LEN 64
-#define MAX_VAL_STR_LEN 256
-
 static void tcmu_parse_option(char **cur, const char *end)
 {
 	struct tcmu_conf_option *option;
