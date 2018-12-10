@@ -80,6 +80,7 @@ struct tcmu_rbd_state {
 	char *osd_op_timeout;
 	char *conf_path;
 	char *id;
+        int ref;
 };
 
 enum rbd_aio_type {
@@ -343,9 +344,8 @@ static void tcmu_rbd_detect_device_class(struct tcmu_device *dev)
 	free(crush_rule);
 }
 
-static void tcmu_rbd_image_close(struct tcmu_device *dev)
+static void tcmu_rbd_image_close(struct tcmu_rbd_state *state)
 {
-	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 
 	rbd_close(state->image);
 	rados_ioctx_destroy(state->io_ctx);
@@ -505,9 +505,8 @@ rados_shutdown:
  * -ETIMEDOUT = rados osd op timeout has expired.
  * -EIO = misc error.
  */
-static int tcmu_rbd_has_lock(struct tcmu_device *dev)
+static int tcmu_rbd_has_lock(struct tcmu_device *dev, struct tcmu_rbd_state *state)
 {
-	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret, is_owner;
 
 	ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
@@ -529,8 +528,31 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 static int tcmu_rbd_get_lock_state(struct tcmu_device *dev)
 {
 	int ret;
+	struct tcmu_rbd_state *state;
 
-	ret = tcmu_rbd_has_lock(dev);
+        tcmur_dev_lock(dev);
+	state = tcmur_get_dev_private(dev);
+        if (state == NULL) {
+                tcmu_dev_unlock(dev);
+		return TCMUR_DEV_LOCK_LOCKED;
+        }
+        state->ref++;
+
+        tcmur_dev_unlock(dev);
+
+	ret = tcmu_rbd_has_lock(dev, state);
+
+        tcmur_dev_lock(dev);
+        state->ref--;
+        if (state->ref == 0) {
+                tcmur_dev_unlock(dev);
+	        tcmu_rbd_image_close(state);
+	        tcmu_rbd_state_free(state);
+
+		return TCMUR_DEV_LOCK_LOCKED;
+        }
+        tcmur_dev_unlock(dev);
+
 	if (ret == 1)
 		return TCMUR_DEV_LOCK_LOCKED;
 	else if (ret == 0 || ret == -ESHUTDOWN)
@@ -718,7 +740,7 @@ static int tcmu_rbd_unlock(struct tcmu_device *dev)
 	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
-	if (tcmu_rbd_has_lock(dev) != 1)
+	if (tcmu_rbd_has_lock(dev, state) != 1)
 		return TCMU_STS_OK;
 
 	ret = rbd_lock_release(state->image);
@@ -734,7 +756,7 @@ static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
-	ret = tcmu_rbd_has_lock(dev);
+	ret = tcmu_rbd_has_lock(dev, state);
 	if (ret == 1) {
 		ret = 0;
 		/*
@@ -838,7 +860,11 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	state = calloc(1, sizeof(*state));
 	if (!state)
 		return -ENOMEM;
-	tcmur_dev_set_private(dev, state);
+
+        state->ref = 1;
+        tcmur_dev_lock(dev);
+	tcmur_set_dev_private(dev, state);
+        tcmur_dev_unlock(dev);
 
 	dev_cfg_dup = strdup(tcmu_dev_get_cfgstring(dev));
 	config = dev_cfg_dup;
@@ -951,7 +977,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	return 0;
 
 stop_image:
-	tcmu_rbd_image_close(dev);
+	tcmu_rbd_image_close(state);
 free_config:
 	free(dev_cfg_dup);
 free_state:
@@ -961,10 +987,20 @@ free_state:
 
 static void tcmu_rbd_close(struct tcmu_device *dev)
 {
-	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
+	struct tcmu_rbd_state *state = tcmur_get_dev_private(dev);
 
-	tcmu_rbd_image_close(dev);
-	tcmu_rbd_state_free(state);
+        tcmur_dev_lock(dev);
+        state->ref--;
+
+        if (state->ref == 0) {
+                tcmur_set_dev_private(dev, NULL);
+                tcmur_dev_unlock(dev);
+	        tcmu_rbd_image_close(state);
+	        tcmu_rbd_state_free(state);
+                return;
+        }
+
+        tcmur_dev_unlock(dev);
 }
 
 static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,

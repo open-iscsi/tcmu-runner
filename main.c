@@ -745,6 +745,10 @@ static int dev_added(struct tcmu_device *dev)
 	if (!rdev)
 		return -ENOMEM;
 
+        ret = pthread_spin_init(&rdev->ref_lock);
+        if (ret != 0)
+                goto free_rdev;
+
 	tcmu_dev_set_private(dev, rdev);
 	list_node_init(&rdev->recovery_entry);
 	rdev->dev = dev;

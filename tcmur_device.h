@@ -73,6 +73,7 @@ struct tcmur_device {
 
 	uint32_t format_progress;
 	pthread_mutex_t format_lock; /* for atomic format operations */
+        pthread_spinlock_t ref_lock;
 };
 
 bool tcmu_dev_in_recovery(struct tcmu_device *dev);
@@ -92,5 +93,6 @@ void tcmu_update_dev_lock_state(struct tcmu_device *dev);
 
 void tcmur_dev_set_private(struct tcmu_device *dev, void *private);
 void *tcmur_dev_get_private(struct tcmu_device *dev);
-
+void tcmur_dev_lock(struct tcmu_device *dev);
+void tcmur_dev_unlock(struct tcmu_device *dev);
 #endif

@@ -425,6 +425,14 @@ void tcmu_update_dev_lock_state(struct tcmu_device *dev)
 	if (!rhandler->get_lock_state)
 		return;
 
+        pthread_mutex_lock(&rdev->state_lock);
+        if (rdev->flags != TCMUR_DEV_FLAG_IS_OPEN) {
+                pthread_mutex_unlock(&rdev->state_lock);
+                return ;
+        }
+
+       pthread_mutex_unlock(&rdev->state_lock);
+
 	state = rhandler->get_lock_state(dev);
 	pthread_mutex_lock(&rdev->state_lock);
 	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED &&
@@ -435,6 +443,20 @@ void tcmu_update_dev_lock_state(struct tcmu_device *dev)
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 }
+
+
+void tcmur_dev_lock(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+        pthread_spin_lock(&rdev->ref_lock);
+}
+
+void tcmur_dev_unlock(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+        pthread_spin_unlock(&rdev->ref_lock);
+}
+
 
 void tcmur_dev_set_private(struct tcmu_device *dev, void *private)
 {
