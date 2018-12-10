@@ -476,7 +476,8 @@ struct tcmu_config* tcmu_initialize_config(void)
 	}
 
 	log_dir = getenv("TCMU_LOGDIR");
-	snprintf(cfg->def_log_dir, PATH_MAX, "%s", log_dir ? log_dir : TCMU_LOG_DIR_DEFAULT);
+	snprintf(cfg->def_log_dir, PATH_MAX, "%s",
+		 log_dir ? log_dir : TCMU_LOG_DIR_DEFAULT);
 	cfg->def_log_level = TCMU_CONF_LOG_INFO;
 
 	return cfg;
