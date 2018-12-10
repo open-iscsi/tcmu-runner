@@ -1017,7 +1017,7 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			snprintf(tcmu_cfg->def_log_dir, PATH_MAX, optarg);
+			snprintf(tcmu_cfg->def_log_dir, PATH_MAX, "%s", optarg);
 			break;
 		case 'f':
 			nr_files = atol(optarg);

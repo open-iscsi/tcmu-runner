@@ -172,9 +172,9 @@ do { \
 	memset(cfg->key, 0, sizeof(cfg->key)); \
 	if (!option) { \
 		option = tcmu_register_option(#key, TCMU_OPT_STR); \
-		snprintf(cfg->key, sizeof(cfg->key), cfg->def_##key); \
+		snprintf(cfg->key, sizeof(cfg->key), "%s", cfg->def_##key); \
 	} else { \
-		snprintf(cfg->key, sizeof(cfg->key), option->opt_str); \
+		snprintf(cfg->key, sizeof(cfg->key), "%s", option->opt_str); \
 		if (option->opt_str) \
 			free(option->opt_str); \
 	} \
@@ -479,7 +479,7 @@ struct tcmu_config* tcmu_initialize_config(void)
 	}
 
 	log_dir = getenv("TCMU_LOGDIR");
-	snprintf(cfg->def_log_dir, PATH_MAX, log_dir ? log_dir : TCMU_LOG_DIR_DEFAULT);
+	snprintf(cfg->def_log_dir, PATH_MAX, "%s", log_dir ? log_dir : TCMU_LOG_DIR_DEFAULT);
 	cfg->def_log_level = TCMU_CONF_LOG_INFO;
 
 	return cfg;
