@@ -113,13 +113,11 @@ Development header(s) for developing against libtcmu.
 
 %install
 %{__make} DESTDIR=%{buildroot} install
-%{__mkdir} -p %{buildroot}/etc/tcmu/
-%{__install} -m 644 tcmu.conf %{buildroot}/etc/tcmu/
-%{__mkdir} -p %{buildroot}%{_sysconfdir}/logrotate.d/
-%{__install} -m 644 logrotate.conf %{buildroot}%{_sysconfdir}/logrotate.d/tcmu-runner
+%{__rm} -f %{buildroot}/etc/tcmu/tcmu.conf.old
+%{__rm} -f %{buildroot}/etc/logrotate.d/tcmu-runner.old
 
 %clean
-%{__rm} -rf ${buldroot}
+%{__rm} -rf %{buildroot}
 
 %files
 %defattr(-,root,root)
