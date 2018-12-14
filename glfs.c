@@ -135,19 +135,19 @@ gluster_compare_hosts(gluster_hostdef *src_server, gluster_hostdef *dst_server)
 		return false;
 
 	switch (src_server->type) {
-		case GLUSTER_TRANSPORT_UNIX:
-			if (!strcmp(src_server->u.uds.socket, dst_server->u.uds.socket))
-				return true;
-			break;
-		case GLUSTER_TRANSPORT_TCP:
-		case GLUSTER_TRANSPORT_RDMA:
-			if (!strcmp(src_server->u.inet.addr, dst_server->u.inet.addr)
-					&&
-				!strcmp(src_server->u.inet.port, dst_server->u.inet.port))
-				return true;
-			break;
-		case GLUSTER_TRANSPORT__MAX:
-			break;
+	case GLUSTER_TRANSPORT_UNIX:
+		if (!strcmp(src_server->u.uds.socket, dst_server->u.uds.socket))
+			return true;
+		break;
+	case GLUSTER_TRANSPORT_TCP:
+	case GLUSTER_TRANSPORT_RDMA:
+		if (!strcmp(src_server->u.inet.addr, dst_server->u.inet.addr)
+				&&
+			!strcmp(src_server->u.inet.port, dst_server->u.inet.port))
+			return true;
+		break;
+	case GLUSTER_TRANSPORT__MAX:
+		break;
 	}
 
 	return false;
@@ -419,9 +419,8 @@ static glfs_t* tcmu_create_glfs_object(struct tcmu_device *dev,
 		goto fail;
 	}
 
-	if (!init) {
+	if (!init)
 		return fs;
-	}
 
 	ret = glfs_set_volfile_server(fs,
 				gluster_transport_lookup[entry->server->type],
@@ -493,9 +492,8 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 	tcmu_dev_set_write_cache_enabled(dev, 1);
 
 	config = tcmu_get_path(dev);
-	if (!config) {
+	if (!config)
 		goto fail;
-	}
 
 	gfsp->fs = tcmu_create_glfs_object(dev, config, &gfsp->hosts);
 	if (!gfsp->fs) {
@@ -850,14 +848,12 @@ int handler_init(void)
 	int ret;
 
 	ret = pthread_mutex_init(&glfs_lock, NULL);
-	if (ret != 0) {
+	if (ret != 0)
 		return -1;
-	}
 
 	ret = tcmur_register_handler(&glfs_handler);
-	if (ret != 0) {
+	if (ret != 0)
 		pthread_mutex_destroy(&glfs_lock);
-	}
 
 	return ret;
 }

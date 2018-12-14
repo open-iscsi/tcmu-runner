@@ -318,30 +318,30 @@ static int qcow_validate_header(struct qcow_header *header)
 {
 	if (header->magic != QCOW_MAGIC) {
 		tcmu_err("header is not QCOW\n");
-		 return -1;
+		return -1;
 	}
 	if (header->version != 1) {
 		tcmu_err("version is %d, expected 1\n", header->version);
-		 return -1;
+		return -1;
 	}
 	if (header->cluster_bits < 9 || header->cluster_bits > 16) {
 		tcmu_err("bad cluster_bits = %d\n", header->cluster_bits);
-		 return -1;
+		return -1;
 	}
 	if (header->l2_bits < (9 - 3) || header->l2_bits > (16 - 3)) {
 		tcmu_err("bad l2_bits = %d\n", header->l2_bits);
-		 return -1;
+		return -1;
 	}
 	switch (header->crypt_method) {
-		case QCOW_CRYPT_NONE:
-			break;
-		case QCOW_CRYPT_AES:
-			tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
-			tcmu_err("Convert to unencrypted image using qemu-img\n");
-			 return -1;
-		default:
-			tcmu_err("Invalid encryption value %d\n", header->crypt_method);
-			 return -1;
+	case QCOW_CRYPT_NONE:
+		break;
+	case QCOW_CRYPT_AES:
+		tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
+		tcmu_err("Convert to unencrypted image using qemu-img\n");
+		return -1;
+	default:
+		tcmu_err("Invalid encryption value %d\n", header->crypt_method);
+		return -1;
 	}
 	return 0;
 }
@@ -351,26 +351,26 @@ static int qcow2_validate_header(struct qcow2_header *header)
 	/* TODO check other stuff ... L1, refcount, snapshots */
 	if (header->magic != QCOW_MAGIC) {
 		tcmu_err("header is not QCOW\n");
-		 return -1;
+		return -1;
 	}
 	if (header->version < 2) {
 		tcmu_err("version is %d, expected 2 or 3\n", header->version);
-		 return -1;
+		return -1;
 	}
 	if (header->cluster_bits < 9 || header->cluster_bits > 16) {
 		tcmu_err("bad cluster_bits = %d\n", header->cluster_bits);
-		 return -1;
+		return -1;
 	}
 	switch (header->crypt_method) {
-		case QCOW2_CRYPT_NONE:
-			break;
-		case QCOW2_CRYPT_AES:
-			tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
-			tcmu_err("Convert to unencrypted image using qemu-img\n");
-			 return -1;
-		default:
-			tcmu_err("Invalid encryption value %d\n", header->crypt_method);
-			 return -1;
+	case QCOW2_CRYPT_NONE:
+		break;
+	case QCOW2_CRYPT_AES:
+		tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
+		tcmu_err("Convert to unencrypted image using qemu-img\n");
+		return -1;
+	default:
+		tcmu_err("Invalid encryption value %d\n", header->crypt_method);
+		return -1;
 	}
 	return 0;
 }
@@ -498,7 +498,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 		tcmu_err("Image size is not an integer multiple"
 				 " of the block size\n");
 		goto fail;
-	}	
+	}
 	s->l1_size = l1_size;
 	s->l1_table_offset = header.l1_table_offset;
 
@@ -614,7 +614,7 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 		tcmu_err("Image size is not an integer multiple"
 				 " of the block size\n");
 		goto fail;
-	}		
+	}
 	s->l1_size = l1_size;
 	// why did they add this to qcow2 ?
 	if (header.l1_size != s->l1_size) {

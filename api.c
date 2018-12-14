@@ -377,4 +377,3 @@ void tcmu_thread_cancel(pthread_t thread)
 	if (join_retval != PTHREAD_CANCELED)
 		tcmu_err("unexpected join retval: %p\n", join_retval);
 }
-
