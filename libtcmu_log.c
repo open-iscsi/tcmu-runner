@@ -438,14 +438,13 @@ out:
 	return written;
 }
 
-static int create_file_output(struct log_buf *logbuf, int pri,
-			      const char *filename)
+static int create_file_output(struct log_buf *logbuf, int pri)
 {
 	char log_file_path[PATH_MAX];
 	struct log_output *output;
 	int fd, ret;
 
-	ret = tcmu_make_absolute_logfile(log_file_path, filename);
+	ret = tcmu_make_absolute_logfile(log_file_path, TCMU_LOG_FILENAME);
 	if (ret < 0) {
 		tcmu_err("tcmu_make_absolute_logfile failed\n");
 		return ret;
@@ -679,8 +678,7 @@ int tcmu_setup_log(char *log_dir)
 	if (ret < 0)
 		tcmu_err("create syslog output error \n");
 
-	ret = create_file_output(logbuf, TCMU_LOG_DEBUG_SCSI_CMD,
-				 TCMU_LOG_FILENAME);
+	ret = create_file_output(logbuf, TCMU_LOG_DEBUG_SCSI_CMD);
 	if (ret < 0)
 		tcmu_err("create file output error \n");
 
@@ -736,8 +734,7 @@ int tcmu_resetup_log_file(char *log_dir)
 		/* Early call from config file parser or race with logrotate */
 		return 0;
 
-	ret = create_file_output(tcmu_logbuf, TCMU_LOG_DEBUG_SCSI_CMD,
-				 TCMU_LOG_FILENAME);
+	ret = create_file_output(tcmu_logbuf, TCMU_LOG_DEBUG_SCSI_CMD);
 	if (ret < 0)
 		tcmu_err("Could not change log path to %s, ret:%d.\n",
 			 log_dir, ret);
