@@ -714,12 +714,16 @@ static bool is_same_path(const char* path1, const char* path2)
 int tcmu_resetup_log_file(char *log_dir)
 {
 	int ret;
+	char old_logdir[PATH_MAX] = {'\0', };
 
 	if (is_same_path(tcmu_log_dir, log_dir)) {
 		tcmu_dbg("No changes to current log_dir: %s, skipping it.\n",
 		         log_dir);
 		return 0;
 	}
+
+	if (tcmu_log_dir)
+		snprintf(old_logdir, PATH_MAX, "%s", tcmu_log_dir);
 
 	if (log_dir) {
 		ret = tcmu_log_dir_create(log_dir);
@@ -738,6 +742,11 @@ int tcmu_resetup_log_file(char *log_dir)
 	if (ret < 0)
 		tcmu_err("Could not change log path to %s, ret:%d.\n",
 			 log_dir, ret);
+
+	if (old_logdir[0])
+		tcmu_crit("you may find previous logs at '%s/%s'\n",
+		          old_logdir, TCMU_LOG_FILENAME);
+
 	return ret;
 }
 
