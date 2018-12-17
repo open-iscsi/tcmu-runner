@@ -1076,6 +1076,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 {
 	struct tcmu_device *dev = aio_cb->dev;
 	struct tcmulib_cmd *tcmulib_cmd = aio_cb->tcmulib_cmd;
+	struct tcmur_cmd_state *rcmd_state = tcmu_cmd_get_private(tcmulib_cmd);
 	struct iovec *iov = aio_cb->iov;
 	size_t iov_cnt = aio_cb->iov_cnt;
 	uint32_t cmp_offset;
@@ -1115,7 +1116,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		}
 	}
 
-	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
+	rcmd_state->done(dev, tcmulib_cmd, tcmu_r);
 
 	if (aio_cb->bounce_buffer)
 		free(aio_cb->bounce_buffer);

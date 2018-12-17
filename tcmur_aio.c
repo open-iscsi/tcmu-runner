@@ -146,6 +146,7 @@ static void *io_work_queue(void *arg)
 	while (1) {
 		struct tcmu_work *work;
 		struct tcmulib_cmd *cmd;
+		struct tcmur_cmd_state *rcmd_state;
 
 		pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
 		pthread_mutex_lock(&io_wq->io_lock);
@@ -164,9 +165,10 @@ static void *io_work_queue(void *arg)
 
 		/* kick start I/O request */
 		cmd = work->cmd;
+		rcmd_state = tcmu_cmd_get_private(cmd);
 		pthread_cleanup_push(_cleanup_io_work, work);
 
-		cmd->done(dev, cmd,work->fn(work->dev, cmd));
+		rcmd_state->done(dev, cmd, work->fn(work->dev, cmd));
 
 		pthread_cleanup_pop(1); /* cleanup work */
 	}

@@ -573,6 +573,7 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 	glfs_cbk_cookie *cookie = data;
 	struct tcmu_device *dev = cookie->dev;
 	struct tcmulib_cmd *cmd = cookie->cmd;
+	struct tcmur_cmd_state *rcmd_state = tcmu_cmd_get_private(cmd);
 	size_t length = cookie->length;
 
 	if (ret < 0 || ret != length) {
@@ -592,7 +593,7 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 		ret = TCMU_STS_OK;
 	}
 
-	cmd->done(dev, cmd, ret);
+	rcmd_state->done(dev, cmd, ret);
 	free(cookie);
 }
 

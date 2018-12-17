@@ -142,6 +142,19 @@ struct tcmur_handler {
 	bool _is_dbus_handler;
 };
 
+typedef void (*cmd_done_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
+
+struct tcmur_cmd_state {
+        /*
+         * this is mostly used by compound operations as such operations
+         * need to carry some state around for multiple commands.
+         */
+        void *cmdstate;
+
+        /* callback to finish/continue command processing */
+        cmd_done_t done;
+};
+
 /*
  * Each tcmu-runner (tcmur) handler plugin must export the
  * following. It usually just calls tcmur_register_handler.

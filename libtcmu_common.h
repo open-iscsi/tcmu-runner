@@ -94,8 +94,6 @@ enum {
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-typedef void (*cmd_done_t)(struct tcmu_device *, struct tcmulib_cmd *, int);
-
 struct tcmulib_cmd {
 	uint16_t cmd_id;
 	uint8_t *cdb;
@@ -103,15 +101,11 @@ struct tcmulib_cmd {
 	size_t iov_cnt;
 	uint8_t sense_buf[SENSE_BUFFERSIZE];
 
-	/*
-	 * this is mostly used by compound operations as such operations
-	 * need to carry some state around for multiple commands.
-	 */
-	void *cmdstate;
-
-	/* callback to finish/continue command processing */
-	cmd_done_t done;
+	void *hm_private; /* private ptr for handler module */
 };
+
+void *tcmu_cmd_get_private(struct tcmulib_cmd *cmd);
+void tcmu_cmd_set_private(struct tcmulib_cmd *cmd, void *private);
 
 /* Set/Get methods for the opaque tcmu_device */
 void *tcmu_dev_get_private(struct tcmu_device *dev);
