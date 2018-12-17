@@ -956,7 +956,7 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			}
 
 			/* Alloc memory for cmd itself, iovec and cdb */
-			cmd = malloc(sizeof(*cmd) + sizeof(*cmd->iovec) * ent->req.iov_cnt + cdb_len);
+			cmd = calloc(1, sizeof(*cmd) + sizeof(*cmd->iovec) * ent->req.iov_cnt + cdb_len);
 			if (!cmd)
 				return NULL;
 			cmd->cmd_id = ent->hdr.cmd_id;
