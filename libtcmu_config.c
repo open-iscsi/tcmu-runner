@@ -494,7 +494,12 @@ free_cfg:
 
 int tcmu_watch_config(struct tcmu_config *cfg)
 {
-	return pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg);
+	int ret;
+
+	ret = pthread_create(&cfg->thread_id, NULL, dyn_config_start, cfg);
+	if (ret)
+		return -ret;
+	return 0;
 }
 
 void tcmu_unwatch_config(struct tcmu_config *cfg)
