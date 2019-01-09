@@ -77,6 +77,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 
 	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)
 		needs_close = true;
+	rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	if (needs_close) {
@@ -85,7 +86,6 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 	}
 
 	pthread_mutex_lock(&rdev->state_lock);
-	rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
 	ret = -EIO;
 	while (ret != 0 && !(rdev->flags & TCMUR_DEV_FLAG_STOPPING) &&
 	       (retries < 0 || attempt <= retries)) {
@@ -250,6 +250,14 @@ void tcmu_release_dev_lock(struct tcmu_device *dev)
 		pthread_mutex_unlock(&rdev->state_lock);
 		return;
 	}
+
+	if (!(rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)) {
+		tcmu_dev_dbg(dev, "Device is closed so unlock is not needed\n");
+		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+		pthread_mutex_unlock(&rdev->state_lock);
+		return;
+	}
+
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	ret = rhandler->unlock(dev);
@@ -274,6 +282,17 @@ int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
 
 	if (rdev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT)
 		return 0;
+
+	pthread_mutex_lock(&rdev->state_lock);
+	if (!(rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)) {
+		/*
+		 * Return tmp error until the recovery thread is able to
+		 * start up.
+		 */
+		pthread_mutex_unlock(&rdev->state_lock);
+		return TCMU_STS_BUSY;
+	}
+	pthread_mutex_unlock(&rdev->state_lock);
 
 retry:
 	ret = rhandler->get_lock_tag(dev, tag);
@@ -359,7 +378,7 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 
 	reopen = false;
 	pthread_mutex_lock(&rdev->state_lock);
-	if (rdev->lock_lost) {
+	if (rdev->lock_lost || !(rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)) {
 		reopen = true;
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
@@ -425,8 +444,17 @@ void tcmu_update_dev_lock_state(struct tcmu_device *dev)
 	if (!rhandler->get_lock_state)
 		return;
 
+	pthread_mutex_lock(&rdev->state_lock);
+	if (!(rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)) {
+		tcmu_dev_dbg(dev, "device closed.\n");
+		state = TCMUR_DEV_LOCK_UNKNOWN;
+		goto check_state;
+	}
+	pthread_mutex_unlock(&rdev->state_lock);
+
 	state = rhandler->get_lock_state(dev);
 	pthread_mutex_lock(&rdev->state_lock);
+check_state:
 	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED &&
 	    state != TCMUR_DEV_LOCK_LOCKED) {
 		tcmu_dev_dbg(dev, "Updated out of sync lock state.\n");
