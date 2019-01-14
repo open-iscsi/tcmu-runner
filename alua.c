@@ -541,7 +541,7 @@ bool lock_is_required(struct tcmu_device *dev)
 static void *alua_lock_thread_fn(void *arg)
 {
 	/* TODO: set UA based on bgly's patches */
-	tcmu_acquire_dev_lock(arg, false, -1);
+	tcmu_acquire_dev_lock(arg, -1);
 	return NULL;
 }
 
@@ -641,7 +641,7 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 			/* just change local state */
 			break;
 
-		ret = tcmu_acquire_dev_lock(dev, true, group->id);
+		ret = tcmu_acquire_dev_lock(dev, group->id);
 		if (ret == TCMU_STS_HW_ERR) {
 			return TCMU_STS_EXPL_TRANSITION_ERR;
 		} else if (ret) {

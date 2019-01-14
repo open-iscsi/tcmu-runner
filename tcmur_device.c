@@ -363,8 +363,7 @@ retry:
 	return ret;
 }
 
-int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
-			  uint16_t tag)
+int tcmu_acquire_dev_lock(struct tcmu_device *dev, uint16_t tag)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
@@ -428,7 +427,7 @@ done:
 	 * the aio handler. For explicit ALUA, we execute the lock call from
 	 * the main io processing thread, so we only flush here for implicit.
 	 */
-	if (!is_sync)
+	if (pthread_self() != rdev->cmdproc_thread)
 		tcmu_dev_flush_ring(dev);
 
 	/* TODO: set UA based on bgly's patches */
