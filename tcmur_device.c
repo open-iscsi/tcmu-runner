@@ -46,13 +46,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 	bool needs_close = false;
 	bool cancel_lock = false;
 
-	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
-	ret = aio_wait_for_empty_queue(rdev);
-
 	pthread_mutex_lock(&rdev->state_lock);
-	if (ret)
-		goto done;
-
 	if (rdev->flags & TCMUR_DEV_FLAG_STOPPING) {
 		ret = 0;
 		goto done;
@@ -84,6 +78,21 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 		needs_close = true;
 	rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
 	pthread_mutex_unlock(&rdev->state_lock);
+
+	if (pthread_self() != rdev->cmdproc_thread)
+		/*
+		 * The cmdproc thread could be starting to execute a new IO.
+		 * Make sure sync cmd handler callbacks for cmds like INQUIRY
+		 * are completed.
+		 */
+		tcmu_dev_flush_ring(dev);
+
+	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
+	ret = aio_wait_for_empty_queue(rdev);
+	if (ret) {
+		pthread_mutex_lock(&rdev->state_lock);
+		goto done;
+	}
 
 	if (needs_close) {
 		tcmu_dev_dbg(dev, "Closing device.\n");
@@ -362,23 +371,11 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync,
 	int retries = 0, ret = TCMU_STS_HW_ERR;
 	bool reopen;
 
-	/* Block the kernel device. */
-	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
-
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	if (aio_wait_for_empty_queue(rdev)) {
 		tcmu_dev_err(dev, "Not able to flush queue before taking lock.\n");
 		goto done;
 	}
-
-	/*
-	 * Handle race where cmd could be in tcmur_generic_handle_cmd before
-	 * the aio handler. For explicit ALUA, we execute the lock call from
-	 * the main io processing thread, so this will deadlock waiting on
-	 * the STPG.
-	 */
-	if (!is_sync)
-		tcmu_dev_flush_ring(dev);
 
 	reopen = false;
 	pthread_mutex_lock(&rdev->state_lock);
@@ -424,17 +421,28 @@ drop_conn:
 	}
 
 done:
+	/* Block and flush stale IO from the kernel device and ring. */
+	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
+	/*
+	 * Handle race where cmd could be in tcmur_generic_handle_cmd before
+	 * the aio handler. For explicit ALUA, we execute the lock call from
+	 * the main io processing thread, so we only flush here for implicit.
+	 */
+	if (!is_sync)
+		tcmu_dev_flush_ring(dev);
+
 	/* TODO: set UA based on bgly's patches */
 	pthread_mutex_lock(&rdev->state_lock);
 	if (ret == TCMU_STS_OK)
 		rdev->lock_state = TCMUR_DEV_LOCK_LOCKED;
 	else
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+
 	tcmu_dev_dbg(dev, "lock call done. lock state %d\n", rdev->lock_state);
+	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
+
 	pthread_cond_signal(&rdev->lock_cond);
 	pthread_mutex_unlock(&rdev->state_lock);
-
-	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
 	return ret;
 }
