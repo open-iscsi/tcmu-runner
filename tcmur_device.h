@@ -82,8 +82,8 @@ int tcmu_cancel_lock_thread(struct tcmu_device *dev);
 void tcmu_notify_conn_lost(struct tcmu_device *dev);
 void tcmu_notify_lock_lost(struct tcmu_device *dev);
 
-int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries);
-int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries);
+int __tcmu_reopen_dev(struct tcmu_device *dev, int retries);
+int tcmu_reopen_dev(struct tcmu_device *dev, int retries);
 
 int tcmu_acquire_dev_lock(struct tcmu_device *dev, bool is_sync, uint16_t tag);
 void tcmu_release_dev_lock(struct tcmu_device *dev);

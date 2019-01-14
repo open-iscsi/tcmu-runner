@@ -38,12 +38,13 @@ bool tcmu_dev_in_recovery(struct tcmu_device *dev)
 /*
  * TCMUR_DEV_FLAG_IN_RECOVERY must be set before calling
  */
-int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
+int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret, attempt = 0;
 	bool needs_close = false;
+	bool cancel_lock = false;
 
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	ret = aio_wait_for_empty_queue(rdev);
@@ -56,6 +57,10 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 		ret = 0;
 		goto done;
 	}
+
+	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKING &&
+	    pthread_self() != rdev->lock_thread)
+		cancel_lock = true;
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	/*
@@ -63,7 +68,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 	 * async lock requests in progress that might be accessing
 	 * the device.
 	 */
-	if (!in_lock_thread)
+	if (cancel_lock)
 		tcmu_cancel_lock_thread(dev);
 
 	/*
@@ -116,10 +121,9 @@ done:
 /*
  * tcmu_reopen_dev - close and open device.
  * @dev: device to reopen
- * @in_lock_thread: true if called from locking thread.
  * @retries: number of times to retry open() call. -1 indicates infinite.
  */
-int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
+int tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
@@ -131,7 +135,7 @@ int tcmu_reopen_dev(struct tcmu_device *dev, bool in_lock_thread, int retries)
 	rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	return __tcmu_reopen_dev(dev, in_lock_thread, retries);
+	return __tcmu_reopen_dev(dev, retries);
 }
 
 void tcmu_cancel_recovery(struct tcmu_device *dev)
@@ -311,7 +315,7 @@ retry:
 		 * commands started before it via the aio wait call.
 		 */
 		tcmu_dev_dbg(dev, "Could not access dev. Try reopen.\n");
-		ret = tcmu_reopen_dev(dev, false, 0);
+		ret = tcmu_reopen_dev(dev, 0);
 		if (!ret && retry < 1) {
 			retry++;
 			goto retry;
@@ -389,7 +393,7 @@ retry:
 
 	if (reopen) {
 		tcmu_dev_dbg(dev, "Try to reopen device. %d\n", retries);
-		ret = tcmu_reopen_dev(dev, true, 0);
+		ret = tcmu_reopen_dev(dev, 0);
 		if (ret) {
 			tcmu_dev_err(dev, "Could not reopen device while taking lock. Err %d.\n",
 				     ret);
