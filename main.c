@@ -12,6 +12,7 @@
  */
 
 #define _GNU_SOURCE
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -544,14 +545,23 @@ static int load_our_module(void)
 			if (err == 0) {
 				tcmu_info("Inserted module '%s'\n",
 				          kmod_module_get_name(mod));
-			} else if (err == KMOD_PROBE_APPLY_BLACKLIST) {
-				tcmu_err("Module '%s' is blacklisted\n",
-				         kmod_module_get_name(mod));
+			} else if (err < 0) {
+				tcmu_err("Failed to insert '%s': %s\n",
+				         kmod_module_get_name(mod), strerror(-err));
+				ret = err;
 			} else {
-				tcmu_err("Failed to insert '%s'\n",
-				         kmod_module_get_name(mod));
+				switch (err) {
+				case KMOD_PROBE_APPLY_BLACKLIST:
+					tcmu_err("Module '%s' is blacklisted\n",
+					         kmod_module_get_name(mod));
+					break;
+				default:
+					tcmu_err("Module '%s' is stopped by a reason: 0x%x\n",
+					         kmod_module_get_name(mod), err);
+					break;
+				}
+				ret = -EIO;
 			}
-			ret = err;
 		}
 		kmod_module_unref(mod);
 	}
