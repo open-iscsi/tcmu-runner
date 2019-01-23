@@ -785,6 +785,9 @@ int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
+	if (tcmu_dev_in_recovery(dev))
+		return TCMU_STS_BUSY;
+
 	ret = alua_check_state(dev, cmd);
 	if (ret)
 		return ret;
@@ -1807,6 +1810,9 @@ int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	int ret;
 	uint8_t sectors = cmd->cdb[13];
 
+	if (tcmu_dev_in_recovery(dev))
+		return TCMU_STS_BUSY;
+
 	/* From sbc4r12a section 5.3 COMPARE AND WRITE command
 	 * A NUMBER OF LOGICAL BLOCKS field set to zero specifies that no
 	 * read operations shall be performed, no logical block data shall
@@ -2406,12 +2412,7 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 
 	track_aio_request_start(rdev);
 
-	if (tcmu_dev_in_recovery(dev)) {
-		ret = TCMU_STS_BUSY;
-	} else {
-		ret = rhandler->handle_cmd(dev, cmd);
-	}
-
+	ret = rhandler->handle_cmd(dev, cmd);
 	if (ret != TCMU_STS_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 
