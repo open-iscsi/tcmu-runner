@@ -251,7 +251,7 @@ done:
 	 */
 	list_for_each_safe(&tpg->devs, rdev, tmp_rdev, recovery_entry) {
 		list_del(&rdev->recovery_entry);
-		ret = __tcmu_reopen_dev(rdev->dev, false, -1);
+		ret = __tcmu_reopen_dev(rdev->dev, -1);
 		if (ret) {
 			tcmu_dev_err(rdev->dev, "Could not reinitialize device. (err %d).\n",
 				     ret);
