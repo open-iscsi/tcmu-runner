@@ -602,6 +602,8 @@ static void tcmur_stop_device(void *arg)
 	tcmu_cancel_lock_thread(dev);
 	tcmu_cancel_recovery(dev);
 
+	tcmu_release_dev_lock(dev);
+
 	pthread_mutex_lock(&rdev->state_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {
 		rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
@@ -609,10 +611,8 @@ static void tcmur_stop_device(void *arg)
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 
-	if (is_open) {
-		tcmu_release_dev_lock(dev);
+	if (is_open)
 		rhandler->close(dev);
-	}
 
 	pthread_mutex_lock(&rdev->state_lock);
 	rdev->flags |= TCMUR_DEV_FLAG_STOPPED;
@@ -800,20 +800,28 @@ static int dev_added(struct tcmu_device *dev)
 		     block_size, dev_size);
 
 	ret = pthread_spin_init(&rdev->lock, 0);
-	if (ret != 0)
+	if (ret) {
+		ret = -ret;
 		goto free_rdev;
+	}
 
 	ret = pthread_mutex_init(&rdev->caw_lock, NULL);
-	if (ret != 0)
+	if (ret) {
+		ret = -ret;
 		goto cleanup_dev_lock;
+	}
 
 	ret = pthread_mutex_init(&rdev->format_lock, NULL);
-	if (ret != 0)
+	if (ret) {
+		ret = -ret;
 		goto cleanup_caw_lock;
+	}
 
 	ret = pthread_mutex_init(&rdev->state_lock, NULL);
-	if (ret != 0)
+	if (ret) {
+		ret = -ret;
 		goto cleanup_format_lock;
+	}
 
 	ret = setup_io_work_queue(dev);
 	if (ret < 0)
@@ -837,13 +845,17 @@ static int dev_added(struct tcmu_device *dev)
 	rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
 
 	ret = pthread_cond_init(&rdev->lock_cond, NULL);
-	if (ret < 0)
+	if (ret) {
+		ret = -ret;
 		goto close_dev;
+	}
 
 	ret = pthread_create(&rdev->cmdproc_thread, NULL, tcmur_cmdproc_thread,
 			     dev);
-	if (ret < 0)
+	if (ret) {
+		ret = -ret;
 		goto cleanup_lock_cond;
+	}
 
 	return 0;
 
