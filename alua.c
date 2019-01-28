@@ -623,7 +623,7 @@ static bool alua_check_sup_state(uint8_t state, uint8_t sup)
 
 static int tcmu_explicit_transition(struct list_head *group_list,
 				    struct alua_grp *group, uint8_t new_state,
-				    uint8_t alua_status, uint8_t *sense)
+				    uint8_t alua_status)
 {
 	struct tcmu_device *dev = group->dev;
 	struct alua_grp *tmp_group;
@@ -735,8 +735,7 @@ int tcmu_emulate_set_tgt_port_grps(struct tcmu_device *dev,
 			tcmu_dev_dbg(dev, "Got STPG for group %u\n", id);
 			ret = tcmu_explicit_transition(group_list, group,
 					new_state,
-					ALUA_STAT_ALTERED_BY_EXPLICIT_STPG,
-					cmd->sense_buf);
+					ALUA_STAT_ALTERED_BY_EXPLICIT_STPG);
 			if (ret != TCMU_STS_OK) {
 				tcmu_dev_err(dev, "Failing STPG for group %d\n",
 					      id);
