@@ -414,7 +414,7 @@ retry:
 	}
 
 drop_conn:
-	if (ret == TCMU_STS_TIMEOUT) {
+	if (ret == TCMU_STS_TIMEOUT || ret == TCMU_STS_FENCED) {
 		tcmu_dev_dbg(dev, "Fail handler device connection.\n");
 		tcmu_notify_conn_lost(dev);
 	}
