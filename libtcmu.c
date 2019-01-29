@@ -22,6 +22,7 @@
 #include <libnl3/netlink/genl/genl.h>
 #include <libnl3/netlink/genl/mngt.h>
 #include <libnl3/netlink/genl/ctrl.h>
+#include <libnl3/netlink/errno.h>
 
 #include "target_core_user_local.h"
 #include "libtcmu.h"
@@ -240,11 +241,13 @@ static int set_genl_features(struct nl_sock *sock)
 {
 	struct nl_msg *msg;
 	void *hdr;
-	int ret = -ENOMEM;
+	int ret = -NLE_NOMEM;
 
 	msg = nlmsg_alloc();
-	if (!msg)
+	if (!msg) {
+		tcmu_err("Could not allocate a new message.\n");
 		return ret;
+	}
 
 	hdr = genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tcmu_ops.o_id,
 			  0, NLM_F_ACK, TCMU_CMD_SET_FEATURES, TCMU_NL_VERSION);
@@ -255,7 +258,15 @@ static int set_genl_features(struct nl_sock *sock)
 	if (ret < 0)
 		goto free_msg;
 
+	/*
+	 * Could be a older kernel. Ignore failure and just work in degraded
+	 * mode.
+	 */
 	ret = nl_send_sync(sock, msg);
+	if (ret == -NLE_OPNOTSUPP) {
+		tcmu_warn("Kernel does not support the operation.\n");
+		ret = 0;
+	}
 	goto done;
 
 free_msg:
@@ -313,11 +324,9 @@ static struct nl_sock *setup_netlink(struct tcmulib_context *ctx)
 		goto err_unregister;
 	}
 
-	/*
-	 * Could be a older kernel. Ignore failure and just work in degraded
-	 * mode.
-	 */
-	set_genl_features(sock);
+	ret = set_genl_features(sock);
+	if (ret < 0)
+		goto err_unregister;
 
 	return sock;
 
