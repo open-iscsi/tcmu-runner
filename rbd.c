@@ -511,11 +511,13 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	int ret, is_owner;
 
 	ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
-	if (ret == -ESHUTDOWN || ret == -ETIMEDOUT) {
-		return ret;
-	} else if (ret < 0) {
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not check lock ownership. Error: %s.\n",
+			     strerror(-ret));
+		if (ret == -ESHUTDOWN || ret == -ETIMEDOUT)
+			return ret;
+
 		/* let initiator figure things out */
-		tcmu_dev_err(dev, "Could not check lock ownership. (Err %d).\n", ret);
 		return -EIO;
 	} else if (is_owner) {
 		tcmu_dev_dbg(dev, "Is owner\n");
@@ -718,8 +720,11 @@ static int tcmu_rbd_unlock(struct tcmu_device *dev)
 	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
-	if (tcmu_rbd_has_lock(dev) != 1)
+	ret = tcmu_rbd_has_lock(dev);
+	if (ret == 0)
 		return TCMU_STS_OK;
+	else if (ret < 0)
+		return tcmu_rbd_to_sts(ret);
 
 	ret = rbd_lock_release(state->image);
 	if (!ret)
