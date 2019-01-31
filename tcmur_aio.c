@@ -229,7 +229,7 @@ int setup_aio_tracking(struct tcmur_device *rdev)
 	aio_track->tracked_aio_ops = 0;
 	ret = pthread_mutex_init(&aio_track->track_lock, NULL);
 	if (ret != 0) {
-		return ret;
+		return -ret;
 	}
 
 	return 0;
@@ -289,8 +289,10 @@ int setup_io_work_queue(struct tcmu_device *dev)
 
 	/* TODO: Allow user to override device defaults */
 	io_wq->io_wq_threads = calloc(nr_threads, sizeof(pthread_t));
-	if (!io_wq->io_wq_threads)
+	if (!io_wq->io_wq_threads) {
+		ret = ENOMEM;
 		goto cleanup_cond;
+	}
 
 	for (i = 0; i < nr_threads; i++) {
 		ret = pthread_create(&io_wq->io_wq_threads[i], NULL,
@@ -310,7 +312,7 @@ cleanup_cond:
 cleanup_lock:
 	pthread_mutex_destroy(&io_wq->io_lock);
 out:
-	return ret;
+	return -ret;
 }
 
 void cleanup_io_work_queue(struct tcmu_device *dev, bool cancel)
