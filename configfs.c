@@ -30,7 +30,7 @@ int tcmu_cfgfs_get_int(const char *path)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-                if (errno == ENOENT) {
+		if (errno == ENOENT) {
 			tcmu_err("Kernel does not support configfs file %s.\n",
 				 path);
 		} else {
@@ -83,7 +83,7 @@ uint64_t tcmu_cfgfs_dev_get_info_u64(struct tcmu_device *dev, const char *name,
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-                if (errno == ENOENT) {
+		if (errno == ENOENT) {
 			tcmu_err("Kernel does not support device info file %s.\n",
 				 path);
 		} else {
@@ -170,7 +170,7 @@ char *tcmu_cfgfs_dev_get_wwn(struct tcmu_device *dev)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-                if (errno == ENOENT) {
+		if (errno == ENOENT) {
 			tcmu_err("Kernel does not support unit serial file %s.\n",
 				 path);
 		} else {
@@ -212,7 +212,7 @@ char *tcmu_cfgfs_get_str(const char *path)
 	memset(buf, 0, sizeof(buf));
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-                if (errno == ENOENT) {
+		if (errno == ENOENT) {
 			tcmu_err("Kernel does not support configfs file %s.\n",
 				 path);
 		} else {
@@ -282,7 +282,7 @@ int tcmu_cfgfs_set_str(const char *path, const char *val, int val_len)
 
 	fd = open(path, O_WRONLY);
 	if (fd == -1) {
-                if (errno == ENOENT) {
+		if (errno == ENOENT) {
 			tcmu_err("Kernel does not support configfs file %s.\n",
 				 path);
 		} else {
