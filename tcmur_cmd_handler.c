@@ -172,7 +172,6 @@ static int write_work_fn(struct tcmu_device *dev,
 struct unmap_state {
 	pthread_mutex_t lock;
 	unsigned int refcount;
-	bool error;
 	int status;
 };
 
@@ -206,8 +205,9 @@ static struct unmap_state *unmap_state_alloc(struct tcmu_device *dev,
 		goto out_free_state;
 	}
 
-	state->refcount = 0;
-	state->error = false;
+	/* released by allocator when done submitting unmaps */
+	state->refcount = 1;
+	state->status = TCMU_STS_OK;
 	cmd->cmdstate = state;
 	return state;
 
@@ -216,10 +216,28 @@ out_free_state:
 	return NULL;
 }
 
-static void unmap_state_free(struct unmap_state *state)
+static void unmap_state_put(struct tcmu_device *dev,
+			    struct tcmulib_cmd *origcmd, int ret)
 {
+	struct unmap_state *state = origcmd->cmdstate;
+	int status;
+
+	pthread_mutex_lock(&state->lock);
+
+	if (state->status != TCMU_STS_OK && ret)
+		state->status = ret;
+
+	if (--state->refcount > 0) {
+		pthread_mutex_unlock(&state->lock);
+		return;
+	}
+	status = state->status;
+	pthread_mutex_unlock(&state->lock);
+
 	pthread_mutex_destroy(&state->lock);
 	free(state);
+
+	aio_command_finish(dev, origcmd, status);
 }
 
 static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd,
@@ -227,35 +245,11 @@ static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd,
 {
 	struct unmap_descriptor *desc = ucmd->cmdstate;
 	struct tcmulib_cmd *origcmd = desc->origcmd;
-	struct unmap_state *state = origcmd->cmdstate;
-	bool error;
-	int status;
 
 	free(desc);
-
-	pthread_mutex_lock(&state->lock);
-	error = state->error;
-	/*
-	 * Make sure to only copy the first error
-	 */
-	if (!error && ret) {
-		state->error = true;
-		state->status = ret;
-	}
-
 	free(ucmd);
 
-	if (--state->refcount > 0) {
-		pthread_mutex_unlock(&state->lock);
-		return;
-	}
-	status = state->status;
-	error = state->error;
-	pthread_mutex_unlock(&state->lock);
-
-	unmap_state_free(state);
-
-	aio_command_finish(dev, origcmd, error ? status : ret);
+	unmap_state_put(dev, origcmd, ret);
 }
 
 static int unmap_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *ucmd)
@@ -347,6 +341,10 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 			tcmu_dev_dbg(dev, "There are totally %d splits\n", j);
 		}
 
+		pthread_mutex_lock(&state->lock);
+		state->refcount++;
+		pthread_mutex_unlock(&state->lock);
+	
 		ret = async_handle_cmd(dev, ucmd, unmap_work_fn);
 		if (ret != TCMU_STS_ASYNC_HANDLED)
 			goto free_ucmd;
@@ -356,12 +354,14 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 
 		lbas = min(opt_unmap_gran, nlbas);
 
-		state->refcount++;
 	}
 
 	return ret;
 
 free_ucmd:
+	pthread_mutex_lock(&state->lock);
+	state->refcount--;
+	pthread_mutex_unlock(&state->lock);
 	free(ucmd);
 free_desc:
 	free(desc);
@@ -371,14 +371,16 @@ free_desc:
 static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *origcmd,
 				 uint16_t bddl, uint8_t *par)
 {
-	struct unmap_state *state = origcmd->cmdstate;
+	struct unmap_state *state;
 	uint16_t offset = 0;
-	int ret = TCMU_STS_OK, i = 0, refcount;
+	int ret = TCMU_STS_OK, i = 0;
+
+	state = unmap_state_alloc(dev, origcmd, &ret);
+	if (!state)
+		return ret;
 
 	/* The first descriptor list offset is 8 in Data-Out buffer */
 	par += 8;
-
-	pthread_mutex_lock(&state->lock);
 	while (bddl) {
 		uint64_t lba;
 		uint64_t nlbas;
@@ -393,59 +395,45 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			tcmu_dev_err(dev, "Illegal parameter list LBA count %"PRIu64" exceeds:%u\n",
 				     nlbas, tcmu_dev_get_max_unmap_len(dev));
 			ret = TCMU_STS_INVALID_PARAM_LIST;
-			goto state_unlock;
+			goto done;
 		}
 
 		ret = check_lbas(dev, lba, nlbas);
 		if (ret)
-			goto state_unlock;
+			goto done;
 
 		if (nlbas) {
 			ret = align_and_split_unmap(dev, origcmd, lba, nlbas);
 			if (ret != TCMU_STS_ASYNC_HANDLED)
-				goto state_unlock;
+				goto done;
 		}
 
 		/* The unmap block descriptor data length is 16 */
 		offset += 16;
 		bddl -= 16;
 	}
-state_unlock:
+
+done:
 	/*
-	 * If all calls are successful and nlbas > 0 for all bddls, the
-	 * status should be set to TCMU_STS_ASYNC_HANDLED, or will be the error
-	 * code. If all nlbas = 0 for all bddls, then we can just return
-	 * GOOD status.
-	 */
-	state->status = ret;
-
-	if (ret != TCMU_STS_ASYNC_HANDLED)
-		state->error = true;
-
-	refcount = state->refcount;
+	 * unmap_state_put will do the right thing, so always return
+	 * TCMU_STS_ASYNC_HANDLED
+	*/
+	pthread_mutex_lock(&state->lock);
+	if (ret == TCMU_STS_ASYNC_HANDLED) {
+		ret = TCMU_STS_OK;
+	} else {
+		state->status = ret;
+	}
 	pthread_mutex_unlock(&state->lock);
 
-	if (refcount)
-		/*
-		 * Some unmaps have been dispatched, so the cbk will handle
-		 * releasing of resources and returning the error.
-		 */
-		return TCMU_STS_ASYNC_HANDLED;
-
-	/*
-	 * No unmaps have been dispatched, so return the error and free
-	 * resources now.
-	 */
-	unmap_state_free(state);
-
-	return ret;
+	unmap_state_put(dev, origcmd, ret);
+	return TCMU_STS_ASYNC_HANDLED;
 }
 
 static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 {
 	uint8_t *cdb = origcmd->cdb;
 	size_t copied, data_length = tcmu_cdb_get_xfer_length(cdb);
-	struct unmap_state *state;
 	uint8_t *par;
 	uint16_t dl, bddl;
 	int ret;
@@ -536,10 +524,6 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 		ret = TCMU_STS_INVALID_PARAM_LIST;
 		goto out_free_par;
 	}
-
-	state = unmap_state_alloc(dev, origcmd, &ret);
-	if (!state)
-		goto out_free_par;
 
 	ret = handle_unmap_internal(dev, origcmd, bddl, par);
 
@@ -683,7 +667,6 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 	uint64_t lba = tcmu_cdb_get_lba(cdb);
 	uint64_t nlbas = tcmu_cdb_get_xfer_length(cdb);
 	struct unmap_state *state;
-	unsigned int refcount;
 	int ret;
 
 	tcmu_dev_dbg(dev, "Do UNMAP in WRITE_SAME cmd!\n");
@@ -691,20 +674,16 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 	state = unmap_state_alloc(dev, cmd, &ret);
 	if (!state)
 		return ret;
-
-	pthread_mutex_lock(&state->lock);
 	ret = align_and_split_unmap(dev, cmd, lba, nlbas);
-	if (ret != TCMU_STS_ASYNC_HANDLED)
-		state->error = true;
 
-	refcount = state->refcount;
-	pthread_mutex_unlock(&state->lock);
+	if (ret == TCMU_STS_ASYNC_HANDLED) {
+		ret = TCMU_STS_OK;
+	} else {
+		state->status = ret;
+	}
 
-	/* Or will let the cbk to do the release */
-	if (!refcount)
-		unmap_state_free(state);
-
-	return ret;
+	unmap_state_put(dev, cmd, ret);
+	return TCMU_STS_ASYNC_HANDLED;
 }
 
 static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
