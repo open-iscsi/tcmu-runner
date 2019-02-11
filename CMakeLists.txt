@@ -224,6 +224,11 @@ endif (with-rbd)
 if (with-glfs)
 	find_library(GFAPI gfapi)
 
+	pkg_check_modules(GFAPI760 glusterfs-api>=7.6)
+	if (GFAPI760_FOUND)
+		set(GFAPI_VERSION 760)
+	endif (GFAPI760_FOUND)
+
 	# Stuff for building the glfs handler
 	add_library(handler_glfs
 	  SHARED
