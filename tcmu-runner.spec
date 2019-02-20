@@ -116,9 +116,6 @@ Development header(s) for developing against libtcmu.
 %{__rm} -f %{buildroot}/etc/tcmu/tcmu.conf.old
 %{__rm} -f %{buildroot}/etc/logrotate.d/tcmu-runner.old
 
-%clean
-%{__rm} -rf %{buildroot}
-
 %files
 %defattr(-,root,root)
 %{_bindir}/tcmu-runner
