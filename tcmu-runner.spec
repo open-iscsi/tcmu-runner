@@ -120,7 +120,6 @@ Development header(s) for developing against libtcmu.
 %{__rm} -rf %{buildroot}
 
 %files
-%defattr(-,root,root)
 %{_bindir}/tcmu-runner
 %dir %{_sysconfdir}/dbus-1/
 %dir %{_sysconfdir}/dbus-1/system.d
