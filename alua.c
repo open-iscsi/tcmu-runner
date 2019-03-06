@@ -198,11 +198,11 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 		 * can manually change states, so report this as
 		 * implicit.
 		 */
-		rdev->failover_type = TMCUR_DEV_FAILOVER_ALL_ACTIVE;
+		rdev->failover_type = TCMUR_DEV_FAILOVER_ALL_ACTIVE;
 
 		group->tpgs = TPGS_ALUA_IMPLICIT;
 	} else if (!strcmp(str_val, "Implicit")) {
-		rdev->failover_type = TMCUR_DEV_FAILOVER_IMPLICIT;
+		rdev->failover_type = TCMUR_DEV_FAILOVER_IMPLICIT;
 
 		group->tpgs = TPGS_ALUA_IMPLICIT;
 	} else if (!strcmp(str_val, "Explicit")) {
@@ -219,7 +219,7 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 		 * We only need implicit enabled in the kernel so we can
 		 * interact with the alua configfs interface.
 		 */
-		rdev->failover_type = TMCUR_DEV_FAILOVER_EXPLICIT;
+		rdev->failover_type = TCMUR_DEV_FAILOVER_EXPLICIT;
 
 		group->tpgs = TPGS_ALUA_EXPLICIT;
 	} else {
@@ -400,12 +400,12 @@ static int alua_sync_state(struct tcmu_device *dev,
 	uint8_t alua_state;
 	int ret;
 
-	if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
+	if (rdev->failover_type == TCMUR_DEV_FAILOVER_IMPLICIT) {
 		tcmu_update_dev_lock_state(dev);
 		return TCMU_STS_OK;
 	}
 
-	if (rdev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT ||
+	if (rdev->failover_type != TCMUR_DEV_FAILOVER_EXPLICIT ||
 	    !rhandler->get_lock_tag)
 		return TCMU_STS_OK;
 
@@ -766,12 +766,12 @@ int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
-	if (rdev->failover_type == TMCUR_DEV_FAILOVER_EXPLICIT) {
+	if (rdev->failover_type == TCMUR_DEV_FAILOVER_EXPLICIT) {
 		if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
 			tcmu_dev_dbg(dev, "device lock not held.\n");
 			return TCMU_STS_FENCED;
 		}
-	} else if (rdev->failover_type == TMCUR_DEV_FAILOVER_IMPLICIT) {
+	} else if (rdev->failover_type == TCMUR_DEV_FAILOVER_IMPLICIT) {
 		return alua_implicit_transition(dev, cmd);
 	}
 
