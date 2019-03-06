@@ -293,7 +293,7 @@ int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int retry = 0, ret;
 
-	if (rdev->failover_type != TMCUR_DEV_FAILOVER_EXPLICIT)
+	if (rdev->failover_type != TCMUR_DEV_FAILOVER_EXPLICIT)
 		return 0;
 
 	pthread_mutex_lock(&rdev->state_lock);
