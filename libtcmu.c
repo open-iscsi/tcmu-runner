@@ -906,6 +906,11 @@ struct tcmulib_handler *tcmu_dev_get_handler(struct tcmu_device *dev)
 	return dev->handler;
 }
 
+char *tcmu_dev_get_tcm_dev_name(struct tcmu_device *dev)
+{
+	return dev->tcm_dev_name;
+}
+
 static inline struct tcmu_cmd_entry *
 device_cmd_head(struct tcmu_device *dev)
 {
