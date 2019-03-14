@@ -26,6 +26,7 @@
 #include "libtcmu.h"
 #include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
+#include "version.h"
 
 #define ALLOWED_BSOFLAGS (O_DIRECT | O_RDWR | O_LARGEFILE)
 
@@ -566,7 +567,14 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 	free(gfsp);
 }
 
+#if GFAPI_VERSION < 760
 static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
+#else
+static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret,
+			   struct glfs_stat *prestat,
+			   struct glfs_stat *poststat,
+			   void *data)
+#endif
 {
 	glfs_cbk_cookie *cookie = data;
 	struct tcmu_device *dev = cookie->dev;
