@@ -567,13 +567,13 @@ static void tcmu_glfs_close(struct tcmu_device *dev)
 	free(gfsp);
 }
 
-#if GFAPI_VERSION < 760
-static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
-#else
+#if GFAPI_VERSION760
 static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret,
 			   struct glfs_stat *prestat,
 			   struct glfs_stat *poststat,
 			   void *data)
+#else
+static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 #endif
 {
 	glfs_cbk_cookie *cookie = data;
