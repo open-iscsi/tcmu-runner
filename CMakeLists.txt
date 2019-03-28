@@ -13,6 +13,7 @@ option(with-qcow "build qcow handler" true)
 option(with-rbd "build Ceph rbd handler" true)
 option(with-zbc "build zbc handler" true)
 option(with-fbo "build fbo handler" true)
+option(with-azblk "build Azblk handler" true)
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
@@ -277,6 +278,31 @@ if (with-qcow)
 	  )
 	install(TARGETS handler_qcow DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-qcow)
+
+if (with-azblk)
+	find_library(LIBCURL curl)
+	find_library(LIBUV uv)
+	find_library(LIBCONFIG config)
+
+	add_library(handler_azblk
+	  SHARED
+	  azblk.c
+	  )
+	set_target_properties(handler_azblk
+	  PROPERTIES
+	  PREFIX ""
+	  )
+	target_include_directories(handler_azblk
+	  PUBLIC ${GLIB_INCLUDE_DIRS}
+	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+	  )
+	target_link_libraries(handler_azblk
+	  ${LIBCURL}
+	  ${LIBUV}
+	  ${LIBCONFIG}
+	  )
+	install(TARGETS handler_azblk DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-azblk)
 
 # stamp out a header file to pass some of the CMake settings
 # to the source code
