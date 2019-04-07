@@ -33,6 +33,8 @@
 #include "libtcmu_log.h"
 #include "scsi.h"
 
+#define LOG_DIR "/var/log"
+
 struct tcmu_device *tcmu_dev_array[128];
 size_t dev_array_len = 0;
 
@@ -129,7 +131,7 @@ int main(int argc, char **argv)
 	int i;
 	int ret;
 
-	if (tcmu_setup_log(NULL)) {
+	if (tcmu_setup_log(LOG_DIR)) {
 		fprintf(stderr, "Could not setup tcmu logger.\n");
 		exit(1);
 	}

@@ -24,6 +24,8 @@
 #include "libtcmu_log.h"
 #include "scsi.h"
 
+#define LOG_DIR "/var/log"
+
 typedef struct {
 	GIOChannel *gio;
 	int watcher_id;
@@ -190,7 +192,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (tcmu_setup_log(NULL)) {
+	if (tcmu_setup_log(LOG_DIR)) {
 		fprintf(stderr, "Could not setup tcmu logger.\n");
 		exit(1);
 	}
