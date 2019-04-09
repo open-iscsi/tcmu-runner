@@ -143,6 +143,7 @@ void tcmu_dev_set_unmap_enabled(struct tcmu_device *dev, bool enabled);
 bool tcmu_dev_get_unmap_enabled(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_dev_get_handler(struct tcmu_device *dev);
 void tcmu_dev_flush_ring(struct tcmu_device *dev);
+bool tcmu_dev_oooc_supported(struct tcmu_device* dev);
 
 /* Set/Get methods for interacting with configfs */
 char *tcmu_cfgfs_get_str(const char *path);

@@ -381,6 +381,11 @@ void tcmu_dev_flush_ring(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "ring clear\n");
 }
 
+bool tcmu_dev_oooc_supported(struct tcmu_device* dev)
+{
+	return dev->map->flags & TCMU_MAILBOX_FLAG_CAP_OOOC;
+}
+
 static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		      char *cfgstring, bool reopen)
 {
