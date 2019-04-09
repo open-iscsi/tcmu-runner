@@ -535,6 +535,9 @@ static void *log_thread_start(void *arg)
 
 static bool tcmu_log_dir_check(const char *path)
 {
+	if (!path)
+		return false;
+
 	if (strlen(path) >= PATH_MAX - TCMU_LOG_FILENAME_MAX) {
 		tcmu_err("--tcmu-log-dir='%s' cannot exceed %d characters\n",
 			 path, PATH_MAX - TCMU_LOG_FILENAME_MAX - 1);
