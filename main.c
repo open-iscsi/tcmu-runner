@@ -200,7 +200,7 @@ static gboolean handle_sig(gpointer user_data)
 
 static gboolean handle_sighup(gpointer user_data)
 {
-	tcmu_resetup_log_file(NULL);
+	tcmu_resetup_log_file(NULL, NULL);
 	return G_SOURCE_CONTINUE;
 }
 
@@ -1081,16 +1081,10 @@ int main(int argc, char **argv)
 
 	tcmu_crit("Starting...\n");
 
-	if (tcmu_watch_config(tcmu_cfg)) {
-		tcmu_warn("Dynamic config file changes is not supported.\n");
-	} else {
-		watching_cfg = true;
-	}
-
 	fd = creat(TCMU_LOCK_FILE, S_IRUSR | S_IWUSR);
 	if (fd == -1) {
 		tcmu_err("creat(%s) failed: [%m]\n", TCMU_LOCK_FILE);
-		goto unwatch_cfg;
+		goto free_config;
 	}
 
 	lock_fd.l_type = F_WRLCK;
@@ -1151,6 +1145,7 @@ int main(int argc, char **argv)
 		tmp_handler.subtype = (*tmp_r_handler)->subtype;
 		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;
 		tmp_handler.check_config = (*tmp_r_handler)->check_config;
+		tmp_handler.update_logdir = (*tmp_r_handler)->update_logdir;
 		tmp_handler.reconfig = dev_reconfig;
 		tmp_handler.added = dev_added;
 		tmp_handler.removed = dev_removed;
@@ -1171,12 +1166,19 @@ int main(int argc, char **argv)
 		goto err_free_handlers;
 	}
 
+	tcmu_cfg->ctx = tcmulib_context;
+	if (tcmu_watch_config(tcmu_cfg)) {
+		tcmu_warn("Dynamic config file changes is not supported.\n");
+	} else {
+		watching_cfg = true;
+	}
+
 	loop = g_main_loop_new(NULL, FALSE);
 	if (g_unix_signal_add(SIGINT, handle_sig, loop) <= 0 ||
 	    g_unix_signal_add(SIGTERM, handle_sig, loop) <= 0 ||
 	    g_unix_signal_add(SIGHUP, handle_sighup, loop) <= 0) {
 		tcmu_err("couldn't setup signal handlers\n");
-		goto err_tcmulib_close;
+		goto unwatch_cfg;
 	}
 
 	/* Set up event for libtcmu */
@@ -1210,7 +1212,9 @@ int main(int argc, char **argv)
 
 	ret = 0;
 
-err_tcmulib_close:
+unwatch_cfg:
+	if (watching_cfg)
+		tcmu_unwatch_config(tcmu_cfg);
 	tcmulib_close(tcmulib_context);
 err_free_handlers:
 	darray_free(handlers);
@@ -1224,9 +1228,6 @@ close_fd:
 		         TCMU_LOCK_FILE);
 	}
 	close(fd);
-unwatch_cfg:
-	if (watching_cfg)
-		tcmu_unwatch_config(tcmu_cfg);
 
 	tcmu_destroy_log();
 free_config:

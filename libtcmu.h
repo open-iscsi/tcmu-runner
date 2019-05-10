@@ -64,6 +64,8 @@ struct tcmulib_handler {
 
 	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
+	bool (*update_logdir)(void);
+
 	/* Per-device added/removed callbacks */
 	int (*added)(struct tcmu_device *dev);
 	void (*removed)(struct tcmu_device *dev);
