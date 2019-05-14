@@ -48,7 +48,7 @@
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
 
-# define TCMU_LOCK_FILE   "/var/run/lock/tcmu.lock"
+#define TCMU_LOCK_FILE   "/run/tcmu.lock"
 
 static char *handler_path = DEFAULT_HANDLER_PATH;
 
