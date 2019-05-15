@@ -22,6 +22,8 @@ struct tcmu_config {
 
 	char log_dir[PATH_MAX];
 	char def_log_dir[PATH_MAX];
+
+	struct tcmulib_context *ctx;
 };
 
 /*

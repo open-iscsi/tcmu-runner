@@ -101,14 +101,12 @@ struct gluster_cacheconn {
 
 static darray(struct gluster_cacheconn *) glfs_cache = darray_new();
 
-
 const char *const gluster_transport_lookup[] = {
 	[GLUSTER_TRANSPORT_TCP] = "tcp",
 	[GLUSTER_TRANSPORT_UNIX] = "unix",
 	[GLUSTER_TRANSPORT_RDMA] = "rdma",
 	[GLUSTER_TRANSPORT__MAX] = NULL,
 };
-
 
 static void gluster_free_host(gluster_hostdef *host)
 {
@@ -194,6 +192,29 @@ free_entry:
 	free(entry);
 error:
 	return -1;
+}
+
+static bool tcmu_glfs_update_logdir(void)
+{
+	struct gluster_cacheconn **entry;
+	char logfilepath[PATH_MAX];
+	int ret;
+
+	darray_foreach(entry, glfs_cache) {
+		ret = tcmu_make_absolute_logfile(logfilepath, TCMU_GLFS_LOG_FILENAME);
+		if (ret < 0) {
+			tcmu_err("tcmu_make_absolute_logfile failed: %d\n", ret);
+			return false;
+		}
+
+		if (glfs_set_logging((*entry)->fs, logfilepath, TCMU_GLFS_DEBUG_LEVEL)) {
+			tcmu_err("glfs_set_logging() on %s failed[%s]",
+				 (*entry)->volname, strerror(errno));
+			return false;
+		}
+	}
+
+	return true;
 }
 
 static glfs_t* gluster_cache_query(gluster_server *dst, char *cfgstring)
@@ -848,6 +869,8 @@ struct tcmur_handler glfs_handler = {
 	.flush          = tcmu_glfs_flush,
 	.unmap          = tcmu_glfs_discard,
 	.handle_cmd     = tcmu_glfs_handle_cmd,
+
+	.update_logdir  = tcmu_glfs_update_logdir,
 };
 
 /* Entry point must be named "handler_init". */

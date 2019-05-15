@@ -40,6 +40,7 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
    * *Note:* If using systemd, `-DSUPPORT_SYSTEMD=ON -DCMAKE_INSTALL_PREFIX=/usr` should be passed to cmake, so files are installed to the correct location.
 1. Type `make`
 1. Type `make install`
+1. Type `xargs rm < install_manifest.txt` to uninstall from source
 
 
 ##### Running tcmu-runner

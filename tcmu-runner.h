@@ -140,6 +140,11 @@ struct tcmur_handler {
 	 * latter case opaque will point to a struct dbus_info.
 	 */
 	bool _is_dbus_handler;
+
+	/*
+	 * Update the logdir called by dynamic config thread.
+	 */
+	bool (*update_logdir)(void);
 };
 
 /*

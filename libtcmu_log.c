@@ -716,8 +716,9 @@ static bool is_same_path(const char* path1, const char* path2)
 	return st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino;
 }
 
-int tcmu_resetup_log_file(char *log_dir)
+int tcmu_resetup_log_file(struct tcmu_config *cfg, char *log_dir)
 {
+	struct tcmulib_handler *handler;
 	int ret;
 
 	if (is_same_path(tcmu_log_dir, log_dir)) {
@@ -741,10 +742,25 @@ int tcmu_resetup_log_file(char *log_dir)
 
 	ret = create_file_output(tcmu_logbuf, TCMU_LOG_DEBUG_SCSI_CMD,
 				 TCMU_LOG_FILENAME);
-	if (ret < 0)
+	if (ret < 0) {
 		tcmu_err("Could not change log path to %s, ret:%d.\n",
-			 log_dir, ret);
-	return ret;
+				log_dir, ret);
+		return ret;
+	}
+
+	if (!cfg || !cfg->ctx)
+		return 0;
+
+	darray_foreach(handler, cfg->ctx->handlers) {
+		if (!handler->update_logdir)
+			continue;
+
+		if (!handler->update_logdir())
+			tcmu_err("Failed to update logdir for handler (%s)\n",
+				 handler->name);
+	}
+
+	return 0;
 }
 
 void tcmu_destroy_log()
