@@ -111,6 +111,8 @@ struct tcmulib_cmd {
 
 	/* callback to finish/continue command processing */
 	cmd_done_t done;
+
+	void *hm_private;
 };
 
 /* Set/Get methods for the opaque tcmu_device */

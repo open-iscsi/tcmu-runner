@@ -638,7 +638,8 @@ static void *tcmur_cmdproc_thread(void *arg)
 
 		tcmulib_processing_start(dev);
 
-		while (!dev_stopping && (cmd = tcmulib_get_next_command(dev)) != NULL) {
+		while (!dev_stopping &&
+		       (cmd = tcmulib_get_next_command(dev, 0)) != NULL) {
 
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_cdb_print_info(dev, cmd, NULL);
