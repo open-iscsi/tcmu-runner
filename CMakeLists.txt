@@ -244,6 +244,13 @@ if (with-glfs)
 		set(GFAPI_VERSION760 1)
 	endif (GFAPI760_FOUND)
 
+    set(GFAPI_VERSION766 0)
+
+    pkg_check_modules(GFAPI766 glusterfs-api>=7.6.6 QUIET)
+	if (GFAPI766_FOUND)
+		set(GFAPI_VERSION766 1)
+	endif (GFAPI766_FOUND)
+
 	# Stuff for building the glfs handler
 	add_library(handler_glfs
 	  SHARED
