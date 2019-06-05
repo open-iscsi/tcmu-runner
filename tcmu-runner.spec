@@ -124,7 +124,7 @@ Development header(s) for developing against libtcmu.
 %install
 %{__make} DESTDIR=%{buildroot} install
 %{__rm} -f %{buildroot}/etc/tcmu/tcmu.conf.old
-%{__rm} -f %{buildroot}/etc/logrotate.d/tcmu-runner.old
+%{__rm} -f %{buildroot}/etc/logrotate.d/tcmu-runner.bak/tcmu-runner
 
 %files
 %{_bindir}/tcmu-runner
