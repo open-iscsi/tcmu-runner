@@ -25,6 +25,10 @@
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without fbo
 %{?_without_fbo:%global _without_fbo -Dwith-fbo=false}
 
+# without tcmalloc dependency
+# if you wish to exclude tcmalloc, use below command
+# rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without tcmalloc
+%{?_without_tcmalloc:%global _without_tcmalloc -Dwith-tcmalloc=false}
 
 
 Name:          tcmu-runner
@@ -51,6 +55,11 @@ Requires(pre): librados2, librbd1
 %if ( 0%{!?_without_glfs:1} )
 BuildRequires: glusterfs-api-devel
 Requires(pre): glusterfs-api
+%endif
+
+%if 0%{!?_without_tcmalloc:1}
+BuildRequires: gperftools-devel
+Requires:      gperftools-libs
 %endif
 
 Requires(pre): kmod, zlib, libnl3, glib2, logrotate, rsyslog

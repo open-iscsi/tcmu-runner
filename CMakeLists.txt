@@ -13,6 +13,7 @@ option(with-qcow "build qcow handler" true)
 option(with-rbd "build Ceph rbd handler" true)
 option(with-zbc "build zbc handler" true)
 option(with-fbo "build fbo handler" true)
+option(with-tcmalloc "link against tcmalloc" true)
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
@@ -34,6 +35,10 @@ pkg_check_modules(KMOD REQUIRED libkmod)
 
 find_library(PTHREAD pthread)
 find_library(DL dl)
+
+if (with-tcmalloc)
+  find_library(TCMALLOC_LIB tcmalloc)
+endif(with-tcmalloc)
 
 # Stuff for building the shared library
 add_library(tcmu
@@ -108,6 +113,7 @@ target_link_libraries(tcmu-runner
   ${PTHREAD}
   ${DL}
   ${KMOD_LIBRARIES}
+  ${TCMALLOC_LIB}
   -Wl,--no-export-dynamic
   -Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/main-syms.txt
   )
