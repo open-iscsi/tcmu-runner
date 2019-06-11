@@ -117,6 +117,7 @@ Development header(s) for developing against libtcmu.
  %{?_without_qcow:-Dwith-qcow=false} \
  %{?_without_glfs:-Dwith-glfs=false} \
  %{?_without_fbo:-Dwith-fbo=false} \
+ %{?_without_tcmalloc:-Dwith-tcmalloc=false} \
  .
 %{__make}
 

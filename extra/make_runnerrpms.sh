@@ -5,7 +5,7 @@ if [ "$1" == "--help" -o "$1" == "help" ]; then
 	echo "  USAGE:"
 	echo ""
 	echo "  # cd tcmu-runner/extra/"
-	echo "  # ./make_runnerrpms.sh [--without (rbd|glfs|qcow|zbc|fbo)]"
+	echo "  # ./make_runnerrpms.sh [--without (rbd|glfs|qcow|zbc|fbo|tcmalloc)]"
 	echo ""
 	echo "  Will build the RPMs in current dir by using the HEAD commit ID as default."
 	echo ""
