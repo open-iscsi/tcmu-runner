@@ -142,6 +142,8 @@ Development header(s) for developing against libtcmu.
 %dir %{_sysconfdir}/tcmu/
 %config %{_sysconfdir}/tcmu/tcmu.conf
 %config(noreplace) %{_sysconfdir}/logrotate.d/tcmu-runner
+%ghost %attr(0644,-,-) %{_sysconfdir}/tcmu/tcmu.conf.old
+%ghost %attr(0644,-,-) %{_sysconfdir}/logrotate.d/tcmu-runner.bak/tcmu-runner
 
 %files -n libtcmu
 %{_libdir}/libtcmu*.so.*
