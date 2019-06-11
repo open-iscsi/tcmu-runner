@@ -3,32 +3,32 @@
 # without rbd dependency
 # if you wish to exclude rbd handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without rbd
-%{?_without_rbd:%global _without_rbd -Dwith-rbd=false}
+%bcond_without rbd
 
 # without glusterfs dependency
 # if you wish to exclude glfs handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without glfs
-%{?_without_glfs:%global _without_glfs -Dwith-glfs=false}
+%bcond_without glfs
 
 # without qcow dependency
 # if you wish to exclude qcow handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without qcow
-%{?_without_qcow:%global _without_qcow -Dwith-qcow=false}
+%bcond_without qcow
 
 # without zbc dependency
 # if you wish to exclude zbc handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without zbc
-%{?_without_zbc:%global _without_zbc -Dwith-zbc=false}
+%bcond_without zbc
 
 # without file backed optical dependency
 # if you wish to exclude fbo handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without fbo
-%{?_without_fbo:%global _without_fbo -Dwith-fbo=false}
+%bcond_without fbo
 
 # without tcmalloc dependency
 # if you wish to exclude tcmalloc, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without tcmalloc
-%{?_without_tcmalloc:%global _without_tcmalloc -Dwith-tcmalloc=false}
+%bcond_without tcmalloc
 
 
 Name:          tcmu-runner
@@ -47,17 +47,17 @@ ExclusiveOS:   Linux
 BuildRequires: cmake make gcc
 BuildRequires: libnl3-devel glib2-devel zlib-devel kmod-devel
 
-%if ( 0%{!?_without_rbd:1} )
+%if %{with rbd}
 BuildRequires: librbd1-devel librados2-devel
 Requires(pre): librados2, librbd1
 %endif
 
-%if ( 0%{!?_without_glfs:1} )
+%if %{with glfs}
 BuildRequires: glusterfs-api-devel
 Requires(pre): glusterfs-api
 %endif
 
-%if 0%{!?_without_tcmalloc:1}
+%if %{with tcmalloc}
 BuildRequires: gperftools-devel
 Requires:      gperftools-libs
 %endif
@@ -112,11 +112,11 @@ Development header(s) for developing against libtcmu.
 %build
 %{__cmake} \
  -DSUPPORT_SYSTEMD=ON -DCMAKE_INSTALL_PREFIX=%{_usr} \
- %{?_without_rbd} \
- %{?_without_zbc} \
- %{?_without_qcow} \
- %{?_without_glfs} \
- %{?_without_fbo} \
+ %{?_without_rbd:-Dwith-rbd=false} \
+ %{?_without_zbc:-Dwith-zbc=false} \
+ %{?_without_qcow:-Dwith-qcow=false} \
+ %{?_without_glfs:-Dwith-glfs=false} \
+ %{?_without_fbo:-Dwith-fbo=false} \
  .
 %{__make}
 
