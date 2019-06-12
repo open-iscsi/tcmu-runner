@@ -661,7 +661,7 @@ static void *tcmur_cmdproc_thread(void *arg)
 			 */
 			if (ret != TCMU_STS_ASYNC_HANDLED) {
 				completed = 1;
-				tcmur_command_complete(dev, cmd, ret);
+				tcmur_tcmulib_cmd_complete(dev, cmd, ret);
 			}
 		}
 

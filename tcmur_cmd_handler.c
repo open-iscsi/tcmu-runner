@@ -33,8 +33,8 @@ static void _cleanup_spin_lock(void *arg)
 	pthread_spin_unlock(arg);
 }
 
-void tcmur_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			    int rc)
+void tcmur_tcmulib_cmd_complete(struct tcmu_device *dev,
+				struct tcmulib_cmd *cmd, int rc)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
@@ -53,7 +53,7 @@ static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int wake_up;
 
-	tcmur_command_complete(dev, cmd, rc);
+	tcmur_tcmulib_cmd_complete(dev, cmd, rc);
 	track_aio_request_finish(rdev, &wake_up);
 	while (wake_up) {
 		tcmulib_processing_complete(dev);
