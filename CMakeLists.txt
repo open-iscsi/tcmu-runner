@@ -55,6 +55,7 @@ add_library(tcmu
   )
 set_target_properties(tcmu
   PROPERTIES
+  VERSION 2.1
   SOVERSION "2"
   )
 target_include_directories(tcmu
