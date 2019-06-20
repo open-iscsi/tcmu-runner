@@ -154,7 +154,7 @@ static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 	}
 
 	if (!dev->handler->reconfig) {
-		tcmu_dev_err(dev, "Reconfiguration is not supported with this device.\n");
+		tcmu_dev_dbg(dev, "Reconfiguration is not supported with this device.\n");
 		return -EOPNOTSUPP;
 	}
 
@@ -177,8 +177,8 @@ static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 
 	ret = dev->handler->reconfig(dev, &cfg);
 	if (ret < 0) {
-		tcmu_dev_err(dev, "Handler reconfig failed with error %d.\n",
-			     ret);
+		tcmu_dev_dbg(dev, "Handler reconfig failed with error %s.\n",
+		             strerror(-ret));
 		return ret;
 	}
 
