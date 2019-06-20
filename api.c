@@ -348,7 +348,7 @@ void tcmu_cdb_print_info(struct tcmu_device *dev,
 	sprintf(buf + n, "\n");
 
 	if (info) {
-		tcmu_dev_warn(dev, "%s", buf);
+		tcmu_dev_dbg(dev, "%s", buf);
 	} else {
 		tcmu_dev_dbg_scsi_cmd(dev, "%s", buf);
 	}
