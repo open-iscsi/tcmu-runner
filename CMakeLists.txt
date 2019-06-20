@@ -38,6 +38,7 @@ find_library(DL dl)
 
 if (with-tcmalloc)
   find_library(TCMALLOC_LIB tcmalloc)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free")
 endif(with-tcmalloc)
 
 # Stuff for building the shared library
