@@ -258,8 +258,6 @@ static int unmap_work_fn(struct tcmu_device *dev, struct tcmulib_cmd *ucmd)
 	struct unmap_descriptor *desc = ucmd->cmdstate;
 	uint64_t offset = desc->offset, length = desc->length;
 
-	ucmd->done = handle_unmap_cbk;
-
 	return rhandler->unmap(dev, ucmd, offset, length);
 }
 
@@ -328,6 +326,7 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 		desc->offset = lba * block_size;
 		desc->length = lbas * block_size;
 		ucmd->cmdstate = desc;
+		ucmd->done = handle_unmap_cbk;
 
 		/* The first one */
 		if (j++ == 0)
@@ -750,8 +749,6 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev,
 	uint64_t off = block_size * tcmu_cdb_get_lba(cdb);
 	uint32_t len = block_size * tcmu_cdb_get_xfer_length(cdb);
 
-	cmd->done = handle_generic_cbk;
-
 	/*
 	 * Write contents of the logical block data(from the Data-Out Buffer)
 	 * to each LBA in the specified LBA range.
@@ -780,6 +777,7 @@ int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		return handle_unmap_in_writesame(dev, cmd);
 
 	cmd->cmdstate = write_same_fn;
+	cmd->done = handle_generic_cbk;
 
 	return async_handle_cmd(dev, cmd, tcmur_writesame_work_fn);
 }
@@ -1467,7 +1465,6 @@ static int xcopy_write_work_fn(struct tcmu_device *dst_dev, struct tcmulib_cmd *
 	iovec->iov_base = xcopy->iov_base;
 	iovec->iov_len = xcopy->iov_len;
 
-	cmd->done = handle_xcopy_write_cbk;
 	return rhandler->write(dst_dev, cmd, iovec, iov_cnt, xcopy->iov_len,
 			       block_size * xcopy->dst_lba);
 }
@@ -1513,7 +1510,6 @@ static int xcopy_read_work_fn(struct tcmu_device *src_dev, struct tcmulib_cmd *c
 	iovec->iov_base = xcopy->iov_base;
 	iovec->iov_len = xcopy->iov_len;
 
-	cmd->done = handle_xcopy_read_cbk;
 	return rhandler->read(src_dev, cmd, iovec, iov_cnt, xcopy->iov_len,
 			      block_size * xcopy->src_lba);
 }
@@ -1588,6 +1584,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	xcopy->iov_cnt = 1;
 	xcopy->origdev = dev;
 	cmd->cmdstate = xcopy;
+	cmd->done = handle_xcopy_read_cbk;
 
 	ret = async_handle_cmd(xcopy->src_dev, cmd, xcopy_read_work_fn);
 	if (ret == TCMU_STS_ASYNC_HANDLED)
@@ -1781,7 +1778,6 @@ static int tcmur_caw_fn(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint64_t off = block_size * tcmu_cdb_get_lba(cdb);
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 
-	cmd->done = handle_generic_cbk;
 	return caw_fn(dev, cmd, off, half, cmd->iovec, cmd->iov_cnt);
 }
 
@@ -1815,6 +1811,7 @@ int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		return ret;
 
 	cmd->cmdstate = caw_fn;
+	cmd->done = handle_generic_cbk;
 
 	return async_handle_cmd(dev, cmd, tcmur_caw_fn);
 }
