@@ -101,8 +101,12 @@ uint64_t tcmu_cfgfs_dev_get_info_u64(struct tcmu_device *dev, const char *name,
 			 strerror(errno));
 		*fn_ret = -EINVAL;
 		return 0;
+	} else if (ret == 0) {
+		tcmu_err("Invalid device info.\n");
+		*fn_ret = -EINVAL;
+		return 0;
 	}
-	buf[sizeof(buf)-1] = '\0'; /* paranoid? Ensure null terminated */
+	buf[ret-1] = '\0'; /* paranoid? Ensure null terminated */
 
 	if (asprintf(&search_pattern, " %s: ", name) < 0) {
 		tcmu_err("Could not create search string.\n");
@@ -185,6 +189,9 @@ char *tcmu_cfgfs_dev_get_wwn(struct tcmu_device *dev)
 	if (ret == -1) {
 		tcmu_err("Could not read configfs to read unit serial: %s\n",
 			 strerror(errno));
+		return NULL;
+	} else if (ret == 0) {
+		tcmu_err("Invalid VPD serial number.\n");
 		return NULL;
 	}
 
