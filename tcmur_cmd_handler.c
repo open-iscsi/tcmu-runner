@@ -1610,39 +1610,6 @@ struct caw_state {
 	struct tcmulib_cmd *origcmd;
 };
 
-static struct tcmulib_cmd *
-caw_init_readcmd(struct tcmulib_cmd *origcmd, size_t length)
-{
-	struct tcmulib_cmd *readcmd;
-	struct caw_state *state;
-
-	state = calloc(1, sizeof(*state));
-	if (!state)
-		goto out;
-	readcmd = calloc(1, sizeof(*readcmd));
-	if (!readcmd)
-		goto free_state;
-	readcmd->cdb = origcmd->cdb;
-
-	if (alloc_iovec(readcmd, length))
-		goto free_cmd;
-
-	/* multi-op state maintainance */
-	state->read_buf = readcmd->iovec->iov_base;
-	state->requested = length;
-	state->origcmd = origcmd;
-
-	readcmd->cmdstate = state;
-	return readcmd;
-
-free_cmd:
-	free(readcmd);
-free_state:
-	free(state);
-out:
-	return NULL;
-}
-
 static void caw_free_readcmd(struct tcmulib_cmd *readcmd)
 {
 	struct caw_state *state = readcmd->cmdstate;
@@ -1700,6 +1667,40 @@ finish_err:
 	pthread_mutex_unlock(&rdev->caw_lock);
 	aio_command_finish(dev, origcmd, ret);
 	caw_free_readcmd(readcmd);
+}
+
+static struct tcmulib_cmd *
+caw_init_readcmd(struct tcmulib_cmd *origcmd, size_t length)
+{
+	struct tcmulib_cmd *readcmd;
+	struct caw_state *state;
+
+	state = calloc(1, sizeof(*state));
+	if (!state)
+		goto out;
+	readcmd = calloc(1, sizeof(*readcmd));
+	if (!readcmd)
+		goto free_state;
+	readcmd->cdb = origcmd->cdb;
+	readcmd->done = handle_caw_read_cbk;
+
+	if (alloc_iovec(readcmd, length))
+		goto free_cmd;
+
+	/* multi-op state maintainance */
+	state->read_buf = readcmd->iovec->iov_base;
+	state->requested = length;
+	state->origcmd = origcmd;
+
+	readcmd->cmdstate = state;
+	return readcmd;
+
+free_cmd:
+	free(readcmd);
+free_state:
+	free(state);
+out:
+	return NULL;
 }
 
 static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -1761,8 +1762,6 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = TCMU_STS_NO_RESOURCE;
 		goto out;
 	}
-
-	readcmd->done = handle_caw_read_cbk;
 
 	pthread_mutex_lock(&rdev->caw_lock);
 
