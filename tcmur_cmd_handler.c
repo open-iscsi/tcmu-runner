@@ -61,6 +61,12 @@ static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 }
 
+void tcmur_cmd_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			int rc)
+{
+	cmd->done(dev, cmd, rc);
+}
+
 static int alloc_iovec(struct tcmulib_cmd *cmd, size_t length)
 {
 	struct iovec *iov;

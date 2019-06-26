@@ -94,7 +94,7 @@ struct tcmur_handler {
 	 *   resources to queue the command.
 	 *
 	 * If TCMU_STS_OK is returned from the callout the handler must call
-	 * the tcmulib_cmd->done function with TCMU_STS return code.
+	 * tcmur_cmd_complete with TCMU_STS return code to complete the command.
 	 */
 	handle_cmd_fn_t handle_cmd;
 
@@ -111,7 +111,8 @@ struct tcmur_handler {
 	 *   resources to queue the command.
 	 *
 	 * If TCMU_STS_OK is returned from the callout the handler must call
-	 * the tcmulib_cmd->done function with TCMU_STS return code.
+	 * tcmur_cmd_complete with a TCMU_STS return code to complete the
+	 * command.
 	 */
 	rw_fn_t write;
 	rw_fn_t read;
@@ -154,6 +155,9 @@ struct tcmur_handler {
 	 */
 	bool (*update_logdir)(void);
 };
+
+void tcmur_cmd_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+			int rc);
 
 /*
  * Each tcmu-runner (tcmur) handler plugin must export the

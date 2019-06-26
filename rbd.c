@@ -1120,7 +1120,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		}
 	}
 
-	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
+	tcmur_cmd_complete(dev, tcmulib_cmd, tcmu_r);
 
 	if (aio_cb->bounce_buffer)
 		free(aio_cb->bounce_buffer);

@@ -619,7 +619,7 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 		ret = TCMU_STS_OK;
 	}
 
-	cmd->done(dev, cmd, ret);
+	tcmur_cmd_complete(dev, cmd, ret);
 	free(cookie);
 }
 

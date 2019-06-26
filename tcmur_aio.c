@@ -168,7 +168,7 @@ static void *io_work_queue(void *arg)
 		pthread_cleanup_push(_cleanup_io_work, work);
 
 		ret = work->fn(work->dev, cmd);
-		cmd->done(dev, cmd, ret);
+		tcmur_cmd_complete(dev, cmd, ret);
 
 		pthread_cleanup_pop(1); /* cleanup work */
 	}
