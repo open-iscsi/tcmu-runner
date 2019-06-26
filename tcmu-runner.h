@@ -156,8 +156,7 @@ struct tcmur_handler {
 	bool (*update_logdir)(void);
 };
 
-void tcmur_cmd_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			int rc);
+void tcmur_cmd_complete(struct tcmu_device *dev, void *data, int rc);
 
 /*
  * Each tcmu-runner (tcmur) handler plugin must export the

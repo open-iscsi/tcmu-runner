@@ -23,8 +23,9 @@
 
 struct tcmu_work {
 	struct tcmu_device *dev;
-	struct tcmulib_cmd *cmd;
-	tcmu_work_fn_t fn;
+	void *data;
+	tcmu_work_fn_t work_fn;
+	tcmu_done_fn_t done_fn;
 	struct list_node entry;
 };
 
@@ -146,7 +147,7 @@ static void *io_work_queue(void *arg)
 
 	while (1) {
 		struct tcmu_work *work;
-		struct tcmulib_cmd *cmd;
+		void *data;
 
 		pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
 		pthread_mutex_lock(&io_wq->io_lock);
@@ -164,11 +165,11 @@ static void *io_work_queue(void *arg)
 		pthread_cleanup_pop(0);
 
 		/* kick start I/O request */
-		cmd = work->cmd;
+		data = work->data;
 		pthread_cleanup_push(_cleanup_io_work, work);
 
-		ret = work->fn(work->dev, cmd);
-		tcmur_cmd_complete(dev, cmd, ret);
+		ret = work->work_fn(work->dev, data);
+		work->done_fn(dev, data, ret);
 
 		pthread_cleanup_pop(1); /* cleanup work */
 	}
@@ -176,8 +177,8 @@ static void *io_work_queue(void *arg)
 	return NULL;
 }
 
-static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			tcmu_work_fn_t fn)
+static int aio_queue(struct tcmu_device *dev, void *data, tcmu_work_fn_t work_fn,
+		     tcmu_done_fn_t done_fn)
 {
 	struct tcmu_work *work;
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
@@ -187,9 +188,10 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (!work)
 		return TCMU_STS_NO_RESOURCE;
 
-	work->fn = fn;
+	work->work_fn = work_fn;
+	work->done_fn = done_fn;
 	work->dev = dev;
-	work->cmd = cmd;
+	work->data = data;
 	list_node_init(&work->entry);
 
 	/* cleanup push/pop not _really_ required here atm */
@@ -205,18 +207,18 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	return TCMU_STS_ASYNC_HANDLED;
 }
 
-int async_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-		     tcmu_work_fn_t work_fn)
+int aio_request_schedule(struct tcmu_device *dev, void *data,
+			 tcmu_work_fn_t work_fn, tcmu_done_fn_t done_fn)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
 	if (!rhandler->nr_threads) {
-		ret = work_fn(dev, cmd);
+		ret = work_fn(dev, data);
 		if (!ret)
 			ret = TCMU_STS_ASYNC_HANDLED;
 	} else {
-		ret = aio_schedule(dev, cmd, work_fn);
+		ret = aio_queue(dev, data, work_fn, done_fn);
 	}
 
 	return ret;
