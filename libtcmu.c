@@ -137,6 +137,12 @@ lookup_dev_by_name(struct tcmulib_context *ctx, char *dev_name, int *index)
 	return NULL;
 }
 
+static const char *const tcmulib_cfg_type_lookup[] = {
+	[TCMULIB_CFG_DEV_CFGSTR]  = "TCMULIB_CFG_DEV_CFGSTR",
+	[TCMULIB_CFG_DEV_SIZE]    = "TCMULIB_CFG_DEV_SIZE",
+	[TCMULIB_CFG_WRITE_CACHE] = "TCMULIB_CFG_WRITE_CACHE",
+};
+
 static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 			   struct genl_info *info)
 {
@@ -151,11 +157,6 @@ static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 		tcmu_err("Could not reconfigure device %s: not found.\n",
 			 dev_name);
 		return -ENODEV;
-	}
-
-	if (!dev->handler->reconfig) {
-		tcmu_dev_dbg(dev, "Reconfiguration is not supported with this device.\n");
-		return -EOPNOTSUPP;
 	}
 
 	if (info->attrs[TCMU_ATTR_DEV_CFG]) {
@@ -175,10 +176,16 @@ static int reconfig_device(struct tcmulib_context *ctx, char *dev_name,
 		return -EOPNOTSUPP;
 	}
 
+	if (!dev->handler->reconfig) {
+		tcmu_dev_dbg(dev, "Reconfiguration is not supported with this device. "
+		             "Request for %s.\n", tcmulib_cfg_type_lookup[cfg.type]);
+		return -EOPNOTSUPP;
+	}
+
 	ret = dev->handler->reconfig(dev, &cfg);
 	if (ret < 0) {
-		tcmu_dev_dbg(dev, "Handler reconfig failed with error %s.\n",
-		             strerror(-ret));
+		tcmu_dev_dbg(dev, "Handler reconfig for %s failed with error %s.\n",
+		             tcmulib_cfg_type_lookup[cfg.type], strerror(-ret));
 		return ret;
 	}
 
