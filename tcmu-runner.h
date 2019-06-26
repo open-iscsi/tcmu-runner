@@ -73,7 +73,7 @@ struct tcmur_handler {
 	int nr_threads;
 
 	/*
-	 * Async handle_cmd only handlers return:
+	 * handle_cmd only handlers return:
 	 *
 	 * - TCMU_STS_OK if the command has been executed successfully
 	 * - TCMU_STS_NOT_HANDLED if opcode is not handled
@@ -82,13 +82,16 @@ struct tcmur_handler {
 	 * - TCMU_STS_PASSTHROUGH_ERR For handlers that require low level
 	 *   SCSI processing and want to setup their own sense buffers.
 	 *
-	 * Handlers that set nr_threads > 0 and async handlers
-	 * that implement handle_cmd and the IO callouts below return:
+	 * Handlers that completely execute cmds from the handle_cmd's calling
+	 * context must return a TCMU_STS code from handle_cmd.
+	 *
+	 * Async handlers that queue a command from handle_cmd and complete
+	 * from their own async context return:
 	 *
 	 * - TCMU_STS_OK if the handler has queued the command.
 	 * - TCMU_STS_NOT_HANDLED if the command is not supported.
 	 * - TCMU_STS_NO_RESOURCE if the handler was not able to allocate
-	 *   resources for the command.
+	 *   resources to queue the command.
 	 *
 	 * If TCMU_STS_OK is returned from the callout the handler must call
 	 * the tcmulib_cmd->done function with TCMU_STS return code.
@@ -96,11 +99,16 @@ struct tcmur_handler {
 	handle_cmd_fn_t handle_cmd;
 
 	/*
-	 * Below callbacks are only executed by generic_handle_cmd.
-	 * Returns:
+	 * Below callouts are only executed by generic_handle_cmd.
+	 *
+	 * Handlers that completely execute cmds from the callout's calling
+	 * context must return a TCMU_STS code from the callout.
+	 *
+	 * Async handlers that queue a command from the callout and complete
+	 * it from their own async context return:
 	 * - TCMU_STS_OK if the handler has queued the command.
 	 * - TCMU_STS_NO_RESOURCE if the handler was not able to allocate
-	 *   resources for the command.
+	 *   resources to queue the command.
 	 *
 	 * If TCMU_STS_OK is returned from the callout the handler must call
 	 * the tcmulib_cmd->done function with TCMU_STS return code.
