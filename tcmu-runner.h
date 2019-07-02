@@ -27,13 +27,6 @@ extern "C" {
 #include "alua.h"
 #include "scsi.h"
 
-typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
-		       struct iovec *, size_t, size_t, off_t);
-typedef int (*flush_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
-typedef int (*handle_cmd_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
-typedef int (*unmap_fn_t)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			  uint64_t off, uint64_t len);
-
 struct tcmulib_cfg_info;
 
 struct tcmur_handler {
@@ -96,7 +89,7 @@ struct tcmur_handler {
 	 * If TCMU_STS_OK is returned from the callout the handler must call
 	 * tcmur_cmd_complete with TCMU_STS return code to complete the command.
 	 */
-	handle_cmd_fn_t handle_cmd;
+	int (*handle_cmd)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
 
 	/*
 	 * Below callouts are only executed by generic_handle_cmd.
@@ -114,10 +107,13 @@ struct tcmur_handler {
 	 * tcmur_cmd_complete with a TCMU_STS return code to complete the
 	 * command.
 	 */
-	rw_fn_t write;
-	rw_fn_t read;
-	flush_fn_t flush;
-	unmap_fn_t unmap;
+	int (*read)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		    struct iovec *iovec, size_t iov_cnt, size_t len, off_t off);
+	int (*write)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		     struct iovec *iovec, size_t iov_cnt, size_t len, off_t off);
+	int (*flush)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
+	int (*unmap)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		     uint64_t off, uint64_t len);
 
 	/*
 	 * If the lock is acquired and the tag is not TCMU_INVALID_LOCK_TAG,
