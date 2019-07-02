@@ -2118,15 +2118,15 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	state->length = length;
 
 	/* Check length on first write to make sure its not less than 1MB */
-	if ((num_lbas - state->done_blocks) * block_size < length)
-		state->length = (num_lbas - state->done_blocks) * block_size;
+	if (num_lbas * block_size < length)
+		state->length = num_lbas * block_size;
 
 	if (alloc_iovec(writecmd, state->length)) {
 		goto free_state;
 	}
 
-	tcmu_dev_dbg(dev, "start emulate format, done_blocks:%u num_lbas:%"PRIu64" block_size:%u\n",
-		     state->done_blocks, num_lbas, block_size);
+	tcmu_dev_dbg(dev, "start emulate format, num_lbas:%"PRIu64" block_size:%u\n",
+		     num_lbas, block_size);
 
 	/* copy incase handler changes it */
 	state->write_buf = writecmd->iovec->iov_base;
