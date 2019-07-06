@@ -68,42 +68,6 @@ void tcmur_cmd_complete(struct tcmu_device *dev, void *data, int rc)
 	tcmur_cmd->done(dev, tcmur_cmd, rc);
 }
 
-static int alloc_iovec(struct tcmulib_cmd *cmd, size_t length)
-{
-	struct iovec *iov;
-
-	assert(!cmd->iovec);
-
-	iov = calloc(1, sizeof(*iov));
-	if (!iov)
-		goto out;
-	iov->iov_base = calloc(1, length);
-	if (!iov->iov_base)
-		goto free_iov;
-	iov->iov_len = length;
-
-	cmd->iovec = iov;
-	cmd->iov_cnt = 1;
-	return 0;
-
-free_iov:
-	free(iov);
-out:
-	return -ENOMEM;
-}
-
-static void free_iovec(struct tcmulib_cmd *cmd)
-{
-	assert(cmd->iovec);
-	assert(cmd->iovec->iov_base);
-
-	free(cmd->iovec->iov_base);
-	free(cmd->iovec);
-
-	cmd->iov_cnt = 0;
-	cmd->iovec = NULL;
-}
-
 static void tcmur_cmd_iovec_reset(struct tcmur_cmd *tcmur_cmd,
 				  size_t data_length)
 {
