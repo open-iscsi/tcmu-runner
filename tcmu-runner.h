@@ -27,6 +27,9 @@ extern "C" {
 #include "alua.h"
 #include "scsi.h"
 
+/* Removed next patch */
+#define tcmur_cmd tcmulib_cmd
+
 struct tcmulib_cfg_info;
 
 struct tcmur_handler {
@@ -89,7 +92,7 @@ struct tcmur_handler {
 	 * If TCMU_STS_OK is returned from the callout the handler must call
 	 * tcmur_cmd_complete with TCMU_STS return code to complete the command.
 	 */
-	int (*handle_cmd)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
+	int (*handle_cmd)(struct tcmu_device *dev, struct tcmur_cmd *cmd);
 
 	/*
 	 * Below callouts are only executed by generic_handle_cmd.
@@ -107,12 +110,12 @@ struct tcmur_handler {
 	 * tcmur_cmd_complete with a TCMU_STS return code to complete the
 	 * command.
 	 */
-	int (*read)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+	int (*read)(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		    struct iovec *iovec, size_t iov_cnt, size_t len, off_t off);
-	int (*write)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+	int (*write)(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		     struct iovec *iovec, size_t iov_cnt, size_t len, off_t off);
-	int (*flush)(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
-	int (*unmap)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+	int (*flush)(struct tcmu_device *dev, struct tcmur_cmd *cmd);
+	int (*unmap)(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		     uint64_t off, uint64_t len);
 
 	/*

@@ -2186,16 +2186,15 @@ static int handle_rtpg(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int passthrough_work_fn(struct tcmu_device *dev, void *data)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmulib_cmd *cmd = data;
 
-	return rhandler->handle_cmd(dev, cmd);
+	return rhandler->handle_cmd(dev, data);
 }
 
 static int handle_passthrough(struct tcmu_device *dev,
-			      struct tcmulib_cmd *cmd)
+			      struct tcmur_cmd *tcmur_cmd)
 {
-	cmd->done = handle_generic_cbk;
-	return aio_request_schedule(dev, cmd, passthrough_work_fn,
+	tcmur_cmd->done = handle_generic_cbk;
+	return aio_request_schedule(dev, tcmur_cmd, passthrough_work_fn,
 				    tcmur_cmd_complete);
 }
 

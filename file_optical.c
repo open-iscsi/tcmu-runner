@@ -75,7 +75,7 @@ struct fbo_state {
 	int curr_handler;
 };
 
-static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
+static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmur_cmd *cmd);
 
 static void fbo_report_op_change(struct tcmu_device *dev, uint8_t code)
 {
@@ -1436,7 +1436,7 @@ static int fbo_emulate_read_format_capacities(struct tcmu_device *dev,
 /*
  * Return scsi status or TCMU_STS_NOT_HANDLED
  */
-static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmur_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
 	struct iovec *iovec = cmd->iovec;

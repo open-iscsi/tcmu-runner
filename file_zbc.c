@@ -2216,7 +2216,7 @@ static int zbc_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
  * Handle command emulation.
  * Return scsi status or TCMU_STS_NOT_HANDLED
  */
-static int zbc_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int zbc_handle_cmd(struct tcmu_device *dev, struct tcmur_cmd *cmd)
 {
 	uint8_t *cdb = cmd->cdb;
 	struct iovec *iovec = cmd->iovec;
