@@ -1097,7 +1097,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		tcmu_dev_dbg(dev, "CAW miscompare at offset %u.\n", cmp_offset);
 
 		tcmu_r = TCMU_STS_MISCOMPARE;
-		tcmu_sense_set_info(tcmur_cmd->sense_buf, cmp_offset);
+		tcmu_sense_set_info(tcmur_cmd->lib_cmd->sense_buf, cmp_offset);
 	} else if (ret == -EINVAL) {
 		tcmu_dev_err(dev, "Invalid IO request.\n");
 		tcmu_r = TCMU_STS_INVALID_CDB;
@@ -1411,7 +1411,8 @@ out:
 static int tcmu_rbd_handle_cmd(struct tcmu_device *dev,
 			       struct tcmur_cmd *tcmur_cmd)
 {
-	uint8_t *cdb = tcmur_cmd->cdb;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+	uint8_t *cdb = cmd->cdb;
 	int ret;
 
 	switch(cdb[0]) {

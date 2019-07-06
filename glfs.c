@@ -823,7 +823,8 @@ out:
 static int tcmu_glfs_handle_cmd(struct tcmu_device *dev,
 				struct tcmur_cmd *tcmur_cmd)
 {
-	uint8_t *cdb = tcmur_cmd->cdb;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+	uint8_t *cdb = cmd->cdb;
 	int ret;
 
 	switch(cdb[0]) {

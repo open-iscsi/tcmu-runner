@@ -63,9 +63,9 @@ static void aio_command_finish(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 void tcmur_cmd_complete(struct tcmu_device *dev, void *data, int rc)
 {
-	struct tcmulib_cmd *cmd = data;
+	struct tcmur_cmd *tcmur_cmd = data;
 
-	cmd->done(dev, cmd, rc);
+	tcmur_cmd->done(dev, tcmur_cmd, rc);
 }
 
 static int alloc_iovec(struct tcmulib_cmd *cmd, size_t length)
@@ -192,18 +192,19 @@ static int check_lba_and_length(struct tcmu_device *dev,
 }
 
 static void handle_generic_cbk(struct tcmu_device *dev,
-			       struct tcmulib_cmd *cmd, int ret)
+			       struct tcmur_cmd *tcmur_cmd, int ret)
 {
-	aio_command_finish(dev, cmd, ret);
+	aio_command_finish(dev, tcmur_cmd->lib_cmd, ret);
 }
 
 static int read_work_fn(struct tcmu_device *dev, void *data)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
-	struct tcmulib_cmd *cmd = data;
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 
-	return rhandler->read(dev, cmd, cmd->iovec, cmd->iov_cnt,
+	return rhandler->read(dev, tcmur_cmd, cmd->iovec, cmd->iov_cnt,
 			      tcmu_iovec_length(cmd->iovec, cmd->iov_cnt),
 			      block_size * tcmu_cdb_get_lba(cmd->cdb));
 }
@@ -212,9 +213,10 @@ static int write_work_fn(struct tcmu_device *dev, void *data)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
-	struct tcmulib_cmd *cmd = data;
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 
-	return rhandler->write(dev, cmd, cmd->iovec, cmd->iov_cnt,
+	return rhandler->write(dev, tcmur_cmd, cmd->iovec, cmd->iov_cnt,
 				tcmu_iovec_length(cmd->iovec, cmd->iov_cnt),
 				block_size * tcmu_cdb_get_lba(cmd->cdb));
 }
@@ -228,48 +230,40 @@ struct unmap_state {
 struct unmap_descriptor {
 	uint64_t offset;
 	uint64_t length;
-
-	struct tcmulib_cmd *origcmd;
 };
 
-static struct unmap_state *unmap_state_alloc(struct tcmu_device *dev,
-					     struct tcmulib_cmd *cmd,
-					     int *return_err)
+static int unmap_init(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	struct unmap_state *state;
 	int ret;
 
-	*return_err = 0;
-
-	state = calloc(1, sizeof(*state));
-	if (!state) {
-		tcmu_dev_err(dev, "Failed to calloc memory for unmap_state!\n");
-		*return_err = TCMU_STS_NO_RESOURCE;
-		return NULL;
-	}
+	if (tcmur_cmd_state_init(tcmur_cmd, sizeof(*state), 0))
+		return TCMU_STS_NO_RESOURCE;
+	state = tcmur_cmd->cmd_state;
 
 	ret = pthread_mutex_init(&state->lock, NULL);
 	if (ret == -1) {
 		tcmu_dev_err(dev, "Failed to init spin lock in state!\n");
-		*return_err = TCMU_STS_HW_ERR;
+		ret = TCMU_STS_HW_ERR;
 		goto out_free_state;
 	}
 
 	/* released by allocator when done submitting unmaps */
 	state->refcount = 1;
 	state->status = TCMU_STS_OK;
-	cmd->cmdstate = state;
-	return state;
+	return TCMU_STS_OK;
 
 out_free_state:
-	free(state);
-	return NULL;
+	tcmur_cmd_state_free(tcmur_cmd);
+	return ret;
 }
 
-static void unmap_state_put(struct tcmu_device *dev,
-			    struct tcmulib_cmd *origcmd, int ret)
+static void unmap_put(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+		      int ret)
 {
-	struct unmap_state *state = origcmd->cmdstate;
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
+	struct unmap_state *state = tcmur_cmd->cmd_state;
 	int status;
 
 	pthread_mutex_lock(&state->lock);
@@ -285,45 +279,45 @@ static void unmap_state_put(struct tcmu_device *dev,
 	pthread_mutex_unlock(&state->lock);
 
 	pthread_mutex_destroy(&state->lock);
-	free(state);
+	tcmur_cmd_state_free(tcmur_cmd);
 
-	aio_command_finish(dev, origcmd, status);
+	aio_command_finish(dev, cmd, status);
 }
 
-static void handle_unmap_cbk(struct tcmu_device *dev, struct tcmulib_cmd *ucmd,
-			     int ret)
+static void handle_unmap_cbk(struct tcmu_device *dev,
+			     struct tcmur_cmd *tcmur_ucmd, int ret)
 {
-	struct unmap_descriptor *desc = ucmd->cmdstate;
-	struct tcmulib_cmd *origcmd = desc->origcmd;
+	struct unmap_descriptor *desc = tcmur_ucmd->cmd_state;
+	struct tcmulib_cmd *cmd = tcmur_ucmd->lib_cmd;
 
 	free(desc);
-	free(ucmd);
+	free(tcmur_ucmd);
 
-	unmap_state_put(dev, origcmd, ret);
+	unmap_put(dev, cmd, ret);
 }
 
 static int unmap_work_fn(struct tcmu_device *dev, void *data)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmulib_cmd *ucmd = data;
-	struct unmap_descriptor *desc = ucmd->cmdstate;
+	struct tcmur_cmd *tcmur_ucmd = data;
+	struct unmap_descriptor *desc = tcmur_ucmd->cmd_state;
 	uint64_t offset = desc->offset, length = desc->length;
 
-	return rhandler->unmap(dev, ucmd, offset, length);
+	return rhandler->unmap(dev, tcmur_ucmd, offset, length);
 }
 
 static int align_and_split_unmap(struct tcmu_device *dev,
-				 struct tcmulib_cmd *origcmd,
+				 struct tcmur_cmd *tcmur_cmd,
 				 uint64_t lba, uint64_t nlbas)
 {
-	struct unmap_state *state = origcmd->cmdstate;
+	struct unmap_state *state = tcmur_cmd->cmd_state;
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint64_t opt_unmap_gran;
 	uint64_t unmap_gran_align, mask;
 	int ret = TCMU_STS_NOT_HANDLED;
 	int j = 0;
 	struct unmap_descriptor *desc;
-	struct tcmulib_cmd *ucmd;
+	struct tcmur_cmd *tcmur_ucmd;
 	uint64_t lbas;
 
 	if (!dev->split_unmaps) {
@@ -365,19 +359,18 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 			tcmu_dev_err(dev, "Failed to calloc desc!\n");
 			return TCMU_STS_NO_RESOURCE;
 		}
+		desc->offset = lba * block_size;
+		desc->length = lbas * block_size;
 
-		ucmd = calloc(1, sizeof(*ucmd));
-		if (!ucmd) {
-			tcmu_dev_err(dev, "Failed to calloc unmapcmd!\n");
+		tcmur_ucmd = calloc(1, sizeof(*tcmur_ucmd));
+		if (!tcmur_ucmd) {
+			tcmu_dev_err(dev, "Failed to calloc unmap cmd!\n");
 			ret = TCMU_STS_NO_RESOURCE;
 			goto free_desc;
 		}
-
-		desc->origcmd = origcmd;
-		desc->offset = lba * block_size;
-		desc->length = lbas * block_size;
-		ucmd->cmdstate = desc;
-		ucmd->done = handle_unmap_cbk;
+		tcmur_ucmd->cmd_state = desc;
+		tcmur_ucmd->lib_cmd = tcmur_cmd->lib_cmd;
+		tcmur_ucmd->done = handle_unmap_cbk;
 
 		/* The first one */
 		if (j++ == 0)
@@ -395,7 +388,7 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 		state->refcount++;
 		pthread_mutex_unlock(&state->lock);
 	
-		ret = aio_request_schedule(dev, ucmd, unmap_work_fn,
+		ret = aio_request_schedule(dev, tcmur_ucmd, unmap_work_fn,
 					   tcmur_cmd_complete);
 		if (ret != TCMU_STS_ASYNC_HANDLED)
 			goto free_ucmd;
@@ -413,22 +406,24 @@ free_ucmd:
 	pthread_mutex_lock(&state->lock);
 	state->refcount--;
 	pthread_mutex_unlock(&state->lock);
-	free(ucmd);
+	free(tcmur_ucmd);
 free_desc:
 	free(desc);
 	return ret;
 }
 
-static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *origcmd,
+static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 				 uint16_t bddl, uint8_t *par)
 {
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	struct unmap_state *state;
 	uint16_t offset = 0;
 	int ret = TCMU_STS_OK, i = 0;
 
-	state = unmap_state_alloc(dev, origcmd, &ret);
-	if (!state)
+	ret = unmap_init(dev, cmd);
+	if (ret)
 		return ret;
+	state = tcmur_cmd->cmd_state;
 
 	/* The first descriptor list offset is 8 in Data-Out buffer */
 	par += 8;
@@ -454,7 +449,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 			goto done;
 
 		if (nlbas) {
-			ret = align_and_split_unmap(dev, origcmd, lba, nlbas);
+			ret = align_and_split_unmap(dev, tcmur_cmd, lba, nlbas);
 			if (ret != TCMU_STS_ASYNC_HANDLED)
 				goto done;
 		}
@@ -466,7 +461,7 @@ static int handle_unmap_internal(struct tcmu_device *dev, struct tcmulib_cmd *or
 
 done:
 	/*
-	 * unmap_state_put will do the right thing, so always return
+	 * unmap_put will do the right thing, so always return
 	 * TCMU_STS_ASYNC_HANDLED
 	*/
 	pthread_mutex_lock(&state->lock);
@@ -477,7 +472,7 @@ done:
 	}
 	pthread_mutex_unlock(&state->lock);
 
-	unmap_state_put(dev, origcmd, ret);
+	unmap_put(dev, cmd, ret);
 	return TCMU_STS_ASYNC_HANDLED;
 }
 
@@ -589,40 +584,33 @@ out_free_par:
 struct write_same {
 	uint64_t cur_lba;
 	uint64_t lba_cnt;
-
-	struct iovec iovec;
-	size_t iov_cnt;
-	void *iov_base;
-	size_t iov_len;
 };
 
 static int writesame_work_fn(struct tcmu_device *dev, void *data)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
-	struct tcmulib_cmd *cmd = data;
-	struct write_same *write_same = cmd->cmdstate;
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct write_same *write_same = tcmur_cmd->cmd_state;
 	uint64_t cur_lba = write_same->cur_lba;
 
-	write_same->iovec.iov_base = write_same->iov_base;
-	write_same->iovec.iov_len = write_same->iov_len;
-
+	tcmur_cmd_iovec_reset(tcmur_cmd, tcmur_cmd->requested);
 	/*
 	 * Write contents of the logical block data(from the Data-Out Buffer)
 	 * to each LBA in the specified LBA range.
 	 */
-	return rhandler->write(dev, cmd, &write_same->iovec,
-			       write_same->iov_cnt, write_same->iov_len,
+	return rhandler->write(dev, tcmur_cmd, tcmur_cmd->iovec,
+			       tcmur_cmd->iov_cnt, tcmur_cmd->requested,
 			       block_size * cur_lba);
 }
 
 static void handle_writesame_cbk(struct tcmu_device *dev,
-				  struct tcmulib_cmd *cmd,
-				  int ret)
+				  struct tcmur_cmd *tcmur_cmd, int ret)
 {
-	struct write_same *write_same = cmd->cmdstate;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+	struct write_same *write_same = tcmur_cmd->cmd_state;
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
-	uint64_t write_lbas = write_same->iov_len / block_size;
+	uint64_t write_lbas = tcmur_cmd->requested / block_size;
 	uint64_t left_lbas;
 	int rc;
 
@@ -641,13 +629,13 @@ static void handle_writesame_cbk(struct tcmu_device *dev,
 		tcmu_dev_dbg(dev, "Last lba: %"PRIu64", write lbas: %"PRIu64"\n",
 			     write_same->cur_lba, left_lbas);
 
-		write_same->iov_len = left_lbas * block_size;
+		tcmur_cmd->requested = left_lbas * block_size;
 	} else {
 		tcmu_dev_dbg(dev, "Next lba: %"PRIu64", write lbas: %"PRIu64"\n",
 			     write_same->cur_lba, write_lbas);
 	}
 
-	rc = aio_request_schedule(dev, cmd, writesame_work_fn,
+	rc = aio_request_schedule(dev, tcmur_cmd, writesame_work_fn,
 				  tcmur_cmd_complete);
 	if (rc != TCMU_STS_ASYNC_HANDLED) {
 		tcmu_dev_err(dev, "Write same async handle cmd failure\n");
@@ -658,8 +646,7 @@ static void handle_writesame_cbk(struct tcmu_device *dev,
 	return;
 
 finish_err:
-	free(write_same->iov_base);
-	free(write_same);
+	tcmur_cmd_state_free(tcmur_cmd);
 	aio_command_finish(dev, cmd, ret);
 }
 
@@ -715,6 +702,7 @@ static int handle_writesame_check(struct tcmu_device *dev, struct tcmulib_cmd *c
 static int handle_unmap_in_writesame(struct tcmu_device *dev,
 				     struct tcmulib_cmd *cmd)
 {
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	uint8_t *cdb = cmd->cdb;
 	uint64_t lba = tcmu_cdb_get_lba(cdb);
 	uint64_t nlbas = tcmu_cdb_get_xfer_length(cdb);
@@ -723,24 +711,26 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 
 	tcmu_dev_dbg(dev, "Do UNMAP in WRITE_SAME cmd!\n");
 
-	state = unmap_state_alloc(dev, cmd, &ret);
-	if (!state)
+	ret = unmap_init(dev, cmd);
+	if (ret)
 		return ret;
-	ret = align_and_split_unmap(dev, cmd, lba, nlbas);
+	state = tcmur_cmd->cmd_state;
 
+	ret = align_and_split_unmap(dev, tcmur_cmd, lba, nlbas);
 	if (ret == TCMU_STS_ASYNC_HANDLED) {
 		ret = TCMU_STS_OK;
 	} else {
 		state->status = ret;
 	}
 
-	unmap_state_put(dev, cmd, ret);
+	unmap_put(dev, cmd, ret);
 	return TCMU_STS_ASYNC_HANDLED;
 }
 
 static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	uint8_t *cdb = cmd->cdb;
 	uint32_t lba_cnt = tcmu_cdb_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
@@ -757,47 +747,37 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (rhandler->unmap && (cmd->cdb[1] & 0x08))
 		return handle_unmap_in_writesame(dev, cmd);
 
-	write_same = calloc(1, sizeof(struct write_same));
-	if (!write_same) {
-		tcmu_dev_err(dev, "Failed to calloc write_same data!\n");
-		return TCMU_STS_NO_RESOURCE;
-	}
-
 	max_xfer_length = tcmu_dev_get_max_xfer_len(dev) * block_size;
 	length = round_up(length, max_xfer_length);
 	length = min(length, (size_t)lba_cnt * block_size);
 
-	write_same->iov_len = length;
-	write_same->iov_base = calloc(1, length);
-	if (!write_same->iov_base) {
-		tcmu_dev_err(dev, "Failed to calloc iov_base data!\n");
-		free(write_same);
+	if (tcmur_cmd_state_init(tcmur_cmd, sizeof(*write_same), length)) {
+		tcmu_dev_err(dev, "Failed to calloc write_same data!\n");
 		return TCMU_STS_NO_RESOURCE;
 	}
+	tcmur_cmd->done = handle_writesame_cbk;
 
 	write_lbas = length / block_size;
 	for (i = 0; i < write_lbas; i++)
-		memcpy(write_same->iov_base + i * block_size,
+		memcpy(tcmur_cmd->iovec->iov_base + i * block_size,
 		       cmd->iovec->iov_base, block_size);
 
+	write_same = tcmur_cmd->cmd_state;
 	write_same->cur_lba = start_lba;
 	write_same->lba_cnt = lba_cnt;
-	write_same->iov_cnt = 1;
-	cmd->cmdstate = write_same;
-
-	cmd->done = handle_writesame_cbk;
 
 	tcmu_dev_dbg(dev, "First lba: %"PRIu64", write lbas: %"PRIu64"\n",
 		     start_lba, write_lbas);
 
-	return aio_request_schedule(dev, cmd, writesame_work_fn,
+	return aio_request_schedule(dev, tcmur_cmd, writesame_work_fn,
 				    tcmur_cmd_complete);
 }
 
 static int tcmur_writesame_work_fn(struct tcmu_device *dev, void *data)
 {
-	struct tcmulib_cmd *cmd = data;
-	tcmur_writesame_fn_t write_same_fn = cmd->cmdstate;
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+	tcmur_writesame_fn_t write_same_fn = tcmur_cmd->cmd_state;
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint8_t *cdb = cmd->cdb;
 	uint64_t off = block_size * tcmu_cdb_get_lba(cdb);
@@ -807,13 +787,15 @@ static int tcmur_writesame_work_fn(struct tcmu_device *dev, void *data)
 	 * Write contents of the logical block data(from the Data-Out Buffer)
 	 * to each LBA in the specified LBA range.
 	 */
-	return write_same_fn(dev, cmd, off, len, cmd->iovec, cmd->iov_cnt);
+	return write_same_fn(dev, tcmur_cmd, off, len, cmd->iovec,
+			     cmd->iov_cnt);
 }
 
-int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
 			   tcmur_writesame_fn_t write_same_fn)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 	int ret;
 
 	if (tcmu_dev_in_recovery(dev))
@@ -830,158 +812,119 @@ int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (rhandler->unmap && (cmd->cdb[1] & 0x08))
 		return handle_unmap_in_writesame(dev, cmd);
 
-	cmd->cmdstate = write_same_fn;
-	cmd->done = handle_generic_cbk;
+	tcmur_cmd->cmd_state = write_same_fn;
+	tcmur_cmd->done = handle_generic_cbk;
 
-	return aio_request_schedule(dev, cmd, tcmur_writesame_work_fn,
+	return aio_request_schedule(dev, tcmur_cmd, tcmur_writesame_work_fn,
 				    tcmur_cmd_complete);
 }
 
 /* async write verify */
-
 struct write_verify_state {
-	size_t requested;
 	struct iovec *w_iovec;
 	size_t w_iov_cnt;
-	void *read_buf;
-	struct tcmulib_cmd *readcmd;
 };
 
-static void write_verify_free(struct tcmulib_cmd *origcmd)
-{
-	struct write_verify_state *state = origcmd->cmdstate;
-	struct tcmulib_cmd *readcmd = state->readcmd;
-
-	/* some handlers update iov_base */
-	readcmd->iovec->iov_base = state->read_buf;
-	free_iovec(readcmd);
-	free(readcmd);
-	free(state->w_iovec);
-	free(state);
-}
-
 static void handle_write_verify_read_cbk(struct tcmu_device *dev,
-					 struct tcmulib_cmd *readcmd, int ret)
+					 struct tcmur_cmd *tcmur_cmd, int ret)
 {
+	struct write_verify_state *state = tcmur_cmd->cmd_state;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 	uint32_t cmp_offset;
-	struct tcmulib_cmd *writecmd = readcmd->cmdstate;
-	struct write_verify_state *state = writecmd->cmdstate;
-	uint8_t *sense = writecmd->sense_buf;
 
 	/* failed read - bail out */
 	if (ret != TCMU_STS_OK)
 		goto done;
 
 	ret = TCMU_STS_OK;
-	cmp_offset = tcmu_iovec_compare(state->read_buf, state->w_iovec,
-					state->requested);
+	cmp_offset = tcmu_iovec_compare(tcmur_cmd->iov_base_copy,
+					state->w_iovec, tcmur_cmd->requested);
 	if (cmp_offset != -1) {
 		tcmu_dev_err(dev, "Verify failed at offset %u\n", cmp_offset);
 		ret =  TCMU_STS_MISCOMPARE;
-		tcmu_sense_set_info(sense, cmp_offset);
+		tcmu_sense_set_info(cmd->sense_buf, cmp_offset);
 	}
 
 done:
-	write_verify_free(writecmd);
-	aio_command_finish(dev, writecmd, ret);
+	tcmur_cmd_state_free(tcmur_cmd);
+	aio_command_finish(dev, cmd, ret);
+}
+
+static int write_verify_read_work_fn(struct tcmu_device *dev, void *data)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	uint32_t block_size = tcmu_dev_get_block_size(dev);
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+
+	return rhandler->read(dev, tcmur_cmd, tcmur_cmd->iovec,
+			      tcmur_cmd->iov_cnt, tcmur_cmd->requested,
+			      block_size * tcmu_cdb_get_lba(cmd->cdb));
 }
 
 static void handle_write_verify_write_cbk(struct tcmu_device *dev,
-					  struct tcmulib_cmd *writecmd,
+					  struct tcmur_cmd *tcmur_cmd,
 					  int ret)
 {
-	struct write_verify_state *state = writecmd->cmdstate;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 
 	/* write error - bail out */
 	if (ret != TCMU_STS_OK)
 		goto finish_err;
 
-	ret = aio_request_schedule(dev, state->readcmd, read_work_fn,
+	tcmur_cmd->done = handle_write_verify_read_cbk;
+
+	ret = aio_request_schedule(dev, tcmur_cmd, write_verify_read_work_fn,
 				   tcmur_cmd_complete);
 	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto finish_err;
 	return;
 
 finish_err:
-	write_verify_free(writecmd);
-	aio_command_finish(dev, writecmd, ret);
-}
-
-static int write_verify_init(struct tcmulib_cmd *origcmd, size_t length)
-{
-	struct tcmulib_cmd *readcmd;
-	struct write_verify_state *state;
-	int i;
-
-	readcmd = calloc(1, sizeof(*readcmd));
-	if (!readcmd)
-		goto out;
-	readcmd->cmdstate = origcmd;
-	readcmd->cdb = origcmd->cdb;
-	readcmd->done = handle_write_verify_read_cbk;
-
-	if (alloc_iovec(readcmd, length))
-		goto free_cmd;
-
-	state = calloc(1, sizeof(*state));
-	if (!state)
-		goto free_iov;
-
-	/* use @origcmd as writecmd */
-	state->read_buf = readcmd->iovec->iov_base;
-	state->requested = length;
-	state->readcmd = readcmd;
-
-	state->w_iovec = calloc(origcmd->iov_cnt, sizeof(struct iovec));
-	if (!state->w_iovec)
-		goto free_state;
-
-	state->w_iov_cnt = origcmd->iov_cnt;
-	for (i = 0; i < origcmd->iov_cnt; i++) {
-		state->w_iovec[i].iov_base = origcmd->iovec[i].iov_base;
-		state->w_iovec[i].iov_len = origcmd->iovec[i].iov_len;
-	}
-	origcmd->cmdstate = state;
-	origcmd->done = handle_write_verify_write_cbk;
-
-	return 0;
-
-free_state:
-	free(state);
-free_iov:
-	free_iovec(readcmd);
-free_cmd:
-	free(readcmd);
-out:
-	return -ENOMEM;
+	tcmur_cmd_state_free(tcmur_cmd);
+	aio_command_finish(dev, cmd, ret);
 }
 
 static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	int ret;
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	uint8_t *cdb = cmd->cdb;
 	size_t length = tcmu_cdb_get_xfer_length(cdb) *
 						tcmu_dev_get_block_size(dev);
+	struct write_verify_state *state;
+	int i, ret, state_len;
 
 	ret = check_lba_and_length(dev, cmd, tcmu_cdb_get_xfer_length(cmd->cdb));
 	if (ret)
 		return ret;
 
-	if (write_verify_init(cmd, length)) {
-		ret = TCMU_STS_NO_RESOURCE;
-		goto out;
+	state_len = sizeof(*state) + (cmd->iov_cnt * sizeof(struct iovec));
+
+	if (tcmur_cmd_state_init(tcmur_cmd, state_len, length))
+		return TCMU_STS_NO_RESOURCE;
+	tcmur_cmd->done = handle_write_verify_write_cbk;
+
+	state = tcmur_cmd->cmd_state;
+	/*
+	 * Copy cmd iovec for later comparision in case handler modifies
+	 * pointers/lens.
+	 */
+	state->w_iovec = (void *)state + sizeof(*state);
+	state->w_iov_cnt = cmd->iov_cnt;
+	for (i = 0; i < cmd->iov_cnt; i++) {
+		state->w_iovec[i].iov_base = cmd->iovec[i].iov_base;
+		state->w_iovec[i].iov_len = cmd->iovec[i].iov_len;
 	}
 
-	ret = aio_request_schedule(dev, cmd, write_work_fn,
+	ret = aio_request_schedule(dev, tcmur_cmd, write_work_fn,
 				   tcmur_cmd_complete);
 	if (ret != TCMU_STS_ASYNC_HANDLED)
-		goto free_write_verify;
+		goto free_state;
 
 	return TCMU_STS_ASYNC_HANDLED;
 
-free_write_verify:
-	write_verify_free(cmd);
-out:
+free_state:
+	tcmur_cmd_state_free(tcmur_cmd);
 	return ret;
 }
 
@@ -1003,11 +946,6 @@ struct xcopy {
 	uint32_t dtdi;
 	uint32_t lba_cnt;
 	uint32_t copy_lbas;
-
-	void *iov_base;
-	size_t iov_len;
-	struct iovec iovec;
-	size_t iov_cnt;
 };
 
 /* For now only supports block -> block type */
@@ -1473,14 +1411,12 @@ err:
 
 static int xcopy_read_work_fn(struct tcmu_device *src_dev, void *data);
 static void handle_xcopy_read_cbk(struct tcmu_device *src_dev,
-				  struct tcmulib_cmd *cmd,
-				  int ret);
+				  struct tcmur_cmd *tcmur_cmd, int ret);
 
 static void handle_xcopy_write_cbk(struct tcmu_device *dst_dev,
-				  struct tcmulib_cmd *cmd,
-				  int ret)
+				  struct tcmur_cmd *tcmur_cmd, int ret)
 {
-	struct xcopy *xcopy = cmd->cmdstate;
+	struct xcopy *xcopy = tcmur_cmd->cmd_state;
 	struct tcmu_device *src_dev = xcopy->src_dev;
 
 	/* write failed - bail out */
@@ -1496,42 +1432,40 @@ static void handle_xcopy_write_cbk(struct tcmu_device *dst_dev,
 	xcopy->src_lba += xcopy->copy_lbas;
 	xcopy->dst_lba += xcopy->copy_lbas;
 	xcopy->copy_lbas = min(xcopy->lba_cnt, xcopy->copy_lbas);
+	tcmur_cmd->requested = xcopy->copy_lbas * tcmu_dev_get_block_size(dst_dev);
 
-	cmd->done = handle_xcopy_read_cbk;
-	ret = aio_request_schedule(xcopy->src_dev, cmd, xcopy_read_work_fn,
-				   tcmur_cmd_complete);
+	tcmur_cmd->done = handle_xcopy_read_cbk;
+	ret = aio_request_schedule(xcopy->src_dev, tcmur_cmd,
+				   xcopy_read_work_fn, tcmur_cmd_complete);
 	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto out;
 
 	return;
 
 out:
-	aio_command_finish(xcopy->origdev, cmd, ret);
-	free(xcopy->iov_base);
-	free(xcopy);
+	aio_command_finish(xcopy->origdev, tcmur_cmd->lib_cmd, ret);
+	tcmur_cmd_state_free(tcmur_cmd);
 }
 
 static int xcopy_write_work_fn(struct tcmu_device *dst_dev, void *data)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dst_dev);
 	uint32_t block_size = tcmu_dev_get_block_size(dst_dev);
-	struct tcmulib_cmd *cmd = data;
-	struct xcopy *xcopy = cmd->cmdstate;
-	struct iovec *iovec = &xcopy->iovec;
-	size_t iov_cnt = xcopy->iov_cnt;
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct xcopy *xcopy = tcmur_cmd->cmd_state;
 
-	iovec->iov_base = xcopy->iov_base;
-	iovec->iov_len = xcopy->iov_len;
+	tcmur_cmd_iovec_reset(tcmur_cmd, tcmur_cmd->requested);
 
-	return rhandler->write(dst_dev, cmd, iovec, iov_cnt, xcopy->iov_len,
+	return rhandler->write(dst_dev, tcmur_cmd, tcmur_cmd->iovec,
+			       tcmur_cmd->iov_cnt, tcmur_cmd->requested,
 			       block_size * xcopy->dst_lba);
 }
 
 static void handle_xcopy_read_cbk(struct tcmu_device *src_dev,
-				  struct tcmulib_cmd *cmd,
+				  struct tcmur_cmd *tcmur_cmd,
 				  int ret)
 {
-	struct xcopy *xcopy = cmd->cmdstate;
+	struct xcopy *xcopy = tcmur_cmd->cmd_state;
 
 	/* read failed - bail out */
 	if (ret != TCMU_STS_OK) {
@@ -1539,49 +1473,47 @@ static void handle_xcopy_read_cbk(struct tcmu_device *src_dev,
 		goto err;
 	}
 
-	cmd->done = handle_xcopy_write_cbk;
+	tcmur_cmd->done = handle_xcopy_write_cbk;
 
-	ret = aio_request_schedule(xcopy->dst_dev, cmd, xcopy_write_work_fn,
-				   tcmur_cmd_complete);
+	ret = aio_request_schedule(xcopy->dst_dev, tcmur_cmd,
+				   xcopy_write_work_fn, tcmur_cmd_complete);
 	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto err;
 
 	return;
 
 err:
-	aio_command_finish(xcopy->origdev, cmd, ret);
-	free(xcopy->iov_base);
-	free(xcopy);
+	aio_command_finish(xcopy->origdev, tcmur_cmd->lib_cmd, ret);
+	tcmur_cmd_state_free(tcmur_cmd);
 }
 
 static int xcopy_read_work_fn(struct tcmu_device *src_dev, void *data)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(src_dev);
 	uint32_t block_size = tcmu_dev_get_block_size(src_dev);
-	struct tcmulib_cmd *cmd = data;
-	struct xcopy *xcopy = cmd->cmdstate;
-	struct iovec *iovec = &xcopy->iovec;
-	size_t iov_cnt = xcopy->iov_cnt;
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct xcopy *xcopy = tcmur_cmd->cmd_state;
 
 	tcmu_dev_dbg(src_dev,
 		     "Copying %u sectors from src (lba:%"PRIu64") to dst (lba:%"PRIu64")\n",
 		     xcopy->copy_lbas, xcopy->src_lba, xcopy->dst_lba);
 
-	iovec->iov_base = xcopy->iov_base;
-	iovec->iov_len = xcopy->iov_len;
+	tcmur_cmd_iovec_reset(tcmur_cmd, tcmur_cmd->requested);
 
-	return rhandler->read(src_dev, cmd, iovec, iov_cnt, xcopy->iov_len,
+	return rhandler->read(src_dev, tcmur_cmd, tcmur_cmd->iovec,
+			      tcmur_cmd->iov_cnt, tcmur_cmd->requested,
 			      block_size * xcopy->src_lba);
 }
 
 /* async xcopy */
 static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	uint8_t *cdb = cmd->cdb;
 	size_t data_length = tcmu_cdb_get_xfer_length(cdb);
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
-	uint32_t max_sectors, src_max_sectors, copy_lbas, dst_max_sectors;
-	struct xcopy *xcopy;
+	uint32_t max_sectors, src_max_sectors, dst_max_sectors;
+	struct xcopy *xcopy, xcopy_parse;
 	int ret;
 
 	/* spc4r36q section6.4 and 6.5
@@ -1609,154 +1541,109 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 	}
 
-	xcopy = calloc(1, sizeof(struct xcopy));
-	if (!xcopy) {
+	memset(&xcopy_parse, 0, sizeof(xcopy_parse));
+	/* Parse and check the parameter list */
+	ret = xcopy_parse_parameter_list(dev, cmd, &xcopy_parse);
+	if (ret != 0)
+		return ret;
+
+	/* Nothing to do with BLOCK DEVICE NUMBER OF BLOCKS set to zero */
+	if (!xcopy_parse.lba_cnt)
+		return TCMU_STS_OK;
+
+	src_max_sectors = tcmu_dev_get_opt_xcopy_rw_len(xcopy_parse.src_dev);
+	dst_max_sectors = tcmu_dev_get_opt_xcopy_rw_len(xcopy_parse.dst_dev);
+
+	max_sectors = min(src_max_sectors, dst_max_sectors);
+	xcopy_parse.copy_lbas = min(max_sectors, xcopy_parse.lba_cnt);
+
+	if (tcmur_cmd_state_init(tcmur_cmd, sizeof(*xcopy),
+				 xcopy_parse.copy_lbas * block_size)) {
 		tcmu_dev_err(dev, "calloc xcopy data error\n");
 		return TCMU_STS_NO_RESOURCE;
 	}
+	tcmur_cmd->done = handle_xcopy_read_cbk;
 
-	/* Parse and check the parameter list */
-	ret = xcopy_parse_parameter_list(dev, cmd, xcopy);
-	if (ret != 0)
-		goto finish_err;
-
-	/* Nothing to do with BLOCK DEVICE NUMBER OF BLOCKS set to zero */
-	if (!xcopy->lba_cnt) {
-		ret = TCMU_STS_OK;
-		goto finish_err;
-	}
-
-	src_max_sectors = tcmu_dev_get_opt_xcopy_rw_len(xcopy->src_dev);
-	dst_max_sectors = tcmu_dev_get_opt_xcopy_rw_len(xcopy->dst_dev);
-
-	max_sectors = min(src_max_sectors, dst_max_sectors);
-	copy_lbas = min(max_sectors, xcopy->lba_cnt);
-	xcopy->copy_lbas = copy_lbas;
-
-	xcopy->iov_len = xcopy->copy_lbas * block_size;
-	xcopy->iov_base = calloc(1, xcopy->iov_len);
-	if (!xcopy->iov_base) {
-		tcmu_dev_err(dev, "calloc iovec data error\n");
-		ret = TCMU_STS_NO_RESOURCE;
-		goto finish_err;
-	}
-
-	xcopy->iov_cnt = 1;
+	xcopy = tcmur_cmd->cmd_state;
+	memcpy(xcopy, &xcopy_parse, sizeof(*xcopy));
 	xcopy->origdev = dev;
-	cmd->cmdstate = xcopy;
-	cmd->done = handle_xcopy_read_cbk;
 
-	ret = aio_request_schedule(xcopy->src_dev, cmd, xcopy_read_work_fn,
-				   tcmur_cmd_complete);
+	ret = aio_request_schedule(xcopy->src_dev, tcmur_cmd,
+				   xcopy_read_work_fn, tcmur_cmd_complete);
 	if (ret == TCMU_STS_ASYNC_HANDLED)
 		return ret;
 
-	free(xcopy->iov_base);
-finish_err:
-	free(xcopy);
+	tcmur_cmd_state_free(tcmur_cmd);
 	return ret;
 }
 
 /* async compare_and_write */
 
-struct caw_state {
-	size_t requested;
-	void *read_buf;
-	struct tcmulib_cmd *origcmd;
-};
-
-static void caw_free_readcmd(struct tcmulib_cmd *readcmd)
-{
-	struct caw_state *state = readcmd->cmdstate;
-
-	/* some handlers update iov_base */
-	readcmd->iovec->iov_base = state->read_buf;
-	free_iovec(readcmd);
-	free(state);
-	free(readcmd);
-}
-
 static void handle_caw_write_cbk(struct tcmu_device *dev,
-				 struct tcmulib_cmd *cmd, int ret)
+				 struct tcmur_cmd *tcmur_cmd, int ret)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 
 	pthread_mutex_unlock(&rdev->caw_lock);
+	tcmur_cmd_state_free(tcmur_cmd);
 	aio_command_finish(dev, cmd, ret);
 }
 
+static int caw_work_fn(struct tcmu_device *dev, void *data)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	uint32_t block_size = tcmu_dev_get_block_size(dev);
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+
+	if (tcmur_cmd->done == handle_caw_write_cbk) {
+		return rhandler->write(dev, tcmur_cmd, cmd->iovec, cmd->iov_cnt,
+				       tcmur_cmd->requested,
+				       block_size * tcmu_cdb_get_lba(cmd->cdb));
+
+	} else {
+		return rhandler->read(dev, tcmur_cmd, tcmur_cmd->iovec,
+				       tcmur_cmd->iov_cnt, tcmur_cmd->requested,
+				       block_size * tcmu_cdb_get_lba(cmd->cdb));
+	}
+}
+
 static void handle_caw_read_cbk(struct tcmu_device *dev,
-				struct tcmulib_cmd *readcmd, int ret)
+				struct tcmur_cmd *tcmur_cmd, int ret)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 	uint32_t cmp_offset;
-	struct caw_state *state = readcmd->cmdstate;
-	struct tcmulib_cmd *origcmd = state->origcmd;
-	uint8_t *sense = origcmd->sense_buf;
 
 	/* read failed - bail out */
 	if (ret != TCMU_STS_OK)
 		goto finish_err;
 
-	cmp_offset = tcmu_iovec_compare(state->read_buf, origcmd->iovec,
-					state->requested);
+	cmp_offset = tcmu_iovec_compare(tcmur_cmd->iov_base_copy, cmd->iovec,
+					tcmur_cmd->requested);
 	if (cmp_offset != -1) {
 		/* verify failed - bail out */
 		ret = TCMU_STS_MISCOMPARE;
-		tcmu_sense_set_info(sense, cmp_offset);
+		tcmu_sense_set_info(cmd->sense_buf, cmp_offset);
 		goto finish_err;
 	}
 
 	/* perform write */
-	tcmu_cmd_seek(origcmd, state->requested);
-	origcmd->done = handle_caw_write_cbk;
+	tcmu_cmd_seek(cmd, tcmur_cmd->requested);
+	tcmur_cmd->done = handle_caw_write_cbk;
 
-	ret = aio_request_schedule(dev, origcmd, write_work_fn,
+	ret = aio_request_schedule(dev, tcmur_cmd, caw_work_fn,
 				   tcmur_cmd_complete);
 	if (ret != TCMU_STS_ASYNC_HANDLED)
 		goto finish_err;
 
-	caw_free_readcmd(readcmd);
 	return;
 
 finish_err:
 	pthread_mutex_unlock(&rdev->caw_lock);
-	aio_command_finish(dev, origcmd, ret);
-	caw_free_readcmd(readcmd);
-}
-
-static struct tcmulib_cmd *
-caw_init_readcmd(struct tcmulib_cmd *origcmd, size_t length)
-{
-	struct tcmulib_cmd *readcmd;
-	struct caw_state *state;
-
-	state = calloc(1, sizeof(*state));
-	if (!state)
-		goto out;
-	readcmd = calloc(1, sizeof(*readcmd));
-	if (!readcmd)
-		goto free_state;
-	readcmd->cdb = origcmd->cdb;
-	readcmd->done = handle_caw_read_cbk;
-
-	if (alloc_iovec(readcmd, length))
-		goto free_cmd;
-
-	/* multi-op state maintainance */
-	state->read_buf = readcmd->iovec->iov_base;
-	state->requested = length;
-	state->origcmd = origcmd;
-
-	readcmd->cmdstate = state;
-	return readcmd;
-
-free_cmd:
-	free(readcmd);
-free_state:
-	free(state);
-out:
-	return NULL;
+	tcmur_cmd_state_free(tcmur_cmd);
+	aio_command_finish(dev, cmd, ret);
 }
 
 static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
@@ -1791,11 +1678,11 @@ static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	int ret;
-	struct tcmulib_cmd *readcmd;
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	uint8_t sectors = cmd->cdb[13];
+	int ret;
 
 	/* From sbc4r12a section 5.3 COMPARE AND WRITE command
 	 * A NUMBER OF LOGICAL BLOCKS field set to zero specifies that no
@@ -1813,42 +1700,42 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (ret)
 		return ret;
 
-	readcmd = caw_init_readcmd(cmd, half);
-	if (!readcmd) {
-		ret = TCMU_STS_NO_RESOURCE;
-		goto out;
-	}
+	if (tcmur_cmd_state_init(tcmur_cmd, 0, half))
+		return TCMU_STS_NO_RESOURCE;
+
+	tcmur_cmd->done = handle_caw_read_cbk;
 
 	pthread_mutex_lock(&rdev->caw_lock);
 
-	ret = aio_request_schedule(dev, readcmd, read_work_fn,
+	ret = aio_request_schedule(dev, tcmur_cmd, caw_work_fn,
 				   tcmur_cmd_complete);
 	if (ret == TCMU_STS_ASYNC_HANDLED)
 		return TCMU_STS_ASYNC_HANDLED;
 
 	pthread_mutex_unlock(&rdev->caw_lock);
-	caw_free_readcmd(readcmd);
-out:
+	tcmur_cmd_state_free(tcmur_cmd);
 	return ret;
 }
 
 static int tcmur_caw_fn(struct tcmu_device *dev, void *data)
 {
-	struct tcmulib_cmd *cmd = data;
-	tcmur_caw_fn_t caw_fn = cmd->cmdstate;
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+	tcmur_caw_fn_t caw_fn = tcmur_cmd->cmd_state;
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint8_t *cdb = cmd->cdb;
 	uint64_t off = block_size * tcmu_cdb_get_lba(cdb);
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 
-	return caw_fn(dev, cmd, off, half, cmd->iovec, cmd->iov_cnt);
+	return caw_fn(dev, tcmur_cmd, off, half, cmd->iovec, cmd->iov_cnt);
 }
 
-int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+int tcmur_handle_caw(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
 		     tcmur_caw_fn_t caw_fn)
 {
-	int ret;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 	uint8_t sectors = cmd->cdb[13];
+	int ret;
 
 	if (tcmu_dev_in_recovery(dev))
 		return TCMU_STS_BUSY;
@@ -1873,25 +1760,27 @@ int tcmur_handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (ret)
 		return ret;
 
-	cmd->cmdstate = caw_fn;
-	cmd->done = handle_generic_cbk;
+	tcmur_cmd->cmd_state = caw_fn;
+	tcmur_cmd->done = handle_generic_cbk;
 
-	return aio_request_schedule(dev, cmd, tcmur_caw_fn, tcmur_cmd_complete);
+	return aio_request_schedule(dev, tcmur_cmd, tcmur_caw_fn,
+				    tcmur_cmd_complete);
 }
 
 /* async flush */
 static int flush_work_fn(struct tcmu_device *dev, void *data)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmulib_cmd *cmd = data;
 
-	return rhandler->flush(dev, cmd);
+	return rhandler->flush(dev, data);
 }
 
 static int handle_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
-	cmd->done = handle_generic_cbk;
-	return aio_request_schedule(dev, cmd, flush_work_fn,
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
+
+	tcmur_cmd->done = handle_generic_cbk;
+	return aio_request_schedule(dev, tcmur_cmd, flush_work_fn,
 				    tcmur_cmd_complete);
 }
 
@@ -2013,60 +1902,60 @@ static int handle_recv_copy_result(struct tcmu_device *dev, struct tcmulib_cmd *
 /* async write */
 static int handle_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	int ret;
 
 	ret = check_lba_and_length(dev, cmd, tcmu_cdb_get_xfer_length(cmd->cdb));
 	if (ret)
 		return ret;
 
-	cmd->done = handle_generic_cbk;
-	return aio_request_schedule(dev, cmd, write_work_fn,
+	tcmur_cmd->done = handle_generic_cbk;
+	return aio_request_schedule(dev, tcmur_cmd, write_work_fn,
 				    tcmur_cmd_complete);
 }
 
 /* async read */
 static int handle_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	int ret;
 
 	ret = check_lba_and_length(dev, cmd, tcmu_cdb_get_xfer_length(cmd->cdb));
 	if (ret)
 		return ret;
 
-	cmd->done = handle_generic_cbk;
-	return aio_request_schedule(dev, cmd, read_work_fn, tcmur_cmd_complete);
+	tcmur_cmd->done = handle_generic_cbk;
+	return aio_request_schedule(dev, tcmur_cmd, read_work_fn,
+				    tcmur_cmd_complete);
 }
 
 /* FORMAT UNIT */
 struct format_unit_state {
 	size_t length;
 	off_t offset;
-	void *write_buf;
-	struct tcmulib_cmd *origcmd;
 	uint32_t done_blocks;
 };
 
 static int format_unit_work_fn(struct tcmu_device *dev, void *data)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmulib_cmd *writecmd = data;
-	struct tcmulib_cmd *origcmd = writecmd->cmdstate;
-	struct format_unit_state *state = origcmd->cmdstate;
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct format_unit_state *state = tcmur_cmd->cmd_state;
 
-	return rhandler->write(dev, writecmd, writecmd->iovec,
-			       writecmd->iov_cnt, state->length, state->offset);
+	return rhandler->write(dev, tcmur_cmd, tcmur_cmd->iovec,
+			       tcmur_cmd->iov_cnt, tcmur_cmd->requested,
+			       state->offset);
 }
 
 static void handle_format_unit_cbk(struct tcmu_device *dev,
-				   struct tcmulib_cmd *writecmd, int ret) {
+				   struct tcmur_cmd *tcmur_cmd, int ret) {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
-	struct tcmulib_cmd *origcmd = writecmd->cmdstate;
-	struct format_unit_state *state = origcmd->cmdstate;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+	struct format_unit_state *state = tcmur_cmd->cmd_state;
 	int rc;
 
-	writecmd->iovec->iov_base = state->write_buf;
-	state->offset += state->length;
-	state->done_blocks += state->length / dev->block_size;
+	state->offset += tcmur_cmd->requested;
+	state->done_blocks += tcmur_cmd->requested / dev->block_size;
 	if (state->done_blocks < dev->num_lbas)
 		rdev->format_progress = (0x10000 * state->done_blocks) /
 				       dev->num_lbas;
@@ -2076,56 +1965,44 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 		tcmu_dev_dbg(dev,
 			     "last format cmd, done_blocks:%u num_lbas:%"PRIu64" block_size:%u\n",
 			     state->done_blocks, dev->num_lbas, dev->block_size);
-		goto free_iovec;
+		goto free_state;
 	}
 
 	if (state->done_blocks < dev->num_lbas) {
-		/* free iovec on every write, because seek in handlers consume
-		 * the iovec, thus we can't re-use.
-		 */
-		free_iovec(writecmd);
-		if ((dev->num_lbas - state->done_blocks) * dev->block_size < state->length)
-		    state->length = (dev->num_lbas - state->done_blocks) * dev->block_size;
-		if (alloc_iovec(writecmd, state->length)) {
-			ret = TCMU_STS_NO_RESOURCE;
-			goto free_cmd;
-		}
+		size_t left = (dev->num_lbas - state->done_blocks) *
+								dev->block_size;
+		if (left < tcmur_cmd->requested)
+			tcmur_cmd->requested = left;
 
-		/* copy incase handler changes it */
-		state->write_buf = writecmd->iovec->iov_base;
-
-		writecmd->done = handle_format_unit_cbk;
+		/* Seek in handlers consume the iovec, thus we must reset */
+		tcmur_cmd_iovec_reset(tcmur_cmd, tcmur_cmd->requested);
 
 		tcmu_dev_dbg(dev,
 			     "next format cmd, done_blocks:%u num_lbas:%"PRIu64" block_size:%u\n",
 			     state->done_blocks, dev->num_lbas, dev->block_size);
 
-		rc = aio_request_schedule(dev, writecmd, format_unit_work_fn,
+		rc = aio_request_schedule(dev, tcmur_cmd, format_unit_work_fn,
 					  tcmur_cmd_complete);
 		if (rc != TCMU_STS_ASYNC_HANDLED) {
 			tcmu_dev_err(dev, " async handle cmd failure\n");
 			ret = TCMU_STS_WR_ERR;
-			goto free_iovec;
+			goto free_state;
 		}
 	}
 
 	return;
 
-free_iovec:
-	free_iovec(writecmd);
-free_cmd:
-	free(writecmd);
-	free(state);
+free_state:
+	tcmur_cmd_state_free(tcmur_cmd);
 	pthread_mutex_lock(&rdev->format_lock);
 	rdev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
 	pthread_mutex_unlock(&rdev->format_lock);
-	aio_command_finish(dev, origcmd, ret);
+	aio_command_finish(dev, cmd, ret);
 }
 
 static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
-	struct tcmulib_cmd *writecmd;
-	struct format_unit_state *state;
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	size_t max_xfer_length, length = 1024 * 1024;
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint64_t num_lbas = tcmu_dev_get_num_lbas(dev);
@@ -2142,50 +2019,29 @@ static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) 
 	rdev->flags |= TCMUR_DEV_FLAG_FORMATTING;
 	pthread_mutex_unlock(&rdev->format_lock);
 
-	writecmd = calloc(1, sizeof(*writecmd));
-	if (!writecmd)
-		goto clear_format;
-	writecmd->done = handle_format_unit_cbk;
-	writecmd->cmdstate = cmd;
-
-	state = calloc(1, sizeof(*state));
-	if (!state)
-		goto free_cmd;
-
-	cmd->cmdstate = state;
-	state->done_blocks = 0;
-
 	max_xfer_length = tcmu_dev_get_max_xfer_len(dev) * block_size;
 	length = round_up(length, max_xfer_length);
-	state->length = length;
-
 	/* Check length on first write to make sure its not less than 1MB */
 	if (num_lbas * block_size < length)
-		state->length = num_lbas * block_size;
+		length = num_lbas * block_size;
 
-	if (alloc_iovec(writecmd, state->length)) {
-		goto free_state;
-	}
+	if (tcmur_cmd_state_init(tcmur_cmd, sizeof(struct format_unit_state),
+				 length))
+		goto clear_format;
+	tcmur_cmd->done = handle_format_unit_cbk;
 
 	tcmu_dev_dbg(dev, "start emulate format, num_lbas:%"PRIu64" block_size:%u\n",
 		     num_lbas, block_size);
 
-	/* copy incase handler changes it */
-	state->write_buf = writecmd->iovec->iov_base;
-
-	ret = aio_request_schedule(dev, writecmd, format_unit_work_fn,
+	ret = aio_request_schedule(dev, tcmur_cmd, format_unit_work_fn,
 				   tcmur_cmd_complete);
 	if (ret != TCMU_STS_ASYNC_HANDLED)
-		goto free_iov;
+		goto free_state;
 
 	return TCMU_STS_ASYNC_HANDLED;
 
-free_iov:
-	free_iovec(writecmd);
 free_state:
-	free(state);
-free_cmd:
-	free(writecmd);
+	tcmur_cmd_state_free(tcmur_cmd);
 clear_format:
 	pthread_mutex_lock(&rdev->format_lock);
 	rdev->flags &= ~TCMUR_DEV_FLAG_FORMATTING;
@@ -2253,6 +2109,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	int ret;
 
 	if (!rhandler->handle_cmd)
@@ -2263,7 +2120,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	 * and only use runner's main event loop.
 	 */
 	if (!rhandler->nr_threads)
-		return rhandler->handle_cmd(dev, cmd);
+		return rhandler->handle_cmd(dev, tcmur_cmd);
 	/*
 	 * Since we call ->handle_cmd via aio_request_schedule(), ->handle_cmd
 	 * can finish in the callers context(asynchronous handler) or work
@@ -2272,7 +2129,7 @@ int tcmur_cmd_passthrough_handler(struct tcmu_device *dev,
 	 * handle_passthrough_cbk().
 	 */
 	track_aio_request_start(rdev);
-	ret = handle_passthrough(dev, cmd);
+	ret = handle_passthrough(dev, tcmur_cmd);
 	if (ret != TCMU_STS_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 
@@ -2453,6 +2310,7 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	int ret;
 
 	if (!rhandler->handle_cmd)
@@ -2460,7 +2318,7 @@ static int handle_try_passthrough(struct tcmu_device *dev,
 
 	track_aio_request_start(rdev);
 
-	ret = rhandler->handle_cmd(dev, cmd);
+	ret = rhandler->handle_cmd(dev, tcmur_cmd);
 	if (ret != TCMU_STS_ASYNC_HANDLED)
 		track_aio_request_finish(rdev, NULL);
 
