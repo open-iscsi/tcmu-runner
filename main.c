@@ -293,7 +293,7 @@ static void dbus_handler_close(struct tcmu_device *dev)
 }
 
 static int dbus_handler_handle_cmd(struct tcmu_device *dev,
-				   struct tcmulib_cmd *cmd)
+				   struct tcmur_cmd *tcmu_cmd)
 {
 	abort();
 }
@@ -635,11 +635,16 @@ static void *tcmur_cmdproc_thread(void *arg)
 	while (1) {
 		int completed = 0;
 		struct tcmulib_cmd *cmd;
+		struct tcmur_cmd *tcmur_cmd;
 
 		tcmulib_processing_start(dev);
 
 		while (!dev_stopping &&
-		       (cmd = tcmulib_get_next_command(dev, 0)) != NULL) {
+		       (cmd = tcmulib_get_next_command(dev,
+					sizeof(struct tcmur_cmd))) != NULL) {
+
+			tcmur_cmd = cmd->hm_private;
+			tcmur_cmd->lib_cmd = cmd;
 
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_cdb_print_info(dev, cmd, NULL);

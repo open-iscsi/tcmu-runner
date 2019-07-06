@@ -104,6 +104,48 @@ static void free_iovec(struct tcmulib_cmd *cmd)
 	cmd->iovec = NULL;
 }
 
+static void tcmur_cmd_iovec_reset(struct tcmur_cmd *tcmur_cmd,
+				  size_t data_length)
+{
+	tcmur_cmd->iovec->iov_base = tcmur_cmd->iov_base_copy;
+	tcmur_cmd->iovec->iov_len = data_length;
+}
+
+static void tcmur_cmd_state_free(struct tcmur_cmd *tcmur_cmd)
+{
+	free(tcmur_cmd->cmd_state);
+}
+
+static int tcmur_cmd_state_init(struct tcmur_cmd *tcmur_cmd, int state_length,
+				size_t data_length)
+{
+	void *state;
+	int iov_length = 0;
+
+	if (data_length)
+		iov_length = data_length + sizeof(struct iovec);
+
+	state = calloc(1, state_length + iov_length);
+	if (!state)
+		return -ENOMEM;
+
+	tcmur_cmd->cmd_state = state;
+	tcmur_cmd->requested = data_length;
+
+	if (data_length) {
+		struct iovec *iov = state + state_length;
+
+		iov->iov_base = iov + 1;
+		iov->iov_len = data_length;
+
+		tcmur_cmd->iov_base_copy = iov->iov_base;
+		tcmur_cmd->iov_cnt = 1;
+		tcmur_cmd->iovec = iov;
+	}
+
+	return 0;
+}
+
 static inline int check_iovec_length(struct tcmu_device *dev,
 				     struct tcmulib_cmd *cmd, uint32_t sectors)
 {

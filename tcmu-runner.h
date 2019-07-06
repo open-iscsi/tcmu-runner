@@ -27,8 +27,28 @@ extern "C" {
 #include "alua.h"
 #include "scsi.h"
 
-/* Removed next patch */
-#define tcmur_cmd tcmulib_cmd
+struct tcmur_cmd;
+
+struct tcmur_cmd {
+	/* Pointer to tcmulib_get_next_command's cmd. */
+	struct tcmulib_cmd *lib_cmd;
+
+	/* Used by compound commands like CAW, format unit, etc. */
+	struct iovec *iovec;
+	size_t iov_cnt;
+	/*
+	 * Some handlers will manipulcate the iov_base pointer while copying
+	 * to/from it. This is a pointer to the original pointer.
+	 */
+	void *iov_base_copy;
+	void *cmd_state;
+
+	/* Bytes to read/write from iovec */
+	size_t requested;
+
+	/* callback to finish/continue command processing */
+	void (*done)(struct tcmu_device *dev, struct tcmur_cmd *cmd, int ret);
+};
 
 struct tcmulib_cfg_info;
 
