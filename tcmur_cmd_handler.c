@@ -442,11 +442,15 @@ done:
 
 static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint8_t *cdb = origcmd->cdb;
 	size_t copied, data_length = tcmu_cdb_get_xfer_length(cdb);
 	uint8_t *par;
 	uint16_t dl, bddl;
 	int ret;
+
+	if (!rhandler->unmap)
+		return TCMU_STS_INVALID_CMD;
 
 	/*
 	 * ANCHOR bit check
@@ -1741,7 +1745,11 @@ static int flush_work_fn(struct tcmu_device *dev, void *data)
 
 static int handle_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
+
+	if (!rhandler->flush)
+		return TCMU_STS_INVALID_CMD;
 
 	tcmur_cmd->done = handle_generic_cbk;
 	return aio_request_schedule(dev, tcmur_cmd, flush_work_fn,
