@@ -717,18 +717,17 @@ static void *tcmur_cmdproc_thread(void *arg)
 static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	uint64_t new_lbas = tcmu_byte_to_lba(dev, cfg->data.dev_size);
 	int ret;
 
-	if (tcmu_dev_get_num_lbas(dev) * tcmu_dev_get_block_size(dev) ==
-	    cfg->data.dev_size)
+	if (tcmu_dev_get_num_lbas(dev) == new_lbas)
 		return 0;
 
 	ret = rhandler->reconfig(dev, cfg);
 	if (ret)
 		return ret;
 
-	tcmu_dev_set_num_lbas(dev, cfg->data.dev_size /
-			      tcmu_dev_get_block_size(dev));
+	tcmu_dev_set_num_lbas(dev, new_lbas);
 	tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
 	return 0;
 }
@@ -778,7 +777,7 @@ static int dev_added(struct tcmu_device *dev)
 		tcmu_dev_err(dev, "Could not get device size\n");
 		goto free_rdev;
 	}
-	tcmu_dev_set_num_lbas(dev, dev_size / block_size);
+	tcmu_dev_set_num_lbas(dev, tcmu_byte_to_lba(dev, dev_size));
 
 	max_sectors = tcmu_cfgfs_dev_get_attr_int(dev, "hw_max_sectors");
 	if (max_sectors < 0)

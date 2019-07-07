@@ -785,9 +785,25 @@ uint64_t tcmu_dev_get_num_lbas(struct tcmu_device *dev)
 	return dev->num_lbas;
 }
 
+uint64_t tcmu_lba_to_byte(struct tcmu_device *dev, uint64_t lba)
+{
+	return lba << dev->block_size_shift;
+}
+
+uint64_t tcmu_byte_to_lba(struct tcmu_device *dev, uint64_t byte)
+{
+	return byte >> dev->block_size_shift;
+}
+
+uint64_t tcmu_cdb_to_byte(struct tcmu_device *dev, uint8_t *cdb)
+{
+	return tcmu_lba_to_byte(dev, tcmu_cdb_get_lba(cdb));
+}
+
 void tcmu_dev_set_block_size(struct tcmu_device *dev, uint32_t block_size)
 {
 	dev->block_size = block_size;
+	dev->block_size_shift = ffs(block_size) - 1;
 }
 
 uint32_t tcmu_dev_get_block_size(struct tcmu_device *dev)

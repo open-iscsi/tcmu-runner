@@ -114,6 +114,8 @@ void tcmu_dev_set_num_lbas(struct tcmu_device *dev, uint64_t num_lbas);
 uint64_t tcmu_dev_get_num_lbas(struct tcmu_device *dev);
 void tcmu_dev_set_block_size(struct tcmu_device *dev, uint32_t block_size);
 uint32_t tcmu_dev_get_block_size(struct tcmu_device *dev);
+uint64_t tcmu_lba_to_byte(struct tcmu_device *dev, uint64_t lba);
+uint64_t tcmu_byte_to_lba(struct tcmu_device *dev, uint64_t byte);
 void tcmu_dev_set_max_xfer_len(struct tcmu_device *dev, uint32_t len);
 uint32_t tcmu_dev_get_max_xfer_len(struct tcmu_device *dev);
 void tcmu_dev_set_opt_xcopy_rw_len(struct tcmu_device *dev, uint32_t len);
@@ -158,6 +160,8 @@ uint64_t tcmu_cdb_get_lba(uint8_t *cdb);
 uint32_t tcmu_cdb_get_xfer_length(uint8_t *cdb);
 void tcmu_cdb_print_info(struct tcmu_device *dev, const struct tcmulib_cmd *cmd,
 			 const char *info);
+uint64_t tcmu_cdb_to_byte(struct tcmu_device *dev, uint8_t *cdb);
+
 /* iovec processing */
 off_t tcmu_iovec_compare(void *mem, struct iovec *iovec, size_t size);
 size_t tcmu_iovec_seek(struct iovec *iovec, size_t count);
