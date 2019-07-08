@@ -570,8 +570,8 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	/*
 	 * Make the lock_thread as detached to fix the memory leakage bug.
 	 */
-	pthread_attr_init (&attr);
-	pthread_attr_setdetachstate (&attr, PTHREAD_CREATE_DETACHED);
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
 	/*
 	 * The initiator is going to be queueing commands, so do this
@@ -586,6 +586,8 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	} else {
 		ret = TCMU_STS_BUSY;
 	}
+
+	pthread_attr_destroy(&attr);
 
 done:
 	pthread_mutex_unlock(&rdev->state_lock);
