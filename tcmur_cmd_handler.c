@@ -1396,7 +1396,8 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(xcopy->src_dev,
 			     "src target exceeds last lba %"PRIu64" (lba %"PRIu64", copy len %u\n",
 			     num_lbas, xcopy->src_lba, xcopy->lba_cnt);
-		return TCMU_STS_RANGE;
+		ret = TCMU_STS_RANGE;
+		goto err;
 	}
 
 	num_lbas = tcmu_dev_get_num_lbas(xcopy->dst_dev);
@@ -1404,9 +1405,11 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 		tcmu_dev_err(xcopy->dst_dev,
 			     "dst target exceeds last lba %"PRIu64" (lba %"PRIu64", copy len %u)\n",
 			     num_lbas, xcopy->dst_lba, xcopy->lba_cnt);
-		return TCMU_STS_RANGE;
+		ret = TCMU_STS_RANGE;
+		goto err;
 	}
 
+	free(par);
 	return TCMU_STS_OK;
 
 err:
