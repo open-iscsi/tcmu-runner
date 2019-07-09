@@ -526,9 +526,6 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 
 	ret = handle_unmap_internal(dev, origcmd, bddl, par);
 
-	free(par);
-	return ret;
-
 out_free_par:
 	free(par);
 	return ret;
