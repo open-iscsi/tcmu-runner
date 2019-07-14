@@ -20,7 +20,11 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 #include <sys/uio.h>
+
+#include "ccan/list/list.h"
+
 #include "scsi_defs.h"
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
@@ -45,6 +49,10 @@ struct tcmur_cmd {
 
 	/* Bytes to read/write from iovec */
 	size_t requested;
+
+	struct list_node cmds_list_entry;
+	struct timespec start_time;
+	bool timed_out;
 
 	/* callback to finish/continue command processing */
 	void (*done)(struct tcmu_device *dev, struct tcmur_cmd *cmd, int ret);

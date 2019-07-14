@@ -14,7 +14,9 @@
 struct tcmu_device;
 struct tcmulib_cmd;
 struct tcmur_cmd;
+struct timespec;
 
+int tcmur_get_time(struct tcmu_device *dev, struct timespec *time);
 int tcmur_dev_update_size(struct tcmu_device *dev, uint64_t new_size);
 void tcmur_set_pending_ua(struct tcmu_device *dev, int ua);
 int tcmur_generic_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd);

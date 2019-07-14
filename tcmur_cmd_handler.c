@@ -37,9 +37,26 @@ void tcmur_tcmulib_cmd_complete(struct tcmu_device *dev,
 				struct tcmulib_cmd *cmd, int rc)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
+	struct timespec curr_time;
 
 	pthread_cleanup_push(_cleanup_spin_lock, (void *)&rdev->lock);
 	pthread_spin_lock(&rdev->lock);
+
+	if (tcmur_cmd->timed_out) {
+		if (tcmur_get_time(dev, &curr_time)) {
+			tcmu_dev_info(dev, "Timed out command id %hu completed with status %d.\n",
+				      cmd->cmd_id, rc);
+		} else {
+			tcmu_dev_info(dev, "Timed out command id %hu completed after %f seconds with status %d.\n",
+				      cmd->cmd_id,
+				      difftime(curr_time.tv_sec,
+					       tcmur_cmd->start_time.tv_sec),
+				      rc);
+		}
+	}
+
+	list_del(&tcmur_cmd->cmds_list_entry);
 
 	tcmulib_command_complete(dev, cmd, rc);
 
