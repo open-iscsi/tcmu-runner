@@ -220,6 +220,8 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 		ret = add_device(ctx, buf,
 				 nla_get_string(info->attrs[TCMU_ATTR_DEVICE]),
 				 false);
+		if (ret == -ENOENT)
+			return 0;
 		break;
 	case TCMU_CMD_REMOVED_DEVICE:
 		reply_cmd = TCMU_CMD_REMOVED_DEVICE_DONE;
@@ -453,8 +455,8 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 
 	dev->handler = find_handler(ctx, dev->cfgstring);
 	if (!dev->handler) {
-		tcmu_err("could not find handler for %s\n", dev->dev_name);
-		goto err_free;
+		tcmu_warn("could not find handler for %s\n", dev->dev_name);
+		goto err_nohandler;
 	}
 
 	if (dev->handler->check_config &&
@@ -556,6 +558,9 @@ err_unblock:
 	if (reopen && reset_supp)
 		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 err_free:
+	free(dev);
+	return -1;
+err_nohandler:
 	free(dev);
 
 	return -ENOENT;
