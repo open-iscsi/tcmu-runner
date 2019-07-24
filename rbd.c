@@ -90,7 +90,7 @@ enum rbd_aio_type {
 
 struct rbd_aio_cb {
 	struct tcmu_device *dev;
-	struct tcmulib_cmd *tcmulib_cmd;
+	struct tcmur_cmd *tcmur_cmd;
 
 	enum rbd_aio_type type;
 	union {
@@ -972,9 +972,8 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 	tcmu_rbd_state_free(state);
 }
 
-static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,
-					   struct tcmulib_cmd *cmd)
-{
+static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev)
+		{
 	tcmu_notify_lock_lost(dev);
 	/*
 	 * This will happen during failback normally, because
@@ -991,9 +990,8 @@ static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev,
  * we will end up failing the transport connection when we just needed
  * to try a different OSD.
  */
-static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev,
-					struct tcmulib_cmd *cmd)
-{
+static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev)
+		{
 	tcmu_dev_err(dev, "Timing out cmd.\n");
 	tcmu_notify_conn_lost(dev);
 
@@ -1080,7 +1078,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 				   struct rbd_aio_cb *aio_cb)
 {
 	struct tcmu_device *dev = aio_cb->dev;
-	struct tcmulib_cmd *tcmulib_cmd = aio_cb->tcmulib_cmd;
+	struct tcmur_cmd *tcmur_cmd = aio_cb->tcmur_cmd;
 	struct iovec *iov = aio_cb->iov;
 	size_t iov_cnt = aio_cb->iov_cnt;
 	uint32_t cmp_offset;
@@ -1091,15 +1089,15 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	rbd_aio_release(completion);
 
 	if (ret == -ETIMEDOUT) {
-		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev, tcmulib_cmd);
+		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev);
 	} else if (ret == -ESHUTDOWN || ret == -EROFS) {
-		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev, tcmulib_cmd);
+		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev);
 	} else if (ret == -EILSEQ && aio_cb->type == RBD_AIO_TYPE_CAW) {
 		cmp_offset = aio_cb->caw.miscompare_offset - aio_cb->caw.offset;
 		tcmu_dev_dbg(dev, "CAW miscompare at offset %u.\n", cmp_offset);
 
 		tcmu_r = TCMU_STS_MISCOMPARE;
-		tcmu_sense_set_info(tcmulib_cmd->sense_buf, cmp_offset);
+		tcmu_sense_set_info(tcmur_cmd->lib_cmd->sense_buf, cmp_offset);
 	} else if (ret == -EINVAL) {
 		tcmu_dev_err(dev, "Invalid IO request.\n");
 		tcmu_r = TCMU_STS_INVALID_CDB;
@@ -1120,14 +1118,14 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 		}
 	}
 
-	tcmulib_cmd->done(dev, tcmulib_cmd, tcmu_r);
+	tcmur_cmd_complete(dev, tcmur_cmd, tcmu_r);
 
 	if (aio_cb->bounce_buffer)
 		free(aio_cb->bounce_buffer);
 	free(aio_cb);
 }
 
-static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
 			     struct iovec *iov, size_t iov_cnt, size_t length,
 			     off_t offset)
 {
@@ -1144,7 +1142,7 @@ static int tcmu_rbd_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	aio_cb->dev = dev;
 	aio_cb->type = RBD_AIO_TYPE_READ;
 	aio_cb->read.length = length;
-	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->tcmur_cmd = tcmur_cmd;
 	aio_cb->iov = iov;
 	aio_cb->iov_cnt = iov_cnt;
 
@@ -1169,7 +1167,7 @@ out:
 	return TCMU_STS_NO_RESOURCE;
 }
 
-static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
 			  struct iovec *iov, size_t iov_cnt, size_t length,
 			  off_t offset)
 {
@@ -1185,7 +1183,7 @@ static int tcmu_rbd_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 
 	aio_cb->dev = dev;
 	aio_cb->type = RBD_AIO_TYPE_WRITE;
-	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->tcmur_cmd = tcmur_cmd;
 
 	ret = rbd_aio_create_completion
 		(aio_cb, (rbd_callback_t) rbd_finish_aio_generic, &completion);
@@ -1210,7 +1208,7 @@ out:
 }
 
 #ifdef RBD_DISCARD_SUPPORT
-static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
 			  uint64_t off, uint64_t len)
 {
 	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
@@ -1225,7 +1223,7 @@ static int tcmu_rbd_unmap(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 
 	aio_cb->dev = dev;
-	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->tcmur_cmd = tcmur_cmd;
 	aio_cb->type = RBD_AIO_TYPE_WRITE;
 	aio_cb->bounce_buffer = NULL;
 
@@ -1251,7 +1249,7 @@ out:
 
 #ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 
-static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd)
 {
 	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	struct rbd_aio_cb *aio_cb;
@@ -1265,7 +1263,7 @@ static int tcmu_rbd_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	}
 
 	aio_cb->dev = dev;
-	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->tcmur_cmd = tcmur_cmd;
 	aio_cb->type = RBD_AIO_TYPE_WRITE;
 	aio_cb->bounce_buffer = NULL;
 
@@ -1294,7 +1292,7 @@ out:
 
 #ifdef RBD_WRITE_SAME_SUPPORT
 static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
-				  struct tcmulib_cmd *cmd,
+				  struct tcmur_cmd *tcmur_cmd,
 				  uint64_t off, uint64_t len,
 				  struct iovec *iov, size_t iov_cnt)
 {
@@ -1311,7 +1309,7 @@ static int tcmu_rbd_aio_writesame(struct tcmu_device *dev,
 	}
 
 	aio_cb->dev = dev;
-	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->tcmur_cmd = tcmur_cmd;
 	aio_cb->type = RBD_AIO_TYPE_WRITE;
 
 	aio_cb->bounce_buffer = malloc(length);
@@ -1348,7 +1346,7 @@ out:
 #endif /* RBD_WRITE_SAME_SUPPORT */
 
 #ifdef RBD_COMPARE_AND_WRITE_SUPPORT
-static int tcmu_rbd_aio_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int tcmu_rbd_aio_caw(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
 			    uint64_t off, uint64_t len, struct iovec *iov,
 			    size_t iov_cnt)
 {
@@ -1365,7 +1363,7 @@ static int tcmu_rbd_aio_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 
 	aio_cb->dev = dev;
-	aio_cb->tcmulib_cmd = cmd;
+	aio_cb->tcmur_cmd = tcmur_cmd;
 	aio_cb->type = RBD_AIO_TYPE_CAW;
 	aio_cb->caw.offset = off;
 
@@ -1410,8 +1408,10 @@ out:
 /*
  * Return scsi status or TCMU_STS_NOT_HANDLED
  */
-static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int tcmu_rbd_handle_cmd(struct tcmu_device *dev,
+			       struct tcmur_cmd *tcmur_cmd)
 {
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 	uint8_t *cdb = cmd->cdb;
 	int ret;
 
@@ -1419,12 +1419,13 @@ static int tcmu_rbd_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 #ifdef RBD_WRITE_SAME_SUPPORT
 	case WRITE_SAME:
 	case WRITE_SAME_16:
-		ret = tcmur_handle_writesame(dev, cmd, tcmu_rbd_aio_writesame);
+		ret = tcmur_handle_writesame(dev, tcmur_cmd,
+					     tcmu_rbd_aio_writesame);
 		break;
 #endif
 #ifdef RBD_COMPARE_AND_WRITE_SUPPORT
 	case COMPARE_AND_WRITE:
-		ret = tcmur_handle_caw(dev, cmd, tcmu_rbd_aio_caw);
+		ret = tcmur_handle_caw(dev, tcmur_cmd, tcmu_rbd_aio_caw);
 		break;
 #endif
 	default:

@@ -20,19 +20,43 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 #include <sys/uio.h>
+
+#include "ccan/list/list.h"
+
 #include "scsi_defs.h"
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "alua.h"
 #include "scsi.h"
 
-typedef int (*rw_fn_t)(struct tcmu_device *, struct tcmulib_cmd *,
-		       struct iovec *, size_t, size_t, off_t);
-typedef int (*flush_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
-typedef int (*handle_cmd_fn_t)(struct tcmu_device *, struct tcmulib_cmd *);
-typedef int (*unmap_fn_t)(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			  uint64_t off, uint64_t len);
+struct tcmur_cmd;
+
+struct tcmur_cmd {
+	/* Pointer to tcmulib_get_next_command's cmd. */
+	struct tcmulib_cmd *lib_cmd;
+
+	/* Used by compound commands like CAW, format unit, etc. */
+	struct iovec *iovec;
+	size_t iov_cnt;
+	/*
+	 * Some handlers will manipulcate the iov_base pointer while copying
+	 * to/from it. This is a pointer to the original pointer.
+	 */
+	void *iov_base_copy;
+	void *cmd_state;
+
+	/* Bytes to read/write from iovec */
+	size_t requested;
+
+	struct list_node cmds_list_entry;
+	struct timespec start_time;
+	bool timed_out;
+
+	/* callback to finish/continue command processing */
+	void (*done)(struct tcmu_device *dev, struct tcmur_cmd *cmd, int ret);
+};
 
 struct tcmulib_cfg_info;
 
@@ -73,7 +97,7 @@ struct tcmur_handler {
 	int nr_threads;
 
 	/*
-	 * Async handle_cmd only handlers return:
+	 * handle_cmd only handlers return:
 	 *
 	 * - TCMU_STS_OK if the command has been executed successfully
 	 * - TCMU_STS_NOT_HANDLED if opcode is not handled
@@ -82,33 +106,45 @@ struct tcmur_handler {
 	 * - TCMU_STS_PASSTHROUGH_ERR For handlers that require low level
 	 *   SCSI processing and want to setup their own sense buffers.
 	 *
-	 * Handlers that set nr_threads > 0 and async handlers
-	 * that implement handle_cmd and the IO callouts below return:
+	 * Handlers that completely execute cmds from the handle_cmd's calling
+	 * context must return a TCMU_STS code from handle_cmd.
+	 *
+	 * Async handlers that queue a command from handle_cmd and complete
+	 * from their own async context return:
 	 *
 	 * - TCMU_STS_OK if the handler has queued the command.
 	 * - TCMU_STS_NOT_HANDLED if the command is not supported.
 	 * - TCMU_STS_NO_RESOURCE if the handler was not able to allocate
-	 *   resources for the command.
+	 *   resources to queue the command.
 	 *
 	 * If TCMU_STS_OK is returned from the callout the handler must call
-	 * the tcmulib_cmd->done function with TCMU_STS return code.
+	 * tcmur_cmd_complete with TCMU_STS return code to complete the command.
 	 */
-	handle_cmd_fn_t handle_cmd;
+	int (*handle_cmd)(struct tcmu_device *dev, struct tcmur_cmd *cmd);
 
 	/*
-	 * Below callbacks are only executed by generic_handle_cmd.
-	 * Returns:
+	 * Below callouts are only executed by generic_handle_cmd.
+	 *
+	 * Handlers that completely execute cmds from the callout's calling
+	 * context must return a TCMU_STS code from the callout.
+	 *
+	 * Async handlers that queue a command from the callout and complete
+	 * it from their own async context return:
 	 * - TCMU_STS_OK if the handler has queued the command.
 	 * - TCMU_STS_NO_RESOURCE if the handler was not able to allocate
-	 *   resources for the command.
+	 *   resources to queue the command.
 	 *
 	 * If TCMU_STS_OK is returned from the callout the handler must call
-	 * the tcmulib_cmd->done function with TCMU_STS return code.
+	 * tcmur_cmd_complete with a TCMU_STS return code to complete the
+	 * command.
 	 */
-	rw_fn_t write;
-	rw_fn_t read;
-	flush_fn_t flush;
-	unmap_fn_t unmap;
+	int (*read)(struct tcmu_device *dev, struct tcmur_cmd *cmd,
+		    struct iovec *iovec, size_t iov_cnt, size_t len, off_t off);
+	int (*write)(struct tcmu_device *dev, struct tcmur_cmd *cmd,
+		     struct iovec *iovec, size_t iov_cnt, size_t len, off_t off);
+	int (*flush)(struct tcmu_device *dev, struct tcmur_cmd *cmd);
+	int (*unmap)(struct tcmu_device *dev, struct tcmur_cmd *cmd,
+		     uint64_t off, uint64_t len);
 
 	/*
 	 * If the lock is acquired and the tag is not TCMU_INVALID_LOCK_TAG,
@@ -146,6 +182,8 @@ struct tcmur_handler {
 	 */
 	bool (*update_logdir)(void);
 };
+
+void tcmur_cmd_complete(struct tcmu_device *dev, void *data, int rc);
 
 /*
  * Each tcmu-runner (tcmur) handler plugin must export the

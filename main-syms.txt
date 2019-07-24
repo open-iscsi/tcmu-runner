@@ -7,4 +7,5 @@
 	tcmur_dev_update_size;
 	tcmur_dev_set_private;
 	tcmur_dev_get_private;
+	tcmur_cmd_complete;
 };

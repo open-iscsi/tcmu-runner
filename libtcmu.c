@@ -785,9 +785,25 @@ uint64_t tcmu_dev_get_num_lbas(struct tcmu_device *dev)
 	return dev->num_lbas;
 }
 
+uint64_t tcmu_lba_to_byte(struct tcmu_device *dev, uint64_t lba)
+{
+	return lba << dev->block_size_shift;
+}
+
+uint64_t tcmu_byte_to_lba(struct tcmu_device *dev, uint64_t byte)
+{
+	return byte >> dev->block_size_shift;
+}
+
+uint64_t tcmu_cdb_to_byte(struct tcmu_device *dev, uint8_t *cdb)
+{
+	return tcmu_lba_to_byte(dev, tcmu_cdb_get_lba(cdb));
+}
+
 void tcmu_dev_set_block_size(struct tcmu_device *dev, uint32_t block_size)
 {
 	dev->block_size = block_size;
+	dev->block_size_shift = ffs(block_size) - 1;
 }
 
 uint32_t tcmu_dev_get_block_size(struct tcmu_device *dev)
@@ -940,7 +956,8 @@ do { \
 	dev->cmd_tail = (dev->cmd_tail + tcmu_hdr_get_len((ent)->hdr.len_op)) % mb->cmdr_size; \
 } while (0)
 
-struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
+struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev,
+					     int hm_cmd_size)
 {
 	struct tcmu_mailbox *mb = dev->map;
 	struct tcmu_cmd_entry *ent;
@@ -967,7 +984,8 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			}
 
 			/* Alloc memory for cmd itself, iovec and cdb */
-			cmd = malloc(sizeof(*cmd) + sizeof(*cmd->iovec) * ent->req.iov_cnt + cdb_len);
+			cmd = malloc(sizeof(*cmd) + hm_cmd_size + cdb_len +
+				     sizeof(*cmd->iovec) * ent->req.iov_cnt);
 			if (!cmd)
 				return NULL;
 			cmd->cmd_id = ent->hdr.cmd_id;
@@ -984,6 +1002,10 @@ struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev)
 			/* Copy cdb that currently points to the command ring */
 			cmd->cdb = (uint8_t *) (cmd->iovec + cmd->iov_cnt);
 			memcpy(cmd->cdb, (void *) mb + ent->req.cdb_off, cdb_len);
+
+			/* Setup handler memory area after iovecs and cdb */
+			if (hm_cmd_size)
+				cmd->hm_private = cmd->cdb + cdb_len;
 
 			TCMU_UPDATE_DEV_TAIL(dev, mb, ent);
 			return cmd;

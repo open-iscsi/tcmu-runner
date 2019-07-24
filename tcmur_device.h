@@ -73,6 +73,9 @@ struct tcmur_device {
 
 	uint32_t format_progress;
 	pthread_mutex_t format_lock; /* for atomic format operations */
+
+	int cmd_time_out;
+	struct list_head cmds_list;
 };
 
 bool tcmu_dev_in_recovery(struct tcmu_device *dev);

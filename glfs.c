@@ -81,7 +81,7 @@ struct glfs_state {
 
 typedef struct glfs_cbk_cookie {
 	struct tcmu_device *dev;
-	struct tcmulib_cmd *cmd;
+	struct tcmur_cmd *tcmur_cmd;
 	size_t length;
 	enum {
 		TCMU_GLFS_READ  = 1,
@@ -599,7 +599,7 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 {
 	glfs_cbk_cookie *cookie = data;
 	struct tcmu_device *dev = cookie->dev;
-	struct tcmulib_cmd *cmd = cookie->cmd;
+	struct tcmur_cmd *tcmur_cmd = cookie->tcmur_cmd;
 	size_t length = cookie->length;
 
 	if (ret < 0 || ret != length) {
@@ -619,12 +619,12 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 		ret = TCMU_STS_OK;
 	}
 
-	cmd->done(dev, cmd, ret);
+	tcmur_cmd_complete(dev, tcmur_cmd, ret);
 	free(cookie);
 }
 
 static int tcmu_glfs_read(struct tcmu_device *dev,
-                          struct tcmulib_cmd *cmd,
+                          struct tcmur_cmd *tcmur_cmd,
                           struct iovec *iov, size_t iov_cnt,
                           size_t length, off_t offset)
 {
@@ -637,7 +637,7 @@ static int tcmu_glfs_read(struct tcmu_device *dev,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = length;
 	cookie->op = TCMU_GLFS_READ;
 
@@ -656,7 +656,7 @@ out:
 }
 
 static int tcmu_glfs_write(struct tcmu_device *dev,
-                           struct tcmulib_cmd *cmd,
+                           struct tcmur_cmd *tcmur_cmd,
                            struct iovec *iov, size_t iov_cnt,
                            size_t length, off_t offset)
 {
@@ -669,7 +669,7 @@ static int tcmu_glfs_write(struct tcmu_device *dev,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = length;
 	cookie->op = TCMU_GLFS_WRITE;
 
@@ -718,7 +718,7 @@ static int tcmu_glfs_reconfig(struct tcmu_device *dev,
 }
 
 static int tcmu_glfs_flush(struct tcmu_device *dev,
-                           struct tcmulib_cmd *cmd)
+                           struct tcmur_cmd *tcmur_cmd)
 {
 	struct glfs_state *state = tcmur_dev_get_private(dev);
 	glfs_cbk_cookie *cookie;
@@ -729,7 +729,7 @@ static int tcmu_glfs_flush(struct tcmu_device *dev,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = 0;
 	cookie->op = TCMU_GLFS_FLUSH;
 
@@ -746,7 +746,8 @@ out:
 	return TCMU_STS_NO_RESOURCE;
 }
 
-static int tcmu_glfs_discard(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int tcmu_glfs_discard(struct tcmu_device *dev,
+			     struct tcmur_cmd *tcmur_cmd,
                              uint64_t offset, uint64_t length)
 {
 	struct glfs_state *state = tcmur_dev_get_private(dev);
@@ -759,7 +760,7 @@ static int tcmu_glfs_discard(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = 0;
 	cookie->op = TCMU_GLFS_DISCARD;
 
@@ -778,7 +779,7 @@ out:
 }
 
 static int tcmu_glfs_writesame(struct tcmu_device *dev,
-			       struct tcmulib_cmd *cmd,
+			       struct tcmur_cmd *tcmur_cmd,
 			       uint64_t offset, uint64_t length,
 			       struct iovec *iov, size_t iov_cnt)
 {
@@ -798,7 +799,7 @@ static int tcmu_glfs_writesame(struct tcmu_device *dev,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = 0;
 	cookie->op = TCMU_GLFS_WRITESAME;
 
@@ -819,15 +820,18 @@ out:
 /*
  * Return scsi status or TCMU_STS_NOT_HANDLED
  */
-static int tcmu_glfs_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int tcmu_glfs_handle_cmd(struct tcmu_device *dev,
+				struct tcmur_cmd *tcmur_cmd)
 {
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 	uint8_t *cdb = cmd->cdb;
 	int ret;
 
 	switch(cdb[0]) {
 	case WRITE_SAME:
 	case WRITE_SAME_16:
-		ret = tcmur_handle_writesame(dev, cmd, tcmu_glfs_writesame);
+		ret = tcmur_handle_writesame(dev, tcmur_cmd,
+					     tcmu_glfs_writesame);
 		break;
 	default:
 		ret = TCMU_STS_NOT_HANDLED;
