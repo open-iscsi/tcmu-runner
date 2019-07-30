@@ -1305,7 +1305,7 @@ int main(int argc, char **argv)
 		 * If it exists ignore errors and try to reset in case kernel is
 		 * in an invalid state
 		 */
-		tcmu_dbg("reseting netlink\n");
+		tcmu_dbg("resetting netlink\n");
 		tcmu_cfgfs_mod_param_set_u32("reset_netlink", 1);
 		tcmu_dbg("reset netlink done\n");
 	}
