@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
 project (tcmu-runner C)
-set(VERSION 1.4.0)
+set(VERSION 1.5.0)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement -std=c99")
 
 include(GNUInstallDirs)
@@ -56,7 +56,7 @@ add_library(tcmu
   )
 set_target_properties(tcmu
   PROPERTIES
-  VERSION 2.1
+  VERSION 2.2
   SOVERSION "2"
   )
 target_include_directories(tcmu
