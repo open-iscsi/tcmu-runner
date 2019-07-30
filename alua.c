@@ -673,7 +673,7 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 	case ALUA_ACCESS_STATE_UNAVAILABLE:
 	case ALUA_ACCESS_STATE_OFFLINE:
 		/* TODO we only support standby and AO */
-		tcmu_dev_err(dev, "Igoring ANO/unavail/offline\n");
+		tcmu_dev_err(dev, "Ignoring ANO/unavail/offline\n");
 		return TCMU_STS_INVALID_PARAM_LIST;
 	case ALUA_ACCESS_STATE_STANDBY:
 		if (lock_is_required(dev))
