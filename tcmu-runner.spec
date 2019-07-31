@@ -149,6 +149,4 @@ Development header(s) for developing against libtcmu.
 %{_libdir}/libtcmu*.so.*
 
 %files -n libtcmu-devel
-%{_includedir}/libtcmu.h
-%{_includedir}/libtcmu_common.h
 %{_libdir}/libtcmu*.so
