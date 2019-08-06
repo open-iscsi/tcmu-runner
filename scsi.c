@@ -317,7 +317,6 @@ finish_page83:
 	{
 		char data[64];
 		uint32_t max_xfer_length;
-		uint32_t opt_unmap_gran;
 		uint32_t unmap_gran_align;
 		uint16_t val16;
 		uint32_t val32;
@@ -363,7 +362,7 @@ finish_page83:
 
 		if (tcmu_dev_get_unmap_enabled(dev)) {
 			/* MAXIMUM UNMAP LBA COUNT */
-			val32 = htobe32(VPD_MAX_UNMAP_LBA_COUNT);
+			val32 = htobe32(tcmu_dev_get_max_unmap_len(dev));
 			memcpy(&data[20], &val32, 4);
 
 			/* MAXIMUM UNMAP BLOCK DESCRIPTOR COUNT */
@@ -371,8 +370,7 @@ finish_page83:
 			memcpy(&data[24], &val32, 4);
 
 			/* OPTIMAL UNMAP GRANULARITY */
-			opt_unmap_gran = tcmu_dev_get_opt_unmap_gran(dev);
-			val32 = htobe32(opt_unmap_gran);
+			val32 = htobe32(tcmu_dev_get_opt_unmap_gran(dev));
 			memcpy(&data[28], &val32, 4);
 
 			/* UNMAP GRANULARITY ALIGNMENT */
