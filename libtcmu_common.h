@@ -109,6 +109,8 @@ void tcmu_dev_set_private(struct tcmu_device *dev, void *priv);
 void *tcmu_get_daemon_dev_private(struct tcmu_device *dev);
 void tcmu_set_daemon_dev_private(struct tcmu_device *dev, void *priv);
 int tcmu_dev_get_fd(struct tcmu_device *dev);
+char *tcmu_dev_get_memory_info(struct tcmu_device *dev, void **base,
+			       size_t *len, off_t *offset);
 char *tcmu_dev_get_cfgstring(struct tcmu_device *dev);
 void tcmu_dev_set_num_lbas(struct tcmu_device *dev, uint64_t num_lbas);
 uint64_t tcmu_dev_get_num_lbas(struct tcmu_device *dev);
