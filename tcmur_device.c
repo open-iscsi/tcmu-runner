@@ -437,7 +437,8 @@ done:
 	else
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 
-	tcmu_dev_dbg(dev, "lock call done. lock state %d\n", rdev->lock_state);
+	tcmu_dev_info(dev, "Lock acquisition %s\n",
+		      rdev->lock == TCMUR_DEV_LOCK_LOCKED ? "successful" : "unsuccessful");
 	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
 	pthread_cond_signal(&rdev->lock_cond);

@@ -37,6 +37,10 @@
 /* cache protection */
 pthread_mutex_t glfs_lock;
 
+#if GFAPI_VERSION766
+#define GF_ENFORCE_MANDATORY_LOCK "trusted.glusterfs.enforce-mandatory-lock"
+#endif
+
 typedef enum gluster_transport {
 	GLUSTER_TRANSPORT_TCP,
 	GLUSTER_TRANSPORT_UNIX,
@@ -530,6 +534,14 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 		goto unref;
 	}
 
+#if GFAPI_VERSION766
+	ret = glfs_fsetxattr(gfsp->gfd, GF_ENFORCE_MANDATORY_LOCK, "set", 4, 0);
+	if (ret < 0) {
+		tcmu_dev_err(dev,"glfs_fsetxattr failed: %m\n");
+		goto close;
+	}
+#endif
+
 	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
 	if (ret) {
 		tcmu_dev_warn(dev, "glfs_lstat failed: %m\n");
@@ -601,8 +613,47 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 	struct tcmu_device *dev = cookie->dev;
 	struct tcmur_cmd *tcmur_cmd = cookie->tcmur_cmd;
 	size_t length = cookie->length;
+	int err = -errno;
 
-	if (ret < 0 || ret != length) {
+	if (ret < 0) {
+		switch (err) {
+		case -ETIMEDOUT:
+			/*
+			 * TIMEDOUT is a scenario where the fop can
+			 * not reach the server for 30 minutes.
+			 */
+			tcmu_dev_err(dev, "Timing out cmd after 30 minutes.\n");
+
+			tcmu_notify_conn_lost(dev);
+			ret = TCMU_STS_TIMEOUT;
+			break;
+#if GFAPI_VERSION766
+		case -EAGAIN:
+		case -EBUSY:
+		case -ENOTCONN:
+			/*
+			 * The lock maybe preemted and then any IO to
+			 * land on the file without a lock will be
+			 * rejected with EBUSY.
+			 *
+			 * And if local is disconnected, we should get
+			 * ENOTCONN for further requests. But if the
+			 * connection is reestablished and at the same
+			 * time another client has taken the lock we
+			 * will get EBUSY too.
+			 */
+			tcmu_dev_dbg(dev, "failed with errno %d.\n", err);
+			tcmu_notify_lock_lost(dev);
+			ret = TCMU_STS_BUSY;
+			break;
+#endif
+		default:
+			tcmu_dev_dbg(dev, "failed with errno %d.\n", err);
+			ret = TCMU_STS_HW_ERR;
+		}
+	} else if (ret != length) {
+		tcmu_dev_dbg(dev, "ret(%zu) != length(%zu).\n", ret, length);
+
 		/* Read/write/flush failed */
 		switch (cookie->op) {
 		case TCMU_GLFS_READ:
@@ -840,6 +891,56 @@ static int tcmu_glfs_handle_cmd(struct tcmu_device *dev,
 	return ret;
 }
 
+#if GFAPI_VERSION766
+static int tcmu_glfs_to_sts(int rc)
+{
+	switch (rc) {
+	case 0:
+		return TCMU_STS_OK;
+	case -ENOTCONN:
+		return TCMU_STS_FENCED;
+	default:
+		return TCMU_STS_HW_ERR;
+	}
+}
+
+static int tcmu_glfs_lock(struct tcmu_device *dev, uint16_t tag)
+{
+	struct glfs_state *state = tcmur_dev_get_private(dev);
+	struct flock lock;
+	int ret;
+
+	lock.l_type = F_WRLCK | F_RDLCK;
+	lock.l_whence = SEEK_SET;
+	lock.l_start = 0;
+	lock.l_len = 0;
+
+	ret = glfs_file_lock(state->gfd, F_SETLK, &lock, GLFS_LK_MANDATORY);
+	if (ret)
+		tcmu_dev_err(dev, "glfs_file_lock failed: %m\n");
+
+	return tcmu_glfs_to_sts(ret);
+}
+
+static int tcmu_glfs_unlock(struct tcmu_device *dev)
+{
+	struct glfs_state *state = tcmur_dev_get_private(dev);
+	struct flock lock;
+	int ret;
+
+	lock.l_type = F_UNLCK;
+	lock.l_whence = SEEK_SET;
+	lock.l_start = 0;
+	lock.l_len = 0;
+
+	ret = glfs_file_lock(state->gfd, F_SETLK, &lock, GLFS_LK_MANDATORY);
+	if (ret)
+		tcmu_dev_err(dev, "glfs_file_lock failed: %m\n");
+
+	return tcmu_glfs_to_sts(ret);
+}
+#endif
+
 /*
  * For backstore creation
  *
@@ -875,6 +976,11 @@ struct tcmur_handler glfs_handler = {
 	.handle_cmd     = tcmu_glfs_handle_cmd,
 
 	.update_logdir  = tcmu_glfs_update_logdir,
+
+#if GFAPI_VERSION766
+	.lock           = tcmu_glfs_lock,
+	.unlock         = tcmu_glfs_unlock,
+#endif
 };
 
 /* Entry point must be named "handler_init". */
