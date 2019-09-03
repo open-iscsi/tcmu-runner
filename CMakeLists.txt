@@ -225,7 +225,7 @@ endif (with-zbc)
 
 if (with-rbd)
 	find_library(LIBRBD rbd)
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, librados2, librbd1")
+	set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, librados2, librbd1")
 
 	# Stuff for building the rbd handler
 	add_library(handler_rbd
@@ -256,8 +256,8 @@ if (with-glfs)
 		set(GFAPI_VERSION760 1)
 	endif (GFAPI760_FOUND)
 
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, glusterfs-common")
-    set(GFAPI_VERSION766 0)
+	set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, glusterfs-common")
+	set(GFAPI_VERSION766 0)
 
     pkg_check_modules(GFAPI766 glusterfs-api>=7.6.6 QUIET)
 	if (GFAPI766_FOUND)
@@ -285,7 +285,7 @@ endif (with-glfs)
 
 if (with-qcow)
 	find_package(ZLIB REQUIRED)
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, zlib1g")
+	set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, zlib1g")
 
 	# Stuff for building the qcow handler
 	add_library(handler_qcow
