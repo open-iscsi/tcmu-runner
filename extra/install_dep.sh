@@ -23,8 +23,17 @@ if [ y`uname`y = yLinuxy ]; then
 		yum search librbd-devel | grep -q "N/S matched" && LIBRBD=librbd || LIBRBD=librbd1
 	        $SUDO yum install -y $LIBRBD-devel
 		;;
+  ubuntu|debian)
+		# for generic
+		$SUDO apt-get install cmake make gcc libnl-3-dev libnl-genl-3-dev libglib2.0-dev zlib1g-dev libkmod-dev
+
+		# for glusterfs
+		$SUDO apt-get install glusterfs-common
+		# for ceph
+		$SUDO apt-get install librados2 librados-dev
+		$SUDO apt-get install librbd1 librbd-dev
 	*)
-		echo "TODO: only fedora/rhel/centos are supported for now!"
+		echo "TODO: only fedora/rhel/centos/ubuntu/debian are supported for now!"
 		;;
 	esac
 else
