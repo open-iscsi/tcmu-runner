@@ -1,5 +1,6 @@
 [Unit]
 Description=LIO Userspace-passthrough daemon
+Documentation=man:tcmu-runner(8)
 Wants=rsyslog.service
 After=network.target rsyslog.service
 

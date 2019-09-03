@@ -14,7 +14,7 @@ if [ y`uname`y = yLinuxy ]; then
 	fedora|rhel|centos)
 		# for generic
 		$SUDO yum install -y cmake make gcc libnl3 glib2 zlib kmod
-		$SUDO yum install -y libnl3-devel glib2-devel zlib-devel kmod-devel
+		$SUDO yum install -y libnl3-devel glib2-devel zlib-devel kmod-devel gperftools-devel
 
 		# for glusterfs
 		$SUDO yum install -y glusterfs-api glusterfs-api-devel

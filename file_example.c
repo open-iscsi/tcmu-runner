@@ -84,7 +84,7 @@ static void file_close(struct tcmu_device *dev)
 	free(state);
 }
 
-static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int file_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		     struct iovec *iov, size_t iov_cnt, size_t length,
 		     off_t offset)
 {
@@ -115,7 +115,7 @@ done:
 	return ret;
 }
 
-static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int file_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		      struct iovec *iov, size_t iov_cnt, size_t length,
 		      off_t offset)
 {
@@ -139,7 +139,7 @@ done:
 	return ret;
 }
 
-static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int file_flush(struct tcmu_device *dev, struct tcmur_cmd *cmd)
 {
 	struct file_state *state = tcmur_dev_get_private(dev);
 	int ret;

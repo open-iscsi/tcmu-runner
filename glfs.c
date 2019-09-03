@@ -37,6 +37,10 @@
 /* cache protection */
 pthread_mutex_t glfs_lock;
 
+#if GFAPI_VERSION766
+#define GF_ENFORCE_MANDATORY_LOCK "trusted.glusterfs.enforce-mandatory-lock"
+#endif
+
 typedef enum gluster_transport {
 	GLUSTER_TRANSPORT_TCP,
 	GLUSTER_TRANSPORT_UNIX,
@@ -81,7 +85,7 @@ struct glfs_state {
 
 typedef struct glfs_cbk_cookie {
 	struct tcmu_device *dev;
-	struct tcmulib_cmd *cmd;
+	struct tcmur_cmd *tcmur_cmd;
 	size_t length;
 	enum {
 		TCMU_GLFS_READ  = 1,
@@ -101,14 +105,12 @@ struct gluster_cacheconn {
 
 static darray(struct gluster_cacheconn *) glfs_cache = darray_new();
 
-
 const char *const gluster_transport_lookup[] = {
 	[GLUSTER_TRANSPORT_TCP] = "tcp",
 	[GLUSTER_TRANSPORT_UNIX] = "unix",
 	[GLUSTER_TRANSPORT_RDMA] = "rdma",
 	[GLUSTER_TRANSPORT__MAX] = NULL,
 };
-
 
 static void gluster_free_host(gluster_hostdef *host)
 {
@@ -194,6 +196,29 @@ free_entry:
 	free(entry);
 error:
 	return -1;
+}
+
+static bool tcmu_glfs_update_logdir(void)
+{
+	struct gluster_cacheconn **entry;
+	char logfilepath[PATH_MAX];
+	int ret;
+
+	darray_foreach(entry, glfs_cache) {
+		ret = tcmu_make_absolute_logfile(logfilepath, TCMU_GLFS_LOG_FILENAME);
+		if (ret < 0) {
+			tcmu_err("tcmu_make_absolute_logfile failed: %d\n", ret);
+			return false;
+		}
+
+		if (glfs_set_logging((*entry)->fs, logfilepath, TCMU_GLFS_DEBUG_LEVEL)) {
+			tcmu_err("glfs_set_logging() on %s failed[%s]",
+				 (*entry)->volname, strerror(errno));
+			return false;
+		}
+	}
+
+	return true;
 }
 
 static glfs_t* gluster_cache_query(gluster_server *dst, char *cfgstring)
@@ -509,6 +534,14 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 		goto unref;
 	}
 
+#if GFAPI_VERSION766
+	ret = glfs_fsetxattr(gfsp->gfd, GF_ENFORCE_MANDATORY_LOCK, "set", 4, 0);
+	if (ret < 0) {
+		tcmu_dev_err(dev,"glfs_fsetxattr failed: %m\n");
+		goto close;
+	}
+#endif
+
 	ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
 	if (ret) {
 		tcmu_dev_warn(dev, "glfs_lstat failed: %m\n");
@@ -578,10 +611,49 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 {
 	glfs_cbk_cookie *cookie = data;
 	struct tcmu_device *dev = cookie->dev;
-	struct tcmulib_cmd *cmd = cookie->cmd;
+	struct tcmur_cmd *tcmur_cmd = cookie->tcmur_cmd;
 	size_t length = cookie->length;
+	int err = -errno;
 
-	if (ret < 0 || ret != length) {
+	if (ret < 0) {
+		switch (err) {
+		case -ETIMEDOUT:
+			/*
+			 * TIMEDOUT is a scenario where the fop can
+			 * not reach the server for 30 minutes.
+			 */
+			tcmu_dev_err(dev, "Timing out cmd after 30 minutes.\n");
+
+			tcmu_notify_conn_lost(dev);
+			ret = TCMU_STS_TIMEOUT;
+			break;
+#if GFAPI_VERSION766
+		case -EAGAIN:
+		case -EBUSY:
+		case -ENOTCONN:
+			/*
+			 * The lock maybe preemted and then any IO to
+			 * land on the file without a lock will be
+			 * rejected with EBUSY.
+			 *
+			 * And if local is disconnected, we should get
+			 * ENOTCONN for further requests. But if the
+			 * connection is reestablished and at the same
+			 * time another client has taken the lock we
+			 * will get EBUSY too.
+			 */
+			tcmu_dev_dbg(dev, "failed with errno %d.\n", err);
+			tcmu_notify_lock_lost(dev);
+			ret = TCMU_STS_BUSY;
+			break;
+#endif
+		default:
+			tcmu_dev_dbg(dev, "failed with errno %d.\n", err);
+			ret = TCMU_STS_HW_ERR;
+		}
+	} else if (ret != length) {
+		tcmu_dev_dbg(dev, "ret(%zu) != length(%zu).\n", ret, length);
+
 		/* Read/write/flush failed */
 		switch (cookie->op) {
 		case TCMU_GLFS_READ:
@@ -598,12 +670,12 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 		ret = TCMU_STS_OK;
 	}
 
-	cmd->done(dev, cmd, ret);
+	tcmur_cmd_complete(dev, tcmur_cmd, ret);
 	free(cookie);
 }
 
 static int tcmu_glfs_read(struct tcmu_device *dev,
-                          struct tcmulib_cmd *cmd,
+                          struct tcmur_cmd *tcmur_cmd,
                           struct iovec *iov, size_t iov_cnt,
                           size_t length, off_t offset)
 {
@@ -616,7 +688,7 @@ static int tcmu_glfs_read(struct tcmu_device *dev,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = length;
 	cookie->op = TCMU_GLFS_READ;
 
@@ -635,7 +707,7 @@ out:
 }
 
 static int tcmu_glfs_write(struct tcmu_device *dev,
-                           struct tcmulib_cmd *cmd,
+                           struct tcmur_cmd *tcmur_cmd,
                            struct iovec *iov, size_t iov_cnt,
                            size_t length, off_t offset)
 {
@@ -648,7 +720,7 @@ static int tcmu_glfs_write(struct tcmu_device *dev,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = length;
 	cookie->op = TCMU_GLFS_WRITE;
 
@@ -697,7 +769,7 @@ static int tcmu_glfs_reconfig(struct tcmu_device *dev,
 }
 
 static int tcmu_glfs_flush(struct tcmu_device *dev,
-                           struct tcmulib_cmd *cmd)
+                           struct tcmur_cmd *tcmur_cmd)
 {
 	struct glfs_state *state = tcmur_dev_get_private(dev);
 	glfs_cbk_cookie *cookie;
@@ -708,7 +780,7 @@ static int tcmu_glfs_flush(struct tcmu_device *dev,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = 0;
 	cookie->op = TCMU_GLFS_FLUSH;
 
@@ -725,7 +797,8 @@ out:
 	return TCMU_STS_NO_RESOURCE;
 }
 
-static int tcmu_glfs_discard(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int tcmu_glfs_discard(struct tcmu_device *dev,
+			     struct tcmur_cmd *tcmur_cmd,
                              uint64_t offset, uint64_t length)
 {
 	struct glfs_state *state = tcmur_dev_get_private(dev);
@@ -738,7 +811,7 @@ static int tcmu_glfs_discard(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = 0;
 	cookie->op = TCMU_GLFS_DISCARD;
 
@@ -757,7 +830,7 @@ out:
 }
 
 static int tcmu_glfs_writesame(struct tcmu_device *dev,
-			       struct tcmulib_cmd *cmd,
+			       struct tcmur_cmd *tcmur_cmd,
 			       uint64_t offset, uint64_t length,
 			       struct iovec *iov, size_t iov_cnt)
 {
@@ -777,7 +850,7 @@ static int tcmu_glfs_writesame(struct tcmu_device *dev,
 		goto out;
 	}
 	cookie->dev = dev;
-	cookie->cmd = cmd;
+	cookie->tcmur_cmd = tcmur_cmd;
 	cookie->length = 0;
 	cookie->op = TCMU_GLFS_WRITESAME;
 
@@ -798,15 +871,18 @@ out:
 /*
  * Return scsi status or TCMU_STS_NOT_HANDLED
  */
-static int tcmu_glfs_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int tcmu_glfs_handle_cmd(struct tcmu_device *dev,
+				struct tcmur_cmd *tcmur_cmd)
 {
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 	uint8_t *cdb = cmd->cdb;
 	int ret;
 
 	switch(cdb[0]) {
 	case WRITE_SAME:
 	case WRITE_SAME_16:
-		ret = tcmur_handle_writesame(dev, cmd, tcmu_glfs_writesame);
+		ret = tcmur_handle_writesame(dev, tcmur_cmd,
+					     tcmu_glfs_writesame);
 		break;
 	default:
 		ret = TCMU_STS_NOT_HANDLED;
@@ -814,6 +890,56 @@ static int tcmu_glfs_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd
 
 	return ret;
 }
+
+#if GFAPI_VERSION766
+static int tcmu_glfs_to_sts(int rc)
+{
+	switch (rc) {
+	case 0:
+		return TCMU_STS_OK;
+	case -ENOTCONN:
+		return TCMU_STS_FENCED;
+	default:
+		return TCMU_STS_HW_ERR;
+	}
+}
+
+static int tcmu_glfs_lock(struct tcmu_device *dev, uint16_t tag)
+{
+	struct glfs_state *state = tcmur_dev_get_private(dev);
+	struct flock lock;
+	int ret;
+
+	lock.l_type = F_WRLCK | F_RDLCK;
+	lock.l_whence = SEEK_SET;
+	lock.l_start = 0;
+	lock.l_len = 0;
+
+	ret = glfs_file_lock(state->gfd, F_SETLK, &lock, GLFS_LK_MANDATORY);
+	if (ret)
+		tcmu_dev_err(dev, "glfs_file_lock failed: %m\n");
+
+	return tcmu_glfs_to_sts(ret);
+}
+
+static int tcmu_glfs_unlock(struct tcmu_device *dev)
+{
+	struct glfs_state *state = tcmur_dev_get_private(dev);
+	struct flock lock;
+	int ret;
+
+	lock.l_type = F_UNLCK;
+	lock.l_whence = SEEK_SET;
+	lock.l_start = 0;
+	lock.l_len = 0;
+
+	ret = glfs_file_lock(state->gfd, F_SETLK, &lock, GLFS_LK_MANDATORY);
+	if (ret)
+		tcmu_dev_err(dev, "glfs_file_lock failed: %m\n");
+
+	return tcmu_glfs_to_sts(ret);
+}
+#endif
 
 /*
  * For backstore creation
@@ -848,6 +974,13 @@ struct tcmur_handler glfs_handler = {
 	.flush          = tcmu_glfs_flush,
 	.unmap          = tcmu_glfs_discard,
 	.handle_cmd     = tcmu_glfs_handle_cmd,
+
+	.update_logdir  = tcmu_glfs_update_logdir,
+
+#if GFAPI_VERSION766
+	.lock           = tcmu_glfs_lock,
+	.unlock         = tcmu_glfs_unlock,
+#endif
 };
 
 /* Entry point must be named "handler_init". */

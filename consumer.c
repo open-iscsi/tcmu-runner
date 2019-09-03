@@ -184,7 +184,7 @@ int main(int argc, char **argv)
 
 				tcmulib_processing_start(dev);
 
-				while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
+				while ((cmd = tcmulib_get_next_command(dev, 0)) != NULL) {
 					ret = foo_handle_cmd(dev,
 							     cmd->cdb,
 							     cmd->iovec,

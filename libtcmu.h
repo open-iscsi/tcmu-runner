@@ -64,6 +64,8 @@ struct tcmulib_handler {
 
 	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
+	bool (*update_logdir)(void);
+
 	/* Per-device added/removed callbacks */
 	int (*added)(struct tcmu_device *dev);
 	void (*removed)(struct tcmu_device *dev);
@@ -102,10 +104,14 @@ int tcmulib_master_fd_ready(struct tcmulib_context *ctx);
 
 /*
  * When a device fd becomes ready, call this to get SCSI cmd info in
- * 'cmd' struct.
+ * 'cmd' struct. libtcmu will allocate hm_cmd_size bytes for each cmd
+ * that can be accessed via cmd->hm_private pointer. The memory at
+ * hm_private will be freed in tcmulib_command_complete.
+ *
  * Repeat until it returns false.
  */
-struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev);
+struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev,
+					     int hm_cmd_size);
 
 /*
  * Mark the command as complete.

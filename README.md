@@ -40,6 +40,7 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
    * *Note:* If using systemd, `-DSUPPORT_SYSTEMD=ON -DCMAKE_INSTALL_PREFIX=/usr` should be passed to cmake, so files are installed to the correct location.
 1. Type `make`
 1. Type `make install`
+1. Type `xargs rm < install_manifest.txt` to uninstall from source
 
 
 ##### Running tcmu-runner
@@ -103,8 +104,23 @@ o- backstores .......................................................... [...]
 /backstores/user:rbd> create cfgstring=pool/rbd1;osd_op_timeout=30 name=rbd0 size=1G
 Created user-backed storage object rbd0 size 1073741824.
 
+The cfgstrng format is:
 
-Note that the cfgstring is handler specific. The format is:
+cfgstring=;tcmu-runner daemon arguments;handler arguments
+
+The following tcmu-runner daemon arguments are optional:
+
+- tcmur_cmd_time_out: Number of seconds before logging the command as timed out,
+and executing a handler specific timeout handler if supported.
+
+If passed in they must start before the handler specific arguments and each
+argument must start and end with a semicolon ";".
+
+Example using the rbd cfgstring with the optional tcmur_cmd_timeout arg:
+
+create ;tcmur_cmd_timeout=20;pool/rbd1;osd_op_timeout=30 name=rbd0 size=1G
+
+The handler specific arguments and their formats are:
 
 - **rbd**: /pool_name/image_name[;osd_op_timeout=N;conf=N;id=N]
 (osd_op_timeout is optional and N is in seconds)

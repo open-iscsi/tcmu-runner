@@ -222,6 +222,10 @@ tcmu_get_alua_grp(struct tcmu_device *dev, const char *name)
 		rdev->failover_type = TCMUR_DEV_FAILOVER_EXPLICIT;
 
 		group->tpgs = TPGS_ALUA_EXPLICIT;
+
+		tcmu_dev_warn(dev, "Unsupported alua_access_type: Implicit and Explicit failover not supported.\n");
+
+		goto free_str_val;
 	} else {
 		tcmu_dev_err(dev, "Invalid ALUA type %s", str_val);
 		goto free_str_val;
@@ -570,8 +574,8 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	/*
 	 * Make the lock_thread as detached to fix the memory leakage bug.
 	 */
-	pthread_attr_init (&attr);
-	pthread_attr_setdetachstate (&attr, PTHREAD_CREATE_DETACHED);
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
 	/*
 	 * The initiator is going to be queueing commands, so do this
@@ -586,6 +590,8 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	} else {
 		ret = TCMU_STS_BUSY;
 	}
+
+	pthread_attr_destroy(&attr);
 
 done:
 	pthread_mutex_unlock(&rdev->state_lock);
@@ -671,7 +677,7 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 	case ALUA_ACCESS_STATE_UNAVAILABLE:
 	case ALUA_ACCESS_STATE_OFFLINE:
 		/* TODO we only support standby and AO */
-		tcmu_dev_err(dev, "Igoring ANO/unavail/offline\n");
+		tcmu_dev_err(dev, "Ignoring ANO/unavail/offline\n");
 		return TCMU_STS_INVALID_PARAM_LIST;
 	case ALUA_ACCESS_STATE_STANDBY:
 		if (lock_is_required(dev))

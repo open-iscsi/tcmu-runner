@@ -13,9 +13,14 @@
  *
  */
 
+#ifndef __TCMU_TIME_H
+#define __TCMU_TIME_H
+
 # define TCMU_TIME_STRING_BUFLEN \
     (4 + 1 + 2 + 1 + 2 + 1 + 2 + 1 + 2 + 1 + 2 + 1 + 3 + 1)
 /*   Yr      Mon     Day     Hour    Min     Sec     Ms  NULL */
 
 /* generate localtime string into buf */
 int time_string_now(char* buf);
+
+#endif /* __TCMU_TIME_H */

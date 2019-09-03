@@ -3,35 +3,39 @@
 # without rbd dependency
 # if you wish to exclude rbd handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without rbd
-%{?_without_rbd:%global _without_rbd -Dwith-rbd=false}
+%bcond_without rbd
 
 # without glusterfs dependency
 # if you wish to exclude glfs handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without glfs
-%{?_without_glfs:%global _without_glfs -Dwith-glfs=false}
+%bcond_without glfs
 
 # without qcow dependency
 # if you wish to exclude qcow handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without qcow
-%{?_without_qcow:%global _without_qcow -Dwith-qcow=false}
+%bcond_without qcow
 
 # without zbc dependency
 # if you wish to exclude zbc handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without zbc
-%{?_without_zbc:%global _without_zbc -Dwith-zbc=false}
+%bcond_without zbc
 
 # without file backed optical dependency
 # if you wish to exclude fbo handlers in RPM, use below command
 # rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without fbo
-%{?_without_fbo:%global _without_fbo -Dwith-fbo=false}
+%bcond_without fbo
 
+# without tcmalloc dependency
+# if you wish to exclude tcmalloc, use below command
+# rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz --without tcmalloc
+%bcond_without tcmalloc
 
 
 Name:          tcmu-runner
 Summary:       A daemon that handles the userspace side of the LIO TCM-User backstore
 Group:         System Environment/Daemons
 License:       ASL 2.0 or LGPLv2+
-Version:       1.4.0
+Version:       1.5.2
 URL:           https://github.com/open-iscsi/tcmu-runner
 
 #%define _RC
@@ -43,14 +47,19 @@ ExclusiveOS:   Linux
 BuildRequires: cmake make gcc
 BuildRequires: libnl3-devel glib2-devel zlib-devel kmod-devel
 
-%if ( 0%{!?_without_rbd:1} )
+%if %{with rbd}
 BuildRequires: librbd1-devel librados2-devel
 Requires(pre): librados2, librbd1
 %endif
 
-%if ( 0%{!?_without_glfs:1} )
+%if %{with glfs}
 BuildRequires: glusterfs-api-devel
 Requires(pre): glusterfs-api
+%endif
+
+%if %{with tcmalloc}
+BuildRequires: gperftools-devel
+Requires:      gperftools-libs
 %endif
 
 Requires(pre): kmod, zlib, libnl3, glib2, logrotate, rsyslog
@@ -103,18 +112,19 @@ Development header(s) for developing against libtcmu.
 %build
 %{__cmake} \
  -DSUPPORT_SYSTEMD=ON -DCMAKE_INSTALL_PREFIX=%{_usr} \
- %{?_without_rbd} \
- %{?_without_zbc} \
- %{?_without_qcow} \
- %{?_without_glfs} \
- %{?_without_fbo} \
+ %{?_without_rbd:-Dwith-rbd=false} \
+ %{?_without_zbc:-Dwith-zbc=false} \
+ %{?_without_qcow:-Dwith-qcow=false} \
+ %{?_without_glfs:-Dwith-glfs=false} \
+ %{?_without_fbo:-Dwith-fbo=false} \
+ %{?_without_tcmalloc:-Dwith-tcmalloc=false} \
  .
 %{__make}
 
 %install
 %{__make} DESTDIR=%{buildroot} install
 %{__rm} -f %{buildroot}/etc/tcmu/tcmu.conf.old
-%{__rm} -f %{buildroot}/etc/logrotate.d/tcmu-runner.old
+%{__rm} -f %{buildroot}/etc/logrotate.d/tcmu-runner.bak/tcmu-runner
 
 %files
 %{_bindir}/tcmu-runner
@@ -132,11 +142,11 @@ Development header(s) for developing against libtcmu.
 %dir %{_sysconfdir}/tcmu/
 %config %{_sysconfdir}/tcmu/tcmu.conf
 %config(noreplace) %{_sysconfdir}/logrotate.d/tcmu-runner
+%ghost %attr(0644,-,-) %{_sysconfdir}/tcmu/tcmu.conf.old
+%ghost %attr(0644,-,-) %{_sysconfdir}/logrotate.d/tcmu-runner.bak/tcmu-runner
 
 %files -n libtcmu
 %{_libdir}/libtcmu*.so.*
 
 %files -n libtcmu-devel
-%{_includedir}/libtcmu.h
-%{_includedir}/libtcmu_common.h
 %{_libdir}/libtcmu*.so

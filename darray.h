@@ -298,7 +298,8 @@ static inline size_t darray_next_alloc(size_t alloc, size_t need)
  * Like darray_foreach, but traverse in reverse order.
  */
 #define darray_foreach_reverse(i, arr) \
-	for ((i) = &(arr).item[(arr).size]; (i)-- > &(arr).item[0]; )
+	if ((arr).size) \
+		for ((i) = &(arr).item[(arr).size]; (i)-- > &(arr).item[0]; )
 
 
 #endif /* CCAN_DARRAY_H */
