@@ -35,6 +35,17 @@ pkg_check_modules(KMOD REQUIRED libkmod)
 find_library(PTHREAD pthread)
 find_library(DL dl)
 
+# Stuff for building the Debian package
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEB_COMPONENT_INSTALL ON)
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libnl-3-200, libnl-genl-3-200")
+set(CPACK_DEBIAN_PACKAGE_SECTION "net")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "A daemon that handles the userspace side of the LIO TCM-User backstore")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Target Devel <target-devel@vger.kernel.org>")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/open-iscsi/tcmu-runner")
+include(CPack)
+
 # Stuff for building the shared library
 add_library(tcmu
   SHARED
@@ -202,6 +213,7 @@ endif (with-zbc)
 
 if (with-rbd)
 	find_library(LIBRBD rbd)
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, librados2, librbd1")
 
 	# Stuff for building the rbd handler
 	add_library(handler_rbd
@@ -231,6 +243,7 @@ if (with-glfs)
 		set(GFAPI_VERSION760 1)
 	endif (GFAPI760_FOUND)
 
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, glusterfs-common")
 	# Stuff for building the glfs handler
 	add_library(handler_glfs
 	  SHARED
@@ -251,6 +264,7 @@ endif (with-glfs)
 
 if (with-qcow)
 	find_package(ZLIB REQUIRED)
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, zlib1g")
 
 	# Stuff for building the qcow handler
 	add_library(handler_qcow
