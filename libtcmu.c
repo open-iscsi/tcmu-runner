@@ -43,9 +43,9 @@ static struct nla_policy tcmu_attr_policy[TCMU_ATTR_MAX+1] = {
 	[TCMU_ATTR_SUPP_KERN_CMD_REPLY] = { .type = NLA_U8 },
 };
 
-static int add_device(struct tcmulib_context *ctx, char *dev_name,
+static int device_add(struct tcmulib_context *ctx, char *dev_name,
 		      char *cfgstring, bool reopen);
-static void remove_device(struct tcmulib_context *ctx, char *dev_name,
+static void device_remove(struct tcmulib_context *ctx, char *dev_name,
 			  bool should_block);
 static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 			  struct genl_info *info, void *arg);
@@ -217,13 +217,13 @@ static int handle_netlink(struct nl_cache_ops *unused, struct genl_cmd *cmd,
 	switch (cmd->c_id) {
 	case TCMU_CMD_ADDED_DEVICE:
 		reply_cmd = TCMU_CMD_ADDED_DEVICE_DONE;
-		ret = add_device(ctx, buf,
+		ret = device_add(ctx, buf,
 				 nla_get_string(info->attrs[TCMU_ATTR_DEVICE]),
 				 false);
 		break;
 	case TCMU_CMD_REMOVED_DEVICE:
 		reply_cmd = TCMU_CMD_REMOVED_DEVICE_DONE;
-		remove_device(ctx, buf, false);
+		device_remove(ctx, buf, false);
 		ret = 0;
 		break;
 	case TCMU_CMD_RECONFIG_DEVICE:
@@ -393,63 +393,172 @@ bool tcmu_dev_oooc_supported(struct tcmu_device* dev)
 	return dev->map->flags & TCMU_MAILBOX_FLAG_CAP_OOOC;
 }
 
-static int add_device(struct tcmulib_context *ctx, char *dev_name,
-		      char *cfgstring, bool reopen)
+/* Read a size_t from a file.  Returns -1 on error. */
+static ssize_t read_size(const char *filename)
 {
-	struct tcmu_device *dev;
-	struct tcmu_mailbox *mb;
-	char str_buf[256];
-	bool reset_supp = true;
 	int fd;
-	int ret;
-	char *ptr, *oldptr;
-	char *reason = NULL;
-	int len;
+	int len, rc;
+	char buf[256], *endbuf;
+	ssize_t ret;
 
-	dev = calloc(1, sizeof(*dev));
-	if (!dev) {
-		tcmu_err("calloc failed in add_device\n");
-		return -ENOMEM;
+	fd = open(filename, O_RDONLY);
+	if (fd == -1)
+		goto err;
+
+	len = read(fd, buf, sizeof(buf)-1);
+	rc = close(fd);
+	if (len <= 0 || rc == -1)
+		goto err;
+
+	buf[len] = '\0'; /* null-terminate */
+	ret = strtoull(buf, &endbuf, 0);
+	if (buf == endbuf || ret == ULLONG_MAX)
+		goto err;
+
+	return ret;
+
+err:
+	tcmu_warn("cannot read size from %s\n", filename);
+	return -1;
+}
+
+/* Extract configuration parameters into dev. */
+static bool device_parse_cfg(struct tcmu_device *dev,
+			     const char *dev_name, const char *cfgstring)
+{
+	int len;
+	const char *ptr, *oldptr;
+
+	len = snprintf(dev->dev_name, sizeof(dev->dev_name), "%s", dev_name);
+	if (len >= sizeof(dev->dev_name)) {
+		tcmu_err("device name too long for tcmu_device\n");
+		goto err_recompile;
 	}
 
-	snprintf(dev->dev_name, sizeof(dev->dev_name), "%s", dev_name);
-
+	/* Check valid cfgstring */
 	oldptr = cfgstring;
 	ptr = strchr(oldptr, '/');
-	if (!ptr) {
-		tcmu_err("invalid cfgstring\n");
-		goto err_free;
-	}
-
-	if (strncmp(cfgstring, "tcm-user", ptr-oldptr)) {
-		tcmu_err("invalid cfgstring\n");
-		goto err_free;
-	}
+	if (!ptr)
+		goto err_badcfg;
+	if (strncmp(cfgstring, "tcm-user", ptr-oldptr))
+		goto err_badcfg;
 
 	/* Get HBA name */
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
-	if (!ptr) {
-		tcmu_err("invalid cfgstring\n");
-		goto err_free;
-	}
+	if (!ptr)
+		goto err_badcfg;
 	len = ptr-oldptr;
-	snprintf(dev->tcm_hba_name, sizeof(dev->tcm_hba_name), "user_%.*s", len, oldptr);
+	len = snprintf(dev->tcm_hba_name, sizeof(dev->tcm_hba_name), "user_%.*s", len, oldptr);
+	if (len >= sizeof(dev->tcm_hba_name)) {
+		tcmu_err("hba name too long for tcmu_device\n");
+		goto err_recompile;
+	}
 
 	/* Get device name */
 	oldptr = ptr+1;
 	ptr = strchr(oldptr, '/');
-	if (!ptr) {
-		tcmu_err("invalid cfgstring\n");
-		goto err_free;
-	}
+	if (!ptr)
+		goto err_badcfg;
 	len = ptr-oldptr;
-	snprintf(dev->tcm_dev_name, sizeof(dev->tcm_dev_name), "%.*s", len, oldptr);
+	len = snprintf(dev->tcm_dev_name, sizeof(dev->tcm_dev_name), "%.*s", len, oldptr);
+	if (len >= sizeof(dev->tcm_dev_name)) {
+		tcmu_err("tcm device name too long for tcmu_device\n");
+		goto err_recompile;
+	}
 
 	/* The rest is the handler-specific cfgstring */
 	oldptr = ptr+1;
-	ptr = strchr(oldptr, '/');
-	snprintf(dev->cfgstring, sizeof(dev->cfgstring), "%s", oldptr);
+	len = snprintf(dev->cfgstring, sizeof(dev->cfgstring), "%s", oldptr);
+	if (len >= sizeof(dev->cfgstring)) {
+		tcmu_warn("additional handler cfgstring was truncated\n");
+		/* not a terminal error. snprintf() will null-terminate */
+	}
+	return true;
+
+err_badcfg:
+	tcmu_err("invalid cfgstring: expecting \"tcm-user/<hba_name>/<tcm_device_name>/<handler_name_config>\"\n");
+err_recompile: /* consider expanding string lengths in dev */
+	return false;
+}
+
+static void device_close_shm(struct tcmu_device *dev)
+{
+	int ret;
+
+	ret = close(dev->fd);
+	if (ret != 0) {
+		tcmu_err("could not close device fd for %s: %d\n", dev->dev_name, errno);
+	}
+	ret = munmap(dev->map, dev->map_len);
+	if (ret != 0) {
+		tcmu_err("could not unmap device %s: %d\n", dev->dev_name, errno);
+	}
+}
+
+static bool device_open_shm(struct tcmu_device *dev)
+{
+	size_t mmap_size;
+	char *mmap_name;
+	off_t mmap_offset;
+
+	/* get filename, size and offset */
+	mmap_name = tcmu_dev_get_memory_info(dev, NULL, &mmap_size, &mmap_offset);
+	if (!mmap_name)
+		goto err_fail;
+
+	/* cache the map size */
+	dev->map_len = mmap_size;
+
+	/* open the map */
+	dev->fd = open(mmap_name, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	if (dev->fd == -1) {
+		tcmu_err("could not open %s\n", mmap_name);
+		goto err_mmap_name;
+	}
+
+	/* bring the map into memory */
+	dev->map = mmap(NULL, dev->map_len, PROT_READ|PROT_WRITE, MAP_SHARED, dev->fd, mmap_offset);
+	if (dev->map == MAP_FAILED) {
+		tcmu_err("could not mmap %s\n", mmap_name);
+		goto err_fd_close;
+	}
+
+	if (dev->map->version != KERN_IFACE_VER) {
+		tcmu_err("Kernel interface version mismatch: wanted %d got %d\n",
+			KERN_IFACE_VER, dev->map->version);
+		goto err_munmap;
+	}
+
+	free(mmap_name);
+	return true;
+
+err_munmap:
+	munmap(dev->map, dev->map_len);
+err_fd_close:
+	close(dev->fd);
+err_mmap_name:
+	free(mmap_name);
+err_fail:
+	return false;
+}
+
+static int device_add(struct tcmulib_context *ctx, char *dev_name,
+		      char *cfgstring, bool reopen)
+{
+	struct tcmu_device *dev;
+	char *reason = NULL;
+	int rc;
+	bool reset_supp = true;
+
+	dev = calloc(1, sizeof(*dev));
+	if (!dev) {
+		tcmu_err("calloc failed for device_add()\n");
+		return -ENOMEM;
+	}
+
+	if (!device_parse_cfg(dev, dev_name, cfgstring))
+		goto err_free;
 
 	dev->handler = find_handler(ctx, dev->cfgstring);
 	if (!dev->handler) {
@@ -473,72 +582,33 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 		 * from a fresh slate. We will unblock below when we are
 		 * completely setup.
 		 */
-		ret = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
+		rc = tcmu_cfgfs_dev_exec_action(dev, "block_dev", 1);
 		/*
 		 * As long as the block_dev file existed, try to reset
 		 * just in case the kernel was in a invald state.
 		 */
-		if (ret == -ENOENT) {
+		if (rc == -ENOENT) {
 			reset_supp = false;
 		} else {
 			/*
 			 * Force a retry of the outstanding commands.
 			 */
-			ret = tcmu_cfgfs_dev_exec_action(dev, "reset_ring", 1);
-			if (ret)
-				tcmu_dev_err(dev, "Could not reset ring %d.\n", ret);
+			rc = tcmu_cfgfs_dev_exec_action(dev, "reset_ring", 1);
+			if (rc)
+				tcmu_dev_err(dev, "Could not reset ring %d.\n", rc);
 		}
 	}
 
-	snprintf(str_buf, sizeof(str_buf), "/dev/%s", dev_name);
-
-	dev->fd = open(str_buf, O_RDWR | O_NONBLOCK | O_CLOEXEC);
-	if (dev->fd == -1) {
-		tcmu_err("could not open %s\n", str_buf);
+	if (!device_open_shm(dev))
 		goto err_unblock;
-	}
 
-	snprintf(str_buf, sizeof(str_buf), "/sys/class/uio/%s/maps/map0/size", dev->dev_name);
-	fd = open(str_buf, O_RDONLY);
-	if (fd == -1) {
-		tcmu_err("could not open %s\n", str_buf);
-		goto err_fd_close;
-	}
-
-	ret = read(fd, str_buf, sizeof(str_buf));
-	close(fd);
-	if (ret <= 0) {
-		tcmu_err("could not read size of map0\n");
-		goto err_fd_close;
-	}
-	str_buf[ret-1] = '\0'; /* null-terminate and chop off the \n */
-
-	dev->map_len = strtoull(str_buf, NULL, 0);
-	if (dev->map_len == ULLONG_MAX) {
-		tcmu_err("could not get map length\n");
-		goto err_fd_close;
-	}
-
-	dev->map = mmap(NULL, dev->map_len, PROT_READ|PROT_WRITE, MAP_SHARED, dev->fd, 0);
-	if (dev->map == MAP_FAILED) {
-		tcmu_err("could not mmap: %m\n");
-		goto err_fd_close;
-	}
-
-	mb = dev->map;
-	if (mb->version != KERN_IFACE_VER) {
-		tcmu_err("Kernel interface version mismatch: wanted %d got %d\n",
-			KERN_IFACE_VER, mb->version);
-		goto err_munmap;
-	}
-
-	dev->cmd_tail = mb->cmd_tail;
+	dev->cmd_tail = dev->map->cmd_tail;
 	dev->ctx = ctx;
 
-	ret = dev->handler->added(dev);
-	if (ret != 0) {
+	rc = dev->handler->added(dev);
+	if (rc != 0) {
 		tcmu_err("handler open failed for %s\n", dev->dev_name);
-		goto err_munmap;
+		goto err_closeshm;
 	}
 
 	darray_append(ctx->devices, dev);
@@ -548,16 +618,13 @@ static int add_device(struct tcmulib_context *ctx, char *dev_name,
 
 	return 0;
 
-err_munmap:
-	munmap(dev->map, dev->map_len);
-err_fd_close:
-	close(dev->fd);
+err_closeshm:
+	device_close_shm(dev);
 err_unblock:
 	if (reopen && reset_supp)
 		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 err_free:
 	free(dev);
-
 	return -ENOENT;
 }
 
@@ -568,15 +635,15 @@ static void close_devices(struct tcmulib_context *ctx)
 
 	darray_foreach_reverse(dev_ptr, ctx->devices) {
 		dev = *dev_ptr;
-		remove_device(ctx, dev->dev_name, true);
+		device_remove(ctx, dev->dev_name, true);
 	}
 }
 
-static void remove_device(struct tcmulib_context *ctx, char *dev_name,
+static void device_remove(struct tcmulib_context *ctx, char *dev_name,
 			  bool should_block)
 {
 	struct tcmu_device *dev;
-	int i, ret;
+	int i;
 
 	dev = lookup_dev_by_name(ctx, dev_name, &i);
 	if (!dev) {
@@ -598,14 +665,7 @@ static void remove_device(struct tcmulib_context *ctx, char *dev_name,
 
 	dev->handler->removed(dev);
 
-	ret = close(dev->fd);
-	if (ret != 0) {
-		tcmu_err("could not close device fd %s: %d\n", dev_name, errno);
-	}
-	ret = munmap(dev->map, dev->map_len);
-	if (ret != 0) {
-		tcmu_err("could not unmap device %s: %d\n", dev_name, errno);
-	}
+	device_close_shm(dev);
 
 	if (should_block)
 		tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
@@ -689,7 +749,7 @@ static int open_devices(struct tcmulib_context *ctx)
 		if (read_uio_name(dirent_list[i]->d_name, &dev_name))
 			continue;
 
-		if (add_device(ctx, dirent_list[i]->d_name, dev_name, true) < 0) {
+		if (device_add(ctx, dirent_list[i]->d_name, dev_name, true) < 0) {
 			free (dev_name);
 			continue;
 		}
@@ -922,6 +982,64 @@ bool tcmu_dev_get_unmap_enabled(struct tcmu_device *dev)
 int tcmu_dev_get_fd(struct tcmu_device *dev)
 {
 	return dev->fd;
+}
+
+/**
+ * tcmu_dev_get_memory_info - retrieve information about tcmu's shared
+ * memory block.  If the memory is mapped to another address (e.g., in
+ * another process) then the information in struct iovec can be converted
+ * using these values.  Returns the filename of the mmap() that fd uses, or
+ * NULL if information is not available.  The caller must free() the
+ * returned filename.
+ * @dev: tcmu device
+ * @base: receives the base address of the shared memory region
+ * @len: receives the size of the shared memory region
+ * @offset: receives the offset within fd for mmap() (conventionally 0).
+ */
+char *
+tcmu_dev_get_memory_info(struct tcmu_device *dev, void **base,
+			 size_t *len, off_t *offset)
+{
+	char *mmap_name;
+	const char *namefmt = "/dev/%s";
+	const char *sizefmt = "/sys/class/uio/%s/maps/map0/size";
+
+	if (asprintf(&mmap_name, namefmt, dev->dev_name) == -1) {
+		tcmu_err("cannot construct device map filename\n");
+		goto err_fail;
+	}
+	if (base)
+		*base = dev->map;
+	if (len) {
+		if (dev->map_len != 0) {
+			/* cached */
+			*len = dev->map_len;
+		} else {
+			/* get length of map from file */
+			ssize_t size;
+			char *size_name;
+			
+			if (asprintf(&size_name, sizefmt, dev->dev_name) == -1) {
+				tcmu_err("cannot construct device map size filename\n");
+				goto err_free;
+			}
+			size = read_size(size_name);
+			free(size_name);
+			if (size == -1) {
+				tcmu_err("unable to read device map0 size\n");
+				goto err_free;
+			}
+			*len = size;
+		}
+	}
+	if (offset)
+		*offset = 0;
+	return mmap_name;
+
+err_free:
+	free(mmap_name);
+err_fail:
+	return NULL;
 }
 
 char *tcmu_dev_get_cfgstring(struct tcmu_device *dev)
