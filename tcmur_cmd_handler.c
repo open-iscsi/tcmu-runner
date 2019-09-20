@@ -1682,8 +1682,10 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	ret = aio_request_schedule(dev, tcmur_cmd, caw_work_fn,
 				   tcmur_cmd_complete);
-	if (ret == TCMU_STS_ASYNC_HANDLED)
+	if (ret == TCMU_STS_ASYNC_HANDLED) {
+		pthread_mutex_unlock(&rdev->caw_lock);
 		return TCMU_STS_ASYNC_HANDLED;
+	}
 
 	pthread_mutex_unlock(&rdev->caw_lock);
 	tcmur_cmd_state_free(tcmur_cmd);
