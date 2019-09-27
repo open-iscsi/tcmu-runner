@@ -183,6 +183,9 @@ static void log_output(struct log_buf *logbuf, int pri, const char *msg,
 {
 	char timestamp[TCMU_TIME_STRING_BUFLEN] = {0, };
 
+	if (!output)
+		return;
+
 	if (time_string_now(timestamp) < 0)
 		return;
 
