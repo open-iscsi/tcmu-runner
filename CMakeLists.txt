@@ -68,6 +68,7 @@ target_link_libraries(tcmu
   ${LIBNL_LIB}
   ${LIBNL_GENL_LIB}
   ${GLIB_LIBRARIES}
+  ${PTHREAD}
   ${TCMALLOC_LIB}
   )
 install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
