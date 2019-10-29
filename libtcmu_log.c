@@ -521,6 +521,8 @@ static void *log_thread_start(void *arg)
 {
 	tcmu_logbuf = arg;
 
+	tcmu_set_thread_name("logger", NULL);
+
 	pthread_cleanup_push(log_cleanup, arg);
 
 	while (1) {

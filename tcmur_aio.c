@@ -145,6 +145,8 @@ static void *io_work_queue(void *arg)
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int ret;
 
+	tcmu_set_thread_name("aio", dev);
+
 	while (1) {
 		struct tcmu_work *work;
 		void *data;
