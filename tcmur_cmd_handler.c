@@ -86,7 +86,7 @@ void tcmur_cmd_complete(struct tcmu_device *dev, void *data, int rc)
 }
 
 static void tcmur_cmd_iovec_reset(struct tcmur_cmd *tcmur_cmd,
-				  size_t data_length)
+				  uint64_t data_length)
 {
 	tcmur_cmd->iovec->iov_base = tcmur_cmd->iov_base_copy;
 	tcmur_cmd->iovec->iov_len = data_length;
@@ -98,7 +98,7 @@ static void tcmur_cmd_state_free(struct tcmur_cmd *tcmur_cmd)
 }
 
 static int tcmur_cmd_state_init(struct tcmur_cmd *tcmur_cmd, int state_length,
-				size_t data_length)
+				uint64_t data_length)
 {
 	void *state;
 	int iov_length = 0;
@@ -130,10 +130,10 @@ static int tcmur_cmd_state_init(struct tcmur_cmd *tcmur_cmd, int state_length,
 static inline int check_iovec_length(struct tcmu_device *dev,
 				     struct tcmulib_cmd *cmd, uint32_t sectors)
 {
-	size_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
+	uint64_t iov_length = tcmu_iovec_length(cmd->iovec, cmd->iov_cnt);
 
 	if (iov_length != tcmu_lba_to_byte(dev, sectors)) {
-		tcmu_dev_err(dev, "iov len mismatch: iov len %zu, xfer len %u, block size %u\n",
+		tcmu_dev_err(dev, "iov len mismatch: iov len %"PRIu64", xfer len %u, block size %u\n",
 			     iov_length, sectors, tcmu_dev_get_block_size(dev));
 		return TCMU_STS_HW_ERR;
 	}
@@ -458,7 +458,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	uint8_t *cdb = origcmd->cdb;
-	size_t copied, data_length = tcmu_cdb_get_xfer_length(cdb);
+	uint64_t copied, data_length = tcmu_cdb_get_xfer_length(cdb);
 	uint8_t *par;
 	uint16_t dl, bddl;
 	int ret;
@@ -498,7 +498,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	 * The PARAMETER LIST LENGTH should be greater than eight,
 	 */
 	if (data_length < 8) {
-		tcmu_dev_err(dev, "Illegal parameter list length %zu and it should be >= 8\n",
+		tcmu_dev_err(dev, "Illegal parameter list length %"PRIu64" and it should be >= 8\n",
 			     data_length);
 		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 	}
@@ -526,7 +526,7 @@ static int handle_unmap(struct tcmu_device *dev, struct tcmulib_cmd *origcmd)
 	dl = be16toh(*((uint16_t *)&par[0]));
 	bddl = be16toh(*((uint16_t *)&par[2]));
 
-	tcmu_dev_dbg(dev, "Data-Out Buffer Length: %zu, dl: %hu, bddl: %hu\n",
+	tcmu_dev_dbg(dev, "Data-Out Buffer Length: %"PRIu64", dl: %hu, bddl: %hu\n",
 		     data_length, dl, bddl);
 
 	/*
@@ -712,7 +712,7 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint64_t start_lba = tcmu_cdb_get_lba(cdb);
 	uint64_t write_lbas;
-	size_t max_xfer_length, length = 1024 * 1024;
+	uint64_t max_xfer_length, length = 1024 * 1024;
 	struct write_same *write_same;
 	int i, ret;
 
@@ -863,7 +863,7 @@ static int handle_write_verify(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	uint8_t *cdb = cmd->cdb;
-	size_t length = tcmu_lba_to_byte(dev, tcmu_cdb_get_xfer_length(cdb));
+	uint64_t length = tcmu_lba_to_byte(dev, tcmu_cdb_get_xfer_length(cdb));
 	struct write_verify_state *state;
 	int i, ret, state_len;
 
@@ -1217,7 +1217,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 				      struct xcopy *xcopy)
 {
 	uint8_t *cdb = cmd->cdb;
-	size_t data_length = tcmu_cdb_get_xfer_length(cdb);
+	uint64_t data_length = tcmu_cdb_get_xfer_length(cdb);
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
 	uint32_t inline_dl;
@@ -1318,7 +1318,7 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	 * + parameter list header length
 	 */
 	if (data_length < (XCOPY_HDR_LEN + tdll + sdll + inline_dl)) {
-		tcmu_dev_err(dev, "Illegal list length: length from CDB is %zu,"
+		tcmu_dev_err(dev, "Illegal list length: length from CDB is %"PRIu64","
 			     " but here the length is %u\n",
 			     data_length, tdll + sdll + inline_dl);
 		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
@@ -1484,7 +1484,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	uint8_t *cdb = cmd->cdb;
-	size_t data_length = tcmu_cdb_get_xfer_length(cdb);
+	uint64_t data_length = tcmu_cdb_get_xfer_length(cdb);
 	uint32_t max_sectors, src_max_sectors, dst_max_sectors;
 	struct xcopy *xcopy, xcopy_parse;
 	int ret;
@@ -1509,7 +1509,7 @@ static int handle_xcopy(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	 * that contains the LIST IDENTIFIER field.
 	 */
 	if (data_length < XCOPY_HDR_LEN) {
-		tcmu_dev_err(dev, "Illegal parameter list: length %zu < hdr_len %u\n",
+		tcmu_dev_err(dev, "Illegal parameter list: length %"PRIu64" < hdr_len %u\n",
 			     data_length, XCOPY_HDR_LEN);
 		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 	}
@@ -1652,7 +1652,7 @@ static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
-	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
+	uint64_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	uint8_t sectors = cmd->cdb[13];
 	int ret;
@@ -1696,7 +1696,7 @@ static int tcmur_caw_fn(struct tcmu_device *dev, void *data)
 	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 	tcmur_caw_fn_t caw_fn = tcmur_cmd->cmd_state;
 	uint64_t off = tcmu_cdb_to_byte(dev, cmd->cdb);
-	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
+	uint64_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 
 	return caw_fn(dev, tcmur_cmd, off, half, cmd->iovec, cmd->iov_cnt);
 }
@@ -1906,7 +1906,7 @@ static int handle_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 /* FORMAT UNIT */
 struct format_unit_state {
-	size_t length;
+	uint64_t length;
 	off_t offset;
 	uint32_t done_blocks;
 };
@@ -1945,7 +1945,7 @@ static void handle_format_unit_cbk(struct tcmu_device *dev,
 	}
 
 	if (state->done_blocks < dev->num_lbas) {
-		size_t left = tcmu_lba_to_byte(dev,
+		uint64_t left = tcmu_lba_to_byte(dev,
 					       dev->num_lbas - state->done_blocks);
 		if (left < tcmur_cmd->requested)
 			tcmur_cmd->requested = left;
@@ -1979,7 +1979,7 @@ free_state:
 static int handle_format_unit(struct tcmu_device *dev, struct tcmulib_cmd *cmd) {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
-	size_t max_xfer_length, length = 1024 * 1024;
+	uint64_t max_xfer_length, length = 1024 * 1024;
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint64_t num_lbas = tcmu_dev_get_num_lbas(dev);
 	int ret;
