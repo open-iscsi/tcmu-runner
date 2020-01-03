@@ -712,7 +712,7 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	uint32_t block_size = tcmu_dev_get_block_size(dev);
 	uint64_t start_lba = tcmu_cdb_get_lba(cdb);
 	uint64_t write_lbas;
-	size_t max_xfer_length, length = 1024 * 1024;
+	uint64_t max_xfer_length, length = 1024 * 1024;
 	struct write_same *write_same;
 	int i, ret;
 
