@@ -28,7 +28,7 @@
 static struct list_head tpg_recovery_list = LIST_HEAD_INIT(tpg_recovery_list);
 /*
  * Locking ordering:
- * rdev->state_lock
+ * rdev->state_lock (see tcmur_device.h for more state_lock restrictions)
  * tpg_recovery_lock
  */
 static pthread_mutex_t tpg_recovery_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -276,32 +276,23 @@ done:
 	return NULL;
 }
 
-int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
+int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev,
+				  struct list_head *alua_list)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
-	struct list_head alua_list;
 	struct alua_grp *group;
 	struct tgt_port_grp *tpg;
 	struct tgt_port *port, *enabled_port = NULL;
-	int ret;
+	int ret = 0;
 
 	pthread_mutex_lock(&tpg_recovery_lock);
-
-	list_head_init(&alua_list);
-	ret = tcmu_get_alua_grps(dev, &alua_list);
-	if (ret) {
-		/* User is deleting device so fast fail */
-		tcmu_dev_warn(dev, "Could not find any tpgs.\n");
-		goto done;
-	}
-
 	/*
 	 * This assumes a tcmu_dev is only exported though one local
 	 * enabled tpg. The kernel members file only returns
 	 * the one and runner is not passed info about which
 	 * tpg/port IO was received on.
 	 */
-	list_for_each(&alua_list, group, entry) {
+	list_for_each(alua_list, group, entry) {
 		list_for_each(&group->tgt_ports, port, entry) {
 			if (port->enabled)
 				enabled_port = port;
@@ -340,7 +331,6 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 add_to_list:
 	list_add(&tpg->devs, &rdev->recovery_entry);
 done:
-	tcmu_release_alua_grps(&alua_list);
 	pthread_mutex_unlock(&tpg_recovery_lock);
 	return ret;
 }

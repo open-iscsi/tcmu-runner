@@ -56,7 +56,18 @@ struct tcmur_device {
 	pthread_t lock_thread;
 	pthread_cond_t lock_cond;
 
-	/* General lock for lock state, thread, dev state, etc */
+	/*
+	 * General lock for lock state, thread, dev state, etc.
+	 *
+	 * Locking order:
+	 * 1. Kernel configfs lock
+	 * 2. state_lock
+	 * 3. tpg_recovery_lock
+	 *
+	 * On deletion the kernel will grab the configfs lock then call into
+	 * userspace, so we must not hold the state_lock then perform a configfs
+	 * operation.
+	 * */
 	pthread_mutex_t state_lock;
 	int pending_uas;
 

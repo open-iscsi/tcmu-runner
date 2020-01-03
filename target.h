@@ -12,6 +12,7 @@
 #include "ccan/list/list.h"
 
 struct tgt_port_grp;
+struct list_head;
 
 struct tgt_port {
 	uint16_t rel_port_id;
@@ -31,6 +32,7 @@ struct tgt_port {
 
 void tcmu_free_tgt_port(struct tgt_port *port);
 struct tgt_port *tcmu_get_tgt_port(char *member_str);
-int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev);
+int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev,
+				  struct list_head *alua_list);
 
 #endif
