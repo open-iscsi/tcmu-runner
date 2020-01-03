@@ -1,18 +1,10 @@
 /*
- * Copyright 2017, Red Hat, Inc.
+ * Copyright (c) 2017 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
-*/
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
 
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -21,6 +13,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <inttypes.h>
 
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
@@ -28,17 +21,22 @@
 
 #define CFGFS_BUF_SIZE 4096
 
-int tcmu_get_cfgfs_int(const char *path)
+int tcmu_cfgfs_get_int(const char *path)
 {
 	int fd;
 	char buf[16];
 	ssize_t ret;
-	unsigned int val;
+	unsigned long val;
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read attribute %s: %s\n",
-			 path, strerror(errno));
+		if (errno == ENOENT) {
+			tcmu_err("Kernel does not support configfs file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open configfs file %s: %s\n",
+				 path, strerror(errno));
+		}
 		return -errno;
 	}
 
@@ -51,30 +49,118 @@ int tcmu_get_cfgfs_int(const char *path)
 	}
 
 	val = strtoul(buf, NULL, 0);
-	if (val == ULONG_MAX) {
-		tcmu_err("could not convert string to value\n");
+	if (val > INT_MAX ) {
+		tcmu_err("could not convert string %s to value\n", buf);
 		return -EINVAL;
 	}
 
 	return val;
 }
 
-int tcmu_get_attribute(struct tcmu_device *dev, const char *name)
+int tcmu_cfgfs_dev_get_attr_int(struct tcmu_device *dev, const char *name)
 {
 	char path[PATH_MAX];
 
 	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/attrib/%s",
 		 dev->tcm_hba_name, dev->tcm_dev_name, name);
-	return tcmu_get_cfgfs_int(path);
+	return tcmu_cfgfs_get_int(path);
 }
 
+uint64_t tcmu_cfgfs_dev_get_info_u64(struct tcmu_device *dev, const char *name,
+				     int *fn_ret)
+{
+	int fd;
+	char path[PATH_MAX];
+	char buf[CFGFS_BUF_SIZE];
+	ssize_t ret;
+	char *rover;
+	char *search_pattern;
+	uint64_t val;
+
+	*fn_ret = 0;
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/info",
+		 dev->tcm_hba_name, dev->tcm_dev_name);
+
+	fd = open(path, O_RDONLY);
+	if (fd == -1) {
+		if (errno == ENOENT) {
+			tcmu_err("Kernel does not support device info file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open device info file %s: %s\n",
+				 path, strerror(errno));
+		}
+		*fn_ret = -errno;
+		return 0;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	close(fd);
+	if (ret == -1) {
+		tcmu_err("Could not read configfs to read dev info: %s\n",
+			 strerror(errno));
+		*fn_ret = -EINVAL;
+		return 0;
+	} else if (ret == 0) {
+		tcmu_err("Invalid device info.\n");
+		*fn_ret = -EINVAL;
+		return 0;
+	}
+	buf[ret-1] = '\0'; /* paranoid? Ensure null terminated */
+
+	if (asprintf(&search_pattern, " %s: ", name) < 0) {
+		tcmu_err("Could not create search string.\n");
+		*fn_ret = -ENOMEM;
+		return 0;
+	}
+
+	rover = strstr(buf, search_pattern);
+	free(search_pattern);
+	if (!rover) {
+		tcmu_err("Could not find \" %s: \" in %s: %s\n", name, path,
+			 strerror(errno));
+		*fn_ret = -EINVAL;
+		return 0;
+	}
+	rover += strlen(name) + 3; /* name plus ':' and spaces before/after */
+
+	val = strtoull(rover, NULL, 0);
+	if (val == ULLONG_MAX) {
+		tcmu_err("Could not get %s: %s\n", name, strerror(errno));
+		*fn_ret = -EINVAL;
+		return 0;
+	}
+
+	return val;
+}
+
+int tcmu_cfgfs_dev_set_ctrl_u64(struct tcmu_device *dev, const char *key,
+				uint64_t val)
+{
+	char path[PATH_MAX];
+	char buf[CFGFS_BUF_SIZE];
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/control",
+		 dev->tcm_hba_name, dev->tcm_dev_name);
+	snprintf(buf, sizeof(buf), "%s=%"PRIu64"", key, val);
+
+	return tcmu_cfgfs_set_str(path, buf, strlen(buf) + 1);
+}
+
+int tcmu_cfgfs_mod_param_set_u32(const char *name, uint32_t val)
+{
+	char path[PATH_MAX];
+
+	snprintf(path, sizeof(path), CFGFS_MOD_PARAM"/%s", name);
+	return tcmu_cfgfs_set_u32(path, val);
+}
 
 /*
  * Return a string that contains the device's WWN, or NULL.
  *
  * Callers must free the result with free().
  */
-char *tcmu_get_wwn(struct tcmu_device *dev)
+char *tcmu_cfgfs_dev_get_wwn(struct tcmu_device *dev)
 {
 	int fd;
 	char path[PATH_MAX];
@@ -88,8 +174,13 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read unit serial: %s\n",
-			 strerror(errno));
+		if (errno == ENOENT) {
+			tcmu_err("Kernel does not support unit serial file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open unit serial file %s: %s\n",
+				 path, strerror(errno));
+		}
 		return NULL;
 	}
 
@@ -98,6 +189,9 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 	if (ret == -1) {
 		tcmu_err("Could not read configfs to read unit serial: %s\n",
 			 strerror(errno));
+		return NULL;
+	} else if (ret == 0) {
+		tcmu_err("Invalid VPD serial number.\n");
 		return NULL;
 	}
 
@@ -115,62 +209,23 @@ char *tcmu_get_wwn(struct tcmu_device *dev)
 	return ret_buf;
 }
 
-long long tcmu_get_device_size(struct tcmu_device *dev)
+char *tcmu_cfgfs_get_str(const char *path)
 {
-	int fd;
-	char path[PATH_MAX];
-	char buf[CFGFS_BUF_SIZE];
-	ssize_t ret;
-	char *rover;
-	unsigned long long size;
-
-	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/info",
-		 dev->tcm_hba_name, dev->tcm_dev_name);
-
-	fd = open(path, O_RDONLY);
-	if (fd == -1) {
-		tcmu_err("Could not open configfs to read dev info: %s\n",
-			 strerror(errno));
-		return -EINVAL;
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-	close(fd);
-	if (ret == -1) {
-		tcmu_err("Could not read configfs to read dev info: %s\n",
-			 strerror(errno));
-		return -EINVAL;
-	}
-	buf[sizeof(buf)-1] = '\0'; /* paranoid? Ensure null terminated */
-
-	rover = strstr(buf, " Size: ");
-	if (!rover) {
-		tcmu_err("Could not find \" Size: \" in %s: %s\n", path,
-			 strerror(errno));
-		return -EINVAL;
-	}
-	rover += 7; /* get to the value */
-
-	size = strtoull(rover, NULL, 0);
-	if (size == ULLONG_MAX) {
-		tcmu_err("Could not get size: %s\n", strerror(errno));
-		return -EINVAL;
-	}
-
-	return size;
-}
-
-char *tcmu_get_cfgfs_str(const char *path)
-{
-	int fd;
+	int fd, n;
 	char buf[CFGFS_BUF_SIZE];
 	ssize_t ret;
 	char *val;
 
+	memset(buf, 0, sizeof(buf));
 	fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to read attribute %s: %s\n",
-			  path, strerror(errno));
+		if (errno == ENOENT) {
+			tcmu_err("Kernel does not support configfs file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open configfs file %s: %s\n",
+				 path, strerror(errno));
+		}
 		return NULL;
 	}
 
@@ -185,8 +240,37 @@ char *tcmu_get_cfgfs_str(const char *path)
 	if (ret == 0)
 		return NULL;
 
+	/*
+	 * Some files like members will terminate each member/line with a null
+	 * char. Except for the last one, replace it with '\n' so parsers will
+	 * just see an empty member.
+	 */
+	if (ret != strlen(buf)) {
+		do {
+			n = strlen(buf);
+			buf[n] = '\n';
+		} while (n < ret);
+	}
+
+	/*
+	 * Some files like members ends with a null char, but other files like
+	 * the alua ones end with a newline.
+	 */
 	if (buf[ret - 1] == '\n')
 		buf[ret - 1] = '\0';
+
+	if (buf[ret - 1] != '\0') {
+		if (ret >= CFGFS_BUF_SIZE) {
+			tcmu_err("Invalid cfgfs file %s: not enough space for ending null char.\n",
+				 path);
+			return NULL;
+		}
+		/*
+		 * In case the file does "return sprintf()" with no ending
+		 * newline add the ending null so we will not crash below.
+		 */
+		buf[ret] = '\0';
+	}
 
 	val = strdup(buf);
 	if (!val) {
@@ -198,15 +282,20 @@ char *tcmu_get_cfgfs_str(const char *path)
 	return val;
 }
 
-int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len)
+int tcmu_cfgfs_set_str(const char *path, const char *val, int val_len)
 {
 	int fd;
 	ssize_t ret;
 
 	fd = open(path, O_WRONLY);
 	if (fd == -1) {
-		tcmu_err("Could not open configfs to write attribute %s: %s\n",
-			 path, strerror(errno));
+		if (errno == ENOENT) {
+			tcmu_err("Kernel does not support configfs file %s.\n",
+				 path);
+		} else {
+			tcmu_err("Could not open configfs file %s: %s\n",
+				 path, strerror(errno));
+		}
 		return -errno;
 	}
 
@@ -221,10 +310,24 @@ int tcmu_set_cfgfs_str(const char *path, const char *val, int val_len)
 	return 0;
 }
 
-int tcmu_set_cfgfs_ul(const char *path, unsigned long val)
+int tcmu_cfgfs_set_u32(const char *path, uint32_t val)
 {
 	char buf[20];
 
-	sprintf(buf, "%lu", val);
-	return tcmu_set_cfgfs_str(path, buf, strlen(buf) + 1);
+	sprintf(buf, "%"PRIu32"", val);
+	return tcmu_cfgfs_set_str(path, buf, strlen(buf) + 1);
+}
+
+int tcmu_cfgfs_dev_exec_action(struct tcmu_device *dev, const char *name,
+			       uint32_t val)
+{
+	char path[PATH_MAX];
+	int ret;
+
+	snprintf(path, sizeof(path), CFGFS_CORE"/%s/%s/action/%s",
+		 dev->tcm_hba_name, dev->tcm_dev_name, name);
+	tcmu_dev_dbg(dev, "executing action %s\n", name);
+	ret = tcmu_cfgfs_set_u32(path, val);
+	tcmu_dev_dbg(dev, "action %s done\n", name);
+	return ret;
 }

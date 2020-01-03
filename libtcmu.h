@@ -1,18 +1,10 @@
 /*
- * Copyright 2014, Red Hat, Inc.
+ * Copyright (c) 2014 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
-*/
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
 
 /*
  * This header defines the libtcmu API.
@@ -72,6 +64,8 @@ struct tcmulib_handler {
 
 	int (*reconfig)(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg);
 
+	bool (*update_logdir)(void);
+
 	/* Per-device added/removed callbacks */
 	int (*added)(struct tcmu_device *dev);
 	void (*removed)(struct tcmu_device *dev);
@@ -110,16 +104,21 @@ int tcmulib_master_fd_ready(struct tcmulib_context *ctx);
 
 /*
  * When a device fd becomes ready, call this to get SCSI cmd info in
- * 'cmd' struct.
+ * 'cmd' struct. libtcmu will allocate hm_cmd_size bytes for each cmd
+ * that can be accessed via cmd->hm_private pointer. The memory at
+ * hm_private will be freed in tcmulib_command_complete.
+ *
  * Repeat until it returns false.
  */
-struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev);
+struct tcmulib_cmd *tcmulib_get_next_command(struct tcmu_device *dev,
+					     int hm_cmd_size);
 
 /*
  * Mark the command as complete.
  * Must be called before get_next_command() is called again.
  *
- * result is scsi status, or TCMU_NOT_HANDLED or TCMU_ASYNC_HANDLED.
+ * result is TCMU_STS value from libtcmu_common.h. If TCMU_STS_PASSTHROUGH_ERR
+ * is returned then the caller must setup the tcmulib_cmd->sense_buf.
  */
 void tcmulib_command_complete(struct tcmu_device *dev, struct tcmulib_cmd *cmd, int result);
 
@@ -131,16 +130,6 @@ void tcmulib_processing_complete(struct tcmu_device *dev);
 
 /* Clean up loose ends when exiting */
 void tcmulib_close(struct tcmulib_context *ctx);
-
-/* kick start command processing thread */
-int tcmulib_start_cmdproc_thread(struct tcmu_device *dev,
-				 void *(*thread_fn)(void *));
-
-/* cleanup command processing thread for a given device */
-void tcmulib_cleanup_cmdproc_thread(struct tcmu_device *dev);
-
-/* cleanup all (devices) command processing threads */
-void tcmulib_cleanup_all_cmdproc_threads();
 
 #ifdef __cplusplus
 }

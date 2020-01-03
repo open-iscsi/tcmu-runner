@@ -1,6 +1,11 @@
 {
 	tcmur_register_handler;
+	tcmur_handle_caw;
 	tcmur_handle_writesame;
 	tcmu_notify_lock_lost;
 	tcmu_notify_conn_lost;
+	tcmur_dev_update_size;
+	tcmur_dev_set_private;
+	tcmur_dev_get_private;
+	tcmur_cmd_complete;
 };

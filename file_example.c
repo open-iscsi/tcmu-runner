@@ -1,18 +1,10 @@
 /*
- * Copyright 2014, Red Hat, Inc.
+ * Copyright (c) 2014 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
-*/
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
 
 /*
  * Example code to demonstrate how a TCMU handler might work.
@@ -43,12 +35,13 @@
 #include "scsi_defs.h"
 #include "libtcmu.h"
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 
 struct file_state {
 	int fd;
 };
 
-static int file_open(struct tcmu_device *dev)
+static int file_open(struct tcmu_device *dev, bool reopen)
 {
 	struct file_state *state;
 	char *config;
@@ -57,16 +50,16 @@ static int file_open(struct tcmu_device *dev)
 	if (!state)
 		return -ENOMEM;
 
-	tcmu_set_dev_private(dev, state);
+	tcmur_dev_set_private(dev, state);
 
-	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
+	config = strchr(tcmu_dev_get_cfgstring(dev), '/');
 	if (!config) {
 		tcmu_err("no configuration found in cfgstring\n");
 		goto err;
 	}
 	config += 1; /* get past '/' */
 
-	tcmu_set_dev_write_cache_enabled(dev, 1);
+	tcmu_dev_set_write_cache_enabled(dev, 1);
 
 	state->fd = open(config, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
 	if (state->fd == -1) {
@@ -74,7 +67,7 @@ static int file_open(struct tcmu_device *dev)
 		goto err;
 	}
 
-	tcmu_dbg("config %s\n", tcmu_get_dev_cfgstring(dev));
+	tcmu_dbg("config %s\n", tcmu_dev_get_cfgstring(dev));
 
 	return 0;
 
@@ -85,17 +78,17 @@ err:
 
 static void file_close(struct tcmu_device *dev)
 {
-	struct file_state *state = tcmu_get_dev_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 
 	close(state->fd);
 	free(state);
 }
 
-static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int file_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		     struct iovec *iov, size_t iov_cnt, size_t length,
 		     off_t offset)
 {
-	struct file_state *state = tcmu_get_dev_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -103,32 +96,30 @@ static int file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = preadv(state->fd, iov, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_READ_ERROR, NULL);
+			ret = TCMU_STS_RD_ERR;
 			goto done;
 		}
 
 		if (ret == 0) {
 			/* EOF, then zeros the iovecs left */
-			tcmu_zero_iovec(iov, iov_cnt);
+			tcmu_iovec_zero(iov, iov_cnt);
 			break;
 		}
 
-		tcmu_seek_in_iovec(iov, ret);
+		tcmu_iovec_seek(iov, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return 0;
+	return ret;
 }
 
-static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int file_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		      struct iovec *iov, size_t iov_cnt, size_t length,
 		      off_t offset)
 {
-	struct file_state *state = tcmu_get_dev_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -136,35 +127,31 @@ static int file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = pwritev(state->fd, iov, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_WRITE_ERROR, NULL);
+			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
-		tcmu_seek_in_iovec(iov, ret);
+		tcmu_iovec_seek(iov, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return 0;
+	return ret;
 }
 
-static int file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int file_flush(struct tcmu_device *dev, struct tcmur_cmd *cmd)
 {
-	struct file_state *state = tcmu_get_dev_private(dev);
+	struct file_state *state = tcmur_dev_get_private(dev);
 	int ret;
 
 	if (fsync(state->fd)) {
 		tcmu_err("sync failed\n");
-		ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-					  ASC_WRITE_ERROR, NULL);
+		ret = TCMU_STS_WR_ERR;
 		goto done;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return 0;
+	return ret;
 }
 
 static int file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)

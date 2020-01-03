@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
 project (tcmu-runner C)
-set(VERSION 1.3.0-rc4)
+set(VERSION 1.5.2)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement -std=c99")
 
 include(GNUInstallDirs)
@@ -11,6 +11,9 @@ set(tcmu-runner_HANDLER_PATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/tc
 option(with-glfs "build Gluster glfs handler" true)
 option(with-qcow "build qcow handler" true)
 option(with-rbd "build Ceph rbd handler" true)
+option(with-zbc "build zbc handler" true)
+option(with-fbo "build fbo handler" true)
+option(with-tcmalloc "link against tcmalloc" true)
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
@@ -33,9 +36,15 @@ pkg_check_modules(KMOD REQUIRED libkmod)
 find_library(PTHREAD pthread)
 find_library(DL dl)
 
+if (with-tcmalloc)
+  find_library(TCMALLOC_LIB tcmalloc)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free")
+endif(with-tcmalloc)
+
 # Stuff for building the shared library
 add_library(tcmu
   SHARED
+  strlcpy.c
   configfs.c
   api.c
   libtcmu.c
@@ -47,6 +56,7 @@ add_library(tcmu
   )
 set_target_properties(tcmu
   PROPERTIES
+  VERSION 2.2
   SOVERSION "2"
   )
 target_include_directories(tcmu
@@ -58,11 +68,14 @@ target_link_libraries(tcmu
   ${LIBNL_LIB}
   ${LIBNL_GENL_LIB}
   ${GLIB_LIBRARIES}
+  ${PTHREAD}
+  ${TCMALLOC_LIB}
   )
 install(TARGETS tcmu LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Stuff for building the static library
 add_library(tcmu_static
+  strlcpy.c
   configfs.c
   api.c
   libtcmu.c
@@ -70,6 +83,7 @@ add_library(tcmu_static
   tcmuhandler-generated.c
   libtcmu_log.c
   libtcmu_config.c
+  libtcmu_time.c
   )
 target_include_directories(tcmu_static
   PUBLIC ${LIBNL_INCLUDE_DIR}
@@ -78,6 +92,7 @@ target_include_directories(tcmu_static
   )
 target_link_libraries(tcmu_static
   ${GLIB_LIBRARIES}
+  ${TCMALLOC_LIB}
   )
 
 # Stuff for building the main binary
@@ -87,6 +102,7 @@ add_executable(tcmu-runner
   tcmur_device.c
   target.c
   alua.c
+  scsi.c
   main.c
   tcmuhandler-generated.c
   )
@@ -102,12 +118,14 @@ target_link_libraries(tcmu-runner
   ${PTHREAD}
   ${DL}
   ${KMOD_LIBRARIES}
+  ${TCMALLOC_LIB}
   -Wl,--no-export-dynamic
   -Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/main-syms.txt
   )
 install(TARGETS tcmu-runner RUNTIME DESTINATION bin)
 
 add_executable(tcmu-synthesizer
+  scsi.c
   tcmu-synthesizer.c
   )
 target_link_libraries(tcmu-synthesizer tcmu)
@@ -118,6 +136,7 @@ target_include_directories(tcmu-synthesizer
   )
 target_link_libraries(tcmu-synthesizer
   ${GLIB_LIBRARIES}
+  ${TCMALLOC_LIB}
   )
 
 install(TARGETS RUNTIME DESTINATION bin)
@@ -151,39 +170,48 @@ target_include_directories(handler_file
   PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 
-# Stuff for building the file optical handler
-add_library(handler_file_optical
-  SHARED
-  file_optical.c
-  )
-set_target_properties(handler_file_optical
-  PROPERTIES
-  PREFIX ""
-  )
-target_include_directories(handler_file_optical
-  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-  )
-target_link_libraries(handler_file_optical ${PTHREAD})
-
-# Stuff for building the file zbc handler
-add_library(handler_file_zbc
-  SHARED
-  file_zbc.c
-  )
-set_target_properties(handler_file_zbc
-  PROPERTIES
-  PREFIX ""
-  )
-target_include_directories(handler_file_zbc
-  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-  )
-
+if (with-fbo)
+	# Stuff for building the file optical handler
+	add_library(handler_file_optical
+  	SHARED
+	scsi.c
+  	file_optical.c
+  	)
+	set_target_properties(handler_file_optical
+  	PROPERTIES
+  	PREFIX ""
+  	)
+	target_include_directories(handler_file_optical
+  	PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  	)
+	target_link_libraries(handler_file_optical ${PTHREAD} ${TCMALLOC_LIB})
+	install(TARGETS handler_file_optical DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-fbo)
 
 # The minimal library consumer
 add_executable(consumer
+  scsi.c
   consumer.c
   )
 target_link_libraries(consumer tcmu)
+
+if (with-zbc)
+	# Stuff for building the file zbc handler
+	add_library(handler_file_zbc
+	  SHARED
+	  scsi.c
+	  file_zbc.c
+	  )
+	set_target_properties(handler_file_zbc
+	  PROPERTIES
+	  PREFIX ""
+	  )
+	target_include_directories(handler_file_zbc
+	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+	  )
+	target_link_libraries(handler_file_zbc ${TCMALLOC_LIB})
+	install(TARGETS handler_file_zbc DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-zbc)
 
 if (with-rbd)
 	find_library(LIBRBD rbd)
@@ -202,12 +230,27 @@ if (with-rbd)
 	  )
 	target_link_libraries(handler_rbd
 	  ${LIBRBD}
+	  ${TCMALLOC_LIB}
 	  )
 	install(TARGETS handler_rbd DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-rbd)
 
 if (with-glfs)
 	find_library(GFAPI gfapi)
+
+    set(GFAPI_VERSION760 0)
+
+    pkg_check_modules(GFAPI760 glusterfs-api>=7.6 QUIET)
+	if (GFAPI760_FOUND)
+		set(GFAPI_VERSION760 1)
+	endif (GFAPI760_FOUND)
+
+    set(GFAPI_VERSION766 0)
+
+    pkg_check_modules(GFAPI766 glusterfs-api>=7.6.6 QUIET)
+	if (GFAPI766_FOUND)
+		set(GFAPI_VERSION766 1)
+	endif (GFAPI766_FOUND)
 
 	# Stuff for building the glfs handler
 	add_library(handler_glfs
@@ -223,6 +266,7 @@ if (with-glfs)
 	  )
 	target_link_libraries(handler_glfs
 	  ${GFAPI}
+	  ${TCMALLOC_LIB}
 	  )
 	install(TARGETS handler_glfs DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-glfs)
@@ -252,6 +296,7 @@ if (with-qcow)
 	endif (HAVE_LINUX_FALLOC)
 	target_link_libraries(handler_qcow
 	  ${ZLIB_LIBRARIES}
+	  ${TCMALLOC_LIB}
 	  )
 	install(TARGETS handler_qcow DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-qcow)
@@ -268,6 +313,12 @@ configure_file (
   "${PROJECT_SOURCE_DIR}/tcmu.conf_install.cmake"
   )
 install(SCRIPT tcmu.conf_install.cmake)
+
+configure_file (
+  "${PROJECT_SOURCE_DIR}/logrotate.conf_install.cmake.in"
+  "${PROJECT_SOURCE_DIR}/logrotate.conf_install.cmake"
+  )
+install(SCRIPT logrotate.conf_install.cmake)
 
 install(FILES org.kernel.TCMUService1.service
   DESTINATION /usr/share/dbus-1/system-services)

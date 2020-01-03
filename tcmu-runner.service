@@ -1,6 +1,8 @@
 [Unit]
 Description=LIO Userspace-passthrough daemon
-After=network.target
+Documentation=man:tcmu-runner(8)
+Wants=rsyslog.service
+After=network.target rsyslog.service
 
 [Service]
 LimitNOFILE=1000000

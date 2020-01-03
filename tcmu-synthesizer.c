@@ -1,18 +1,10 @@
 /*
- * Copyright 2016, Red Hat, Inc.
+ * Copyright (c) 2016 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
-*/
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
 
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -30,6 +22,9 @@
 #include "version.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+#include "scsi.h"
+
+#define LOG_DIR "/var/log"
 
 typedef struct {
 	GIOChannel *gio;
@@ -37,8 +32,7 @@ typedef struct {
 } syn_dev_t;
 
 static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
-			  struct iovec *iovec, size_t iov_cnt,
-			  uint8_t *sense)
+			  struct iovec *iovec, size_t iov_cnt)
 {
 	uint8_t cmd;
 
@@ -47,44 +41,42 @@ static int syn_handle_cmd(struct tcmu_device *dev, uint8_t *cdb,
 
 	switch (cmd) {
 	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, NULL, cdb, iovec, iov_cnt,
-					    sense);
+		return tcmu_emulate_inquiry(dev, NULL, cdb, iovec, iov_cnt);
 		break;
 	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
-		break;
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt);
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16)
 			return tcmu_emulate_read_capacity_16(1 << 20,
 							     512,
 							     cdb, iovec,
-							     iov_cnt, sense);
+							     iov_cnt);
 		else
-			return TCMU_NOT_HANDLED;
+			return TCMU_STS_NOT_HANDLED;
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt);
 		break;
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt);
 		break;
 	case READ_6:
 	case READ_10:
 	case READ_12:
 	case READ_16:
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
 	case WRITE_16:
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 
 	default:
 		tcmu_dbg("unknown command %x\n", cdb[0]);
-		return TCMU_NOT_HANDLED;
+		return TCMU_STS_NOT_HANDLED;
 	}
 }
 
@@ -99,12 +91,11 @@ static gboolean syn_dev_callback(GIOChannel *source,
 	tcmu_dbg("dev fd cb\n");
 	tcmulib_processing_start(dev);
 
-	while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
+	while ((cmd = tcmulib_get_next_command(dev, 0)) != NULL) {
 		ret = syn_handle_cmd(dev,
 				     cmd->cdb,
 				     cmd->iovec,
-				     cmd->iov_cnt,
-				     cmd->sense_buf);
+				     cmd->iov_cnt);
 		tcmulib_command_complete(dev, cmd, ret);
 	}
 
@@ -116,9 +107,9 @@ static int syn_added(struct tcmu_device *dev)
 {
 	syn_dev_t *s = g_new0(syn_dev_t, 1);
 
-	tcmu_dbg("added %s\n", tcmu_get_dev_cfgstring(dev));
-	tcmu_set_dev_private(dev, s);
-	s->gio = g_io_channel_unix_new(tcmu_get_dev_fd(dev));
+	tcmu_dbg("added %s\n", tcmu_dev_get_cfgstring(dev));
+	tcmu_dev_set_private(dev, s);
+	s->gio = g_io_channel_unix_new(tcmu_dev_get_fd(dev));
 	s->watcher_id = g_io_add_watch(s->gio, G_IO_IN,
 				       syn_dev_callback, dev);
 	return 0;
@@ -126,8 +117,8 @@ static int syn_added(struct tcmu_device *dev)
 
 static void syn_removed(struct tcmu_device *dev)
 {
-	syn_dev_t *s = tcmu_get_dev_private(dev);
-	tcmu_dbg("removed %s\n", tcmu_get_dev_cfgstring(dev));
+	syn_dev_t *s = tcmu_dev_get_private(dev);
+	tcmu_dbg("removed %s\n", tcmu_dev_get_cfgstring(dev));
 	g_source_remove(s->watcher_id);
 	g_io_channel_unref(s->gio);
 	g_free(s);
@@ -201,7 +192,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (tcmu_setup_log()) {
+	if (tcmu_setup_log(LOG_DIR)) {
 		fprintf(stderr, "Could not setup tcmu logger.\n");
 		exit(1);
 	}

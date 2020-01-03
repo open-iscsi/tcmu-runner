@@ -1,17 +1,9 @@
 /*
- * Copyright 2016, Red Hat, Inc.
+ * Copyright (c) 2016 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 /* Based on QEMU block/qcow{2}.c, which has this license: */
@@ -70,6 +62,7 @@
 #endif
 
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 #include "scsi_defs.h"
 #include "qcow.h"
 #include "qcow2.h"
@@ -325,30 +318,30 @@ static int qcow_validate_header(struct qcow_header *header)
 {
 	if (header->magic != QCOW_MAGIC) {
 		tcmu_err("header is not QCOW\n");
-		 return -1;
+		return -1;
 	}
 	if (header->version != 1) {
 		tcmu_err("version is %d, expected 1\n", header->version);
-		 return -1;
+		return -1;
 	}
 	if (header->cluster_bits < 9 || header->cluster_bits > 16) {
 		tcmu_err("bad cluster_bits = %d\n", header->cluster_bits);
-		 return -1;
+		return -1;
 	}
 	if (header->l2_bits < (9 - 3) || header->l2_bits > (16 - 3)) {
 		tcmu_err("bad l2_bits = %d\n", header->l2_bits);
-		 return -1;
+		return -1;
 	}
 	switch (header->crypt_method) {
-		case QCOW_CRYPT_NONE:
-			break;
-		case QCOW_CRYPT_AES:
-			tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
-			tcmu_err("Convert to unencrypted image using qemu-img\n");
-			 return -1;
-		default:
-			tcmu_err("Invalid encryption value %d\n", header->crypt_method);
-			 return -1;
+	case QCOW_CRYPT_NONE:
+		break;
+	case QCOW_CRYPT_AES:
+		tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
+		tcmu_err("Convert to unencrypted image using qemu-img\n");
+		return -1;
+	default:
+		tcmu_err("Invalid encryption value %d\n", header->crypt_method);
+		return -1;
 	}
 	return 0;
 }
@@ -358,26 +351,26 @@ static int qcow2_validate_header(struct qcow2_header *header)
 	/* TODO check other stuff ... L1, refcount, snapshots */
 	if (header->magic != QCOW_MAGIC) {
 		tcmu_err("header is not QCOW\n");
-		 return -1;
+		return -1;
 	}
 	if (header->version < 2) {
 		tcmu_err("version is %d, expected 2 or 3\n", header->version);
-		 return -1;
+		return -1;
 	}
 	if (header->cluster_bits < 9 || header->cluster_bits > 16) {
 		tcmu_err("bad cluster_bits = %d\n", header->cluster_bits);
-		 return -1;
+		return -1;
 	}
 	switch (header->crypt_method) {
-		case QCOW2_CRYPT_NONE:
-			break;
-		case QCOW2_CRYPT_AES:
-			tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
-			tcmu_err("Convert to unencrypted image using qemu-img\n");
-			 return -1;
-		default:
-			tcmu_err("Invalid encryption value %d\n", header->crypt_method);
-			 return -1;
+	case QCOW2_CRYPT_NONE:
+		break;
+	case QCOW2_CRYPT_AES:
+		tcmu_err("QCOW AES-CBC encryption has been deprecated\n");
+		tcmu_err("Convert to unencrypted image using qemu-img\n");
+		return -1;
+	default:
+		tcmu_err("Invalid encryption value %d\n", header->crypt_method);
+		return -1;
 	}
 	return 0;
 }
@@ -462,7 +455,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 	}
 
 	if (pread(bdev->fd, &buf, sizeof(buf), 0) != sizeof(buf)) {
-		tcmu_err("Failed to read file: &s\n", pathname);
+		tcmu_err("Failed to read file: %s\n", pathname);
 		goto fail;
 	}
 
@@ -505,7 +498,7 @@ static int qcow_image_open(struct bdev *bdev, int dirfd, const char *pathname, i
 		tcmu_err("Image size is not an integer multiple"
 				 " of the block size\n");
 		goto fail;
-	}	
+	}
 	s->l1_size = l1_size;
 	s->l1_table_offset = header.l1_table_offset;
 
@@ -621,7 +614,7 @@ static int qcow2_image_open(struct bdev *bdev, int dirfd, const char *pathname, 
 		tcmu_err("Image size is not an integer multiple"
 				 " of the block size\n");
 		goto fail;
-	}		
+	}
 	s->l1_size = l1_size;
 	// why did they add this to qcow2 ?
 	if (header.l1_size != s->l1_size) {
@@ -740,7 +733,7 @@ static uint64_t *l2_cache_lookup(struct qcow_state *s, uint64_t l2_offset)
 				}
 			}
 			l2_table = s->l2_cache + (i << s->l2_bits);
-			tcmu_dbg("%s: l2 hit %llx at index %d\n", __func__, l2_table, i);
+			tcmu_dbg("%s: l2 hit %"PRIx64" at index %d\n", __func__, *l2_table, i);
 			return l2_table;
 		}
 	}
@@ -792,7 +785,7 @@ static int l1_table_update(struct qcow_state *s, unsigned int l1_index, uint64_t
 {
 	ssize_t ret;
 
-	tcmu_dbg("%s: setting L1[%d] to %llx\n", __func__, l1_index, l2_offset);
+	tcmu_dbg("%s: setting L1[%u] to %"PRIx64"\n", __func__, l1_index, l2_offset);
 	s->l1_table[l1_index] = htobe64(l2_offset);
 
 	ret = pwrite(s->fd,
@@ -932,7 +925,7 @@ static int rc_table_update(struct qcow_state *s, unsigned int rc_index, uint64_t
 {
 	ssize_t ret;
 
-	tcmu_dbg("%s: setting RC[%d] to %llx\n", __func__, rc_index, refblock_offset);
+	tcmu_dbg("%s: setting RC[%u] to %"PRIx64"\n", __func__, rc_index, refblock_offset);
 	s->refcount_table[rc_index] = htobe64(refblock_offset);
 
 	ret = pwrite(s->fd,
@@ -961,7 +954,8 @@ static int qcow2_set_refcount(struct qcow_state *s, uint64_t cluster_offset, uin
 	refblock_offset = be64toh(s->refcount_table[rc_index]);
 	refblock_index = (cluster_offset >> s->cluster_bits) & ((1 << refcount_bits) - 1);
 
-	tcmu_dbg("%s: rc[%d][%d] = %llx[%d] = %d\n", __func__, rc_index, refblock_index, refblock_offset, refblock_index, value);
+	tcmu_dbg("%s: rc[%"PRIu64"][%"PRIu64"] = %"PRIx64"[%"PRIu64"] = %"PRIu64"\n",
+		__func__, rc_index, refblock_index, refblock_offset, refblock_index, value);
 
 	if (!refblock_offset) {
 		if (!(refblock_offset = qcow_cluster_alloc(s))) {
@@ -1012,7 +1006,7 @@ static uint64_t qcow2_block_alloc(struct qcow_state *s, size_t size)
 	s->first_free_cluster = cluster + s->cluster_size;
 	// this causes a nasty loop
 	// qcow2_set_refcount(s, cluster, 1);
-	tcmu_dbg("  allocating cluster %d\n", cluster / s->cluster_size);
+	tcmu_dbg("  allocating cluster %"PRIu64"\n", cluster / s->cluster_size);
 	return cluster;
 }
 
@@ -1022,7 +1016,8 @@ static int l2_table_update(struct qcow_state *s,
 {
 	ssize_t ret;
 
-	tcmu_dbg("%s: setting %llx[%d] to %llx\n", __func__, l2_table_offset, l2_index, cluster_offset);
+	tcmu_dbg("%s: setting %"PRIx64"[%u] to %"PRIx64"\n",
+		__func__, l2_table_offset, l2_index, cluster_offset);
 	l2_table[l2_index] = htobe64(cluster_offset);
 
 	ret = pwrite(s->fd,
@@ -1390,38 +1385,39 @@ static struct bdev_ops raw_ops = {
 
 /* TCMU QCOW Handler */
 
-static int qcow_open(struct tcmu_device *dev)
+static int qcow_open(struct tcmu_device *dev, bool reopen)
 {
 	struct bdev *bdev;
 	char *config;
+	int ret;
 
 	bdev = calloc(1, sizeof(*bdev));
 	if (!bdev)
 		return -1;
 
-	tcmu_set_dev_private(dev, bdev);
+	tcmur_dev_set_private(dev, bdev);
 
-	bdev->block_size = tcmu_get_dev_block_size(dev);
-	bdev->size = tcmu_get_device_size(dev);
-	if (bdev->size < 0) {
+	bdev->block_size = tcmu_dev_get_block_size(dev);
+	bdev->size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
+	if (ret < 0) {
 		tcmu_err("Could not get device size\n");
 		goto err;
 	}
 
-	config = strchr(tcmu_get_dev_cfgstring(dev), '/');
+	config = strchr(tcmu_dev_get_cfgstring(dev), '/');
 	if (!config) {
 		tcmu_err("no configuration found in cfgstring\n");
 		goto err;
 	}
 	config += 1; /* get past '/' */
 
-	tcmu_dbg("%s\n", tcmu_get_dev_cfgstring(dev));
+	tcmu_dbg("%s\n", tcmu_dev_get_cfgstring(dev));
 	tcmu_dbg("%s\n", config);
 
 	/*
 	 * Force WCE=1 until we support reconfig for WCE
 	 */
-	tcmu_set_dev_write_cache_enabled(dev, 1);
+	tcmu_dev_set_write_cache_enabled(dev, 1);
 
 	if (bdev_open(bdev, AT_FDCWD, config, O_RDWR) == -1)
 		goto err;
@@ -1433,17 +1429,17 @@ err:
 
 static void qcow_close(struct tcmu_device *dev)
 {
-	struct bdev *bdev = tcmu_get_dev_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 
 	bdev->ops->close(bdev);
 	free(bdev);
 }
 
-static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int qcow_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		     struct iovec *iovec, size_t iov_cnt, size_t length,
 		     off_t offset)
 {
-	struct bdev *bdev = tcmu_get_dev_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -1451,25 +1447,23 @@ static int qcow_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = bdev->ops->preadv(bdev, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_READ_ERROR, NULL);
+			ret = TCMU_STS_RD_ERR;
 			goto done;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return 0;
+	return ret;
 }
 
-static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int qcow_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		      struct iovec *iovec, size_t iov_cnt, size_t length,
 		      off_t offset)
 {
-	struct bdev *bdev = tcmu_get_dev_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 	size_t remaining = length;
 	ssize_t ret;
 
@@ -1477,35 +1471,31 @@ static int qcow_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 		ret = bdev->ops->pwritev(bdev, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed: %m\n");
-			ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-						  ASC_WRITE_ERROR, NULL);
+			ret = TCMU_STS_WR_ERR;
 			goto done;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return 0;
+	return ret;
 }
 
-static int qcow_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int qcow_flush(struct tcmu_device *dev, struct tcmur_cmd *cmd)
 {
-	struct bdev *bdev = tcmu_get_dev_private(dev);
+	struct bdev *bdev = tcmur_dev_get_private(dev);
 	int ret;
 
 	if (fsync(bdev->fd)) {
 		tcmu_dev_err(dev, "sync failed\n");
-		ret = tcmu_set_sense_data(cmd->sense_buf, MEDIUM_ERROR,
-					  ASC_WRITE_ERROR, NULL);
+		ret = TCMU_STS_WR_ERR;
 		goto done;
 	}
-	ret = SAM_STAT_GOOD;
+	ret = TCMU_STS_OK;
 done:
-	cmd->done(dev, cmd, ret);
-	return 0;
+	return ret;
 }
 
 static const char qcow_cfg_desc[] = "The path to the QEMU QCOW image file.";

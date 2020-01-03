@@ -1,18 +1,10 @@
 /*
- * Copyright 2014, Red Hat, Inc.
+ * Copyright (c) 2014 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
-*/
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
+ */
 
 /*
  * A daemon that supports a simplified interface for writing TCMU
@@ -20,7 +12,7 @@
  */
 
 #define _GNU_SOURCE
-#define _BITS_UIO_H
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -38,6 +30,7 @@
 #include <gio/gio.h>
 #include <getopt.h>
 #include <poll.h>
+#include <time.h>
 #include <scsi/scsi.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -56,11 +49,20 @@
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
 
+#define TCMU_LOCK_FILE   "/run/tcmu.lock"
+
 static char *handler_path = DEFAULT_HANDLER_PATH;
 
 static struct tcmu_config *tcmu_cfg;
 
 darray(struct tcmur_handler *) g_runner_handlers = darray_new();
+
+struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
+{
+	struct tcmulib_handler *handler = tcmu_dev_get_handler(dev);
+
+	return handler->hm_private;
+}
 
 int tcmur_register_handler(struct tcmur_handler *handler)
 {
@@ -188,16 +190,18 @@ static int open_handlers(void)
 	return num_good;
 }
 
-static gboolean sighandler(gpointer user_data)
+static gboolean handle_sig(gpointer user_data)
 {
-	/*
-	 * FIXME: this is broken if IO is running in runner when called.
-	 * IO could be running in the handler or runner and we could free
-	 * resources while in use.
-	 */
-	tcmulib_cleanup_all_cmdproc_threads();
+	tcmu_dbg("Have received signal!\n");
+
 	g_main_loop_quit((GMainLoop*)user_data);
 
+	return G_SOURCE_CONTINUE;
+}
+
+static gboolean handle_sighup(gpointer user_data)
+{
+	tcmu_resetup_log_file(NULL, NULL);
 	return G_SOURCE_CONTINUE;
 }
 
@@ -279,7 +283,7 @@ struct dbus_info {
 	GDBusConnection *connection;
 };
 
-static int dbus_handler_open(struct tcmu_device *dev)
+static int dbus_handler_open(struct tcmu_device *dev, bool reopen)
 {
 	return -1;
 }
@@ -290,7 +294,7 @@ static void dbus_handler_close(struct tcmu_device *dev)
 }
 
 static int dbus_handler_handle_cmd(struct tcmu_device *dev,
-				   struct tcmulib_cmd *cmd)
+				   struct tcmur_cmd *tcmu_cmd)
 {
 	abort();
 }
@@ -496,11 +500,12 @@ static int load_our_module(void)
 			} else {
 				tcmu_info("no modules directory '/lib/modules/%s', checking module target_core_user entry in '/sys/modules/'\n",
 					  u.release);
-				ret = stat("/sys/module/target_core_user", &sb);
+				ret = stat(CFGFS_TARGET_MOD, &sb);
 				if (!ret) {
 					tcmu_dbg("Module target_core_user already loaded\n");
 				} else {
-					tcmu_err("stat() on '/sys/module/target_core_user' failed: %m\n");
+					tcmu_err("stat() on '%s' failed: %m\n",
+						 CFGFS_TARGET_MOD);
 				}
 			}
 		} else {
@@ -541,14 +546,23 @@ static int load_our_module(void)
 			if (err == 0) {
 				tcmu_info("Inserted module '%s'\n",
 				          kmod_module_get_name(mod));
-			} else if (err == KMOD_PROBE_APPLY_BLACKLIST) {
-				tcmu_err("Module '%s' is blacklisted\n",
-				         kmod_module_get_name(mod));
+			} else if (err < 0) {
+				tcmu_err("Failed to insert '%s': %s\n",
+				         kmod_module_get_name(mod), strerror(-err));
+				ret = err;
 			} else {
-				tcmu_err("Failed to insert '%s'\n",
-				         kmod_module_get_name(mod));
+				switch (err) {
+				case KMOD_PROBE_APPLY_BLACKLIST:
+					tcmu_err("Module '%s' is blacklisted\n",
+					         kmod_module_get_name(mod));
+					break;
+				default:
+					tcmu_err("Module '%s' is stopped by a reason: 0x%x\n",
+					         kmod_module_get_name(mod), err);
+					break;
+				}
+				ret = -EIO;
 			}
-			ret = err;
 		}
 		kmod_module_unref(mod);
 	}
@@ -570,7 +584,7 @@ static void tcmur_stop_device(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	bool is_open = false;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -589,6 +603,8 @@ static void tcmur_stop_device(void *arg)
 	tcmu_cancel_lock_thread(dev);
 	tcmu_cancel_recovery(dev);
 
+	tcmu_release_dev_lock(dev);
+
 	pthread_mutex_lock(&rdev->state_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {
 		rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
@@ -606,11 +622,136 @@ static void tcmur_stop_device(void *arg)
 	tcmu_dev_dbg(dev, "cmdproc cleanup done\n");
 }
 
+int tcmur_get_time(struct tcmu_device *dev, struct timespec *time)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	int ret;
+
+	ret = clock_gettime(CLOCK_MONOTONIC_COARSE, time);
+	if (!ret) {
+		tcmu_dev_dbg(dev, "Current time %lu secs.\n", time->tv_sec);
+		return 0;
+	}
+
+	tcmu_dev_err(dev, "Could not get time. Error %d. Command timeout feature disabled.\n",
+		     ret);
+	rdev->cmd_time_out = 0;
+	return ret;
+}
+
+static bool get_next_cmd_timeout(struct tcmu_device *dev,
+				 struct timespec *curr_time,
+				 struct timespec *tmo)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	int run_time, cmd_tmo = rdev->cmd_time_out;
+	struct tcmur_cmd *tcmur_cmd;
+	bool has_timeout = false;
+
+	if (!cmd_tmo)
+		return false;
+
+	memset(tmo, 0, sizeof(*tmo));
+
+	pthread_spin_lock(&rdev->lock);
+	list_for_each(&rdev->cmds_list, tcmur_cmd, cmds_list_entry) {
+		if (tcmur_cmd->timed_out)
+			continue;
+
+		has_timeout = true;
+		run_time = difftime(curr_time->tv_sec,
+				    tcmur_cmd->start_time.tv_sec);
+		if (cmd_tmo > run_time) {
+			tmo->tv_sec = cmd_tmo - run_time;
+		} else {
+			/*
+			 * We do not do a clock call for every command, so
+			 * cmds can time out while we were processing new
+			 * cmds. Force a recheck.
+			 */
+			tmo->tv_sec = 0;
+		}
+
+		tcmu_dev_dbg(dev, "Next cmd id %hu timeout in %lu secs. Current time %lu. Start time %lu\n",
+			     tcmur_cmd->lib_cmd->cmd_id, tmo->tv_sec,
+			     curr_time->tv_sec, tcmur_cmd->start_time.tv_sec);
+		break;
+	}
+	pthread_spin_unlock(&rdev->lock);
+
+	return has_timeout;
+}
+
+static void check_for_timed_out_cmds(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	int cmd_tmo = rdev->cmd_time_out;
+	struct tcmur_cmd *tcmur_cmd;
+	struct timespec curr_time;
+	struct tcmulib_cmd *cmd;
+	int run_time;
+	uint8_t *cdb;
+
+	if (!cmd_tmo)
+		return;
+
+	memset(&curr_time, 0, sizeof(curr_time));
+
+	if (tcmur_get_time(dev, &curr_time))
+		return;
+
+	pthread_spin_lock(&rdev->lock);
+	list_for_each(&rdev->cmds_list, tcmur_cmd, cmds_list_entry) {
+		if (tcmur_cmd->timed_out)
+			continue;
+
+		run_time = difftime(curr_time.tv_sec,
+				    tcmur_cmd->start_time.tv_sec);
+		if (run_time < cmd_tmo)
+			continue;
+
+		cmd = tcmur_cmd->lib_cmd;
+
+		if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD) {
+			tcmu_cdb_print_info(dev, cmd, "timed out.");
+		} else {
+			cdb = cmd->cdb;
+			tcmu_dev_info(dev, "Command %hu SCSI CDB 0x%x at LBA %"PRIu64" for %u blocks timed out.\n",
+				      cmd->cmd_id, cdb[0],
+				      tcmu_cdb_get_lba(cdb),
+				      tcmu_cdb_get_xfer_length(cdb));
+		}
+
+		tcmur_cmd->timed_out = true;
+	}
+	pthread_spin_unlock(&rdev->lock);
+}
+
+static void tcmur_tcmulib_cmd_start(struct tcmu_device *dev,
+				    struct tcmulib_cmd *cmd,
+				    struct timespec *curr_time)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
+
+	memset(tcmur_cmd, 0, sizeof(*tcmur_cmd));
+	tcmur_cmd->lib_cmd = cmd;
+	list_node_init(&tcmur_cmd->cmds_list_entry);
+
+	if (rdev->cmd_time_out) {
+		tcmur_cmd->start_time.tv_sec = curr_time->tv_sec;
+
+		pthread_spin_lock(&rdev->lock);
+		list_add_tail(&rdev->cmds_list, &tcmur_cmd->cmds_list_entry);
+		pthread_spin_unlock(&rdev->lock);
+	}
+}
+
 static void *tcmur_cmdproc_thread(void *arg)
 {
 	struct tcmu_device *dev = arg;
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct pollfd pfd;
 	int ret;
 	bool dev_stopping = false;
@@ -620,21 +761,30 @@ static void *tcmur_cmdproc_thread(void *arg)
 	while (1) {
 		int completed = 0;
 		struct tcmulib_cmd *cmd;
+		struct timespec tmo, curr_time;
+		bool set_tmo;
 
 		tcmulib_processing_start(dev);
 
-		while (!dev_stopping && (cmd = tcmulib_get_next_command(dev)) != NULL) {
+		if (rdev->cmd_time_out)
+			tcmur_get_time(dev, &curr_time);
+
+		while (!dev_stopping &&
+		       (cmd = tcmulib_get_next_command(dev,
+					sizeof(struct tcmur_cmd))) != NULL) {
+
+			tcmur_tcmulib_cmd_start(dev, cmd, &curr_time);
 
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
-				tcmu_cdb_debug_info(dev, cmd);
+				tcmu_cdb_print_info(dev, cmd, NULL);
 
 			if (tcmur_handler_is_passthrough_only(rhandler))
 				ret = tcmur_cmd_passthrough_handler(dev, cmd);
 			else
 				ret = tcmur_generic_handle_cmd(dev, cmd);
 
-			if (ret == TCMU_NOT_HANDLED)
-				tcmu_dev_warn(dev, "Command 0x%x not supported\n", cmd->cdb[0]);
+			if (ret == TCMU_STS_NOT_HANDLED)
+				tcmu_cdb_print_info(dev, cmd, "is not supported");
 
 			/*
 			 * command (processing) completion is called in the following
@@ -643,16 +793,18 @@ static void *tcmur_cmdproc_thread(void *arg)
 			 *   - generic_handle_cmd: non tcmur handler calls (see generic_cmd())
 			 *			   and on errors when calling tcmur handler.
 			 */
-			if (ret != TCMU_ASYNC_HANDLED) {
+			if (ret != TCMU_STS_ASYNC_HANDLED) {
 				completed = 1;
-				tcmur_command_complete(dev, cmd, ret);
+				tcmur_tcmulib_cmd_complete(dev, cmd, ret);
 			}
 		}
 
 		if (completed)
 			tcmulib_processing_complete(dev);
 
-		pfd.fd = tcmu_get_dev_fd(dev);
+		set_tmo = get_next_cmd_timeout(dev, &curr_time, &tmo);
+
+		pfd.fd = tcmu_dev_get_fd(dev);
 		pfd.events = POLLIN;
 		pfd.revents = 0;
 
@@ -660,13 +812,19 @@ static void *tcmur_cmdproc_thread(void *arg)
 		 * handling. If we were removing a device, then the uio device's memory
 		 * could be freed, but the poll would be rescheduled and end up accessing
 		 * the released device. */
-		ret = ppoll(&pfd, 1, NULL, NULL);
+		if (set_tmo) {
+			ret = ppoll(&pfd, 1, &tmo, NULL);
+		} else {
+			ret = ppoll(&pfd, 1, NULL, NULL);
+		}
 		if (ret == -1) {
 			tcmu_err("ppoll() returned %d\n", ret);
 			break;
 		}
 
-		if (pfd.revents != POLLIN) {
+		if (!ret) {
+			check_for_timed_out_cmds(dev);
+		} else if (pfd.revents != POLLIN) {
 			tcmu_err("ppoll received unexpected revent: 0x%x\n", pfd.revents);
 			break;
 		}
@@ -696,21 +854,19 @@ static void *tcmur_cmdproc_thread(void *arg)
 static int dev_resize(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	uint64_t new_lbas = tcmu_byte_to_lba(dev, cfg->data.dev_size);
 	int ret;
 
-	if (tcmu_get_dev_num_lbas(dev) * tcmu_get_dev_block_size(dev) ==
-	    cfg->data.dev_size)
+	if (tcmu_dev_get_num_lbas(dev) == new_lbas)
 		return 0;
 
 	ret = rhandler->reconfig(dev, cfg);
 	if (ret)
 		return ret;
 
-	ret = tcmu_update_num_lbas(dev, cfg->data.dev_size);
-	if (!ret)
-		tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
-
-	return ret;
+	tcmu_dev_set_num_lbas(dev, new_lbas);
+	tcmur_set_pending_ua(dev, TCMUR_UA_DEV_SIZE_CHANGED);
+	return 0;
 }
 
 static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
@@ -728,60 +884,129 @@ static int dev_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 	}
 }
 
+static void parse_tcmu_runner_args(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	char *arg, *cfg_str, *arg_end, *cfg_end;
+	bool found;
+
+	cfg_str = tcmu_dev_get_cfgstring(dev);
+	/* count ending null in string */
+	cfg_end = cfg_str + strlen(cfg_str) + 1;
+
+	while ((arg = strstr(cfg_str, ";"))) {
+		found = false;
+		arg++;
+
+		if (!strncmp(arg, "tcmur_cmd_time_out=", 19)) {
+			rdev->cmd_time_out = atoi(arg + 19);
+
+			tcmu_dev_dbg(dev, "Using tcmur_cmd_timeout %d\n",
+				     rdev->cmd_time_out);
+			found = true;
+		}
+
+		arg_end = strstr(arg, ";");
+		if (!arg_end) {
+			arg_end = cfg_end;
+		} else {
+			arg_end++;
+		}
+
+
+		if (found) {
+			memmove(arg - 1, arg_end, cfg_end - arg_end + 1);
+		} else {
+			cfg_str = arg;
+		}
+	}
+	tcmu_dev_dbg(dev, "Updated cfgstring: %s.\n",
+		     tcmu_dev_get_cfgstring(dev));
+}
+
 static int dev_added(struct tcmu_device *dev)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct list_head group_list;
 	struct tcmur_device *rdev;
 	int32_t block_size, max_sectors;
-	uint32_t max_xfer_length;
 	int64_t dev_size;
 	int ret;
 
 	rdev = calloc(1, sizeof(*rdev));
 	if (!rdev)
 		return -ENOMEM;
-	tcmu_set_daemon_dev_private(dev, rdev);
+
+	tcmu_dev_set_private(dev, rdev);
 	list_node_init(&rdev->recovery_entry);
+	list_head_init(&rdev->cmds_list);
 	rdev->dev = dev;
 
+	parse_tcmu_runner_args(dev);
+
 	ret = -EINVAL;
-	block_size = tcmu_get_attribute(dev, "hw_block_size");
+	block_size = tcmu_cfgfs_dev_get_attr_int(dev, "hw_block_size");
 	if (block_size <= 0) {
 		tcmu_dev_err(dev, "Could not get hw_block_size\n");
 		goto free_rdev;
 	}
-	tcmu_set_dev_block_size(dev, block_size);
+	tcmu_dev_set_block_size(dev, block_size);
 
-	dev_size = tcmu_get_device_size(dev);
-	if (dev_size < 0) {
+	dev_size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
+	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not get device size\n");
 		goto free_rdev;
 	}
-	tcmu_set_dev_num_lbas(dev, dev_size / block_size);
+	tcmu_dev_set_num_lbas(dev, tcmu_byte_to_lba(dev, dev_size));
 
-	max_sectors = tcmu_get_attribute(dev, "hw_max_sectors");
+	max_sectors = tcmu_cfgfs_dev_get_attr_int(dev, "hw_max_sectors");
 	if (max_sectors < 0)
 		goto free_rdev;
-	tcmu_set_dev_max_xfer_len(dev, max_sectors);
+	tcmu_dev_set_max_xfer_len(dev, max_sectors);
 
-	tcmu_dev_dbg(dev, "Got block_size %ld, size in bytes %lld\n",
+	/*
+	 * Set the optimal unmap granularity to max xfer len. Optimal unmap
+	 * alignment starts at the begining of the device. Handlers can
+	 * override in their open function.
+	 */
+	tcmu_dev_set_max_unmap_len(dev, VPD_MAX_UNMAP_LBA_COUNT);
+	tcmu_dev_set_opt_unmap_gran(dev, max_sectors, true);
+	tcmu_dev_set_unmap_gran_align(dev, 0);
+	/*
+	 * By default we will try to do RWs for xcopys in max_sector chunks,
+	 * but handlers that can do larger internal IOs should override.
+	 */
+	tcmu_dev_set_opt_xcopy_rw_len(dev, max_sectors);
+
+	if (rhandler->unmap)
+		tcmu_dev_set_unmap_enabled(dev, true);
+
+	tcmu_dev_dbg(dev, "Got block_size %d, size in bytes %"PRId64"\n",
 		     block_size, dev_size);
 
 	ret = pthread_spin_init(&rdev->lock, 0);
-	if (ret != 0)
+	if (ret) {
+		ret = -ret;
 		goto free_rdev;
+	}
 
 	ret = pthread_mutex_init(&rdev->caw_lock, NULL);
-	if (ret != 0)
+	if (ret) {
+		ret = -ret;
 		goto cleanup_dev_lock;
+	}
 
 	ret = pthread_mutex_init(&rdev->format_lock, NULL);
-	if (ret != 0)
+	if (ret) {
+		ret = -ret;
 		goto cleanup_caw_lock;
+	}
 
 	ret = pthread_mutex_init(&rdev->state_lock, NULL);
-	if (ret != 0)
+	if (ret) {
+		ret = -ret;
 		goto cleanup_format_lock;
+	}
 
 	ret = setup_io_work_queue(dev);
 	if (ret < 0)
@@ -791,25 +1016,36 @@ static int dev_added(struct tcmu_device *dev)
 	if (ret < 0)
 		goto cleanup_io_work_queue;
 
-	ret = rhandler->open(dev);
+	ret = rhandler->open(dev, false);
 	if (ret)
 		goto cleanup_aio_tracking;
+	/*
+	 * On the initial creation ALUA will probably not yet have been setup,
+	 * but for reopens it will be so we need to sync our failover state.
+	 */
+	list_head_init(&group_list);
+	tcmu_get_alua_grps(dev, &group_list);
+	tcmu_release_alua_grps(&group_list);
+
 	rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
 
-	/*
-	 * Set the optimal unmap granularity and the alignment to
-	 * max xfer len
-	 */
-	max_xfer_length = tcmu_get_dev_max_xfer_len(dev);
-	tcmu_set_dev_opt_unmap_gran(dev, max_xfer_length);
-	tcmu_set_dev_unmap_gran_align(dev, max_xfer_length);
-
-	ret = tcmulib_start_cmdproc_thread(dev, tcmur_cmdproc_thread);
-	if (ret < 0)
+	ret = pthread_cond_init(&rdev->lock_cond, NULL);
+	if (ret) {
+		ret = -ret;
 		goto close_dev;
+	}
+
+	ret = pthread_create(&rdev->cmdproc_thread, NULL, tcmur_cmdproc_thread,
+			     dev);
+	if (ret) {
+		ret = -ret;
+		goto cleanup_lock_cond;
+	}
 
 	return 0;
 
+cleanup_lock_cond:
+	pthread_cond_destroy(&rdev->lock_cond);
 close_dev:
 	rhandler->close(dev);
 cleanup_aio_tracking:
@@ -831,7 +1067,7 @@ free_rdev:
 
 static void dev_removed(struct tcmu_device *dev)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int ret;
 
 	pthread_mutex_lock(&rdev->state_lock);
@@ -849,11 +1085,16 @@ static void dev_removed(struct tcmu_device *dev)
 
 	if (aio_wait_for_empty_queue(rdev))
 		tcmu_dev_err(dev, "could not flush queue.\n");
-	tcmulib_cleanup_cmdproc_thread(dev);
+
+	tcmu_thread_cancel(rdev->cmdproc_thread);
 	tcmur_stop_device(dev);
 
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(rdev);
+
+	ret = pthread_cond_destroy(&rdev->lock_cond);
+	if (ret != 0)
+		tcmu_err("could not cleanup lock cond %d\n", ret);
 
 	ret = pthread_mutex_destroy(&rdev->state_lock);
 	if (ret != 0)
@@ -872,6 +1113,8 @@ static void dev_removed(struct tcmu_device *dev)
 		tcmu_err("could not cleanup mailbox lock %d\n", ret);
 
 	free(rdev);
+
+	tcmu_dev_dbg(dev, "removed from tcmu-runner\n");
 }
 
 #define TCMUR_MIN_OPEN_FD 65536
@@ -951,8 +1194,18 @@ int main(int argc, char **argv)
 	GMainLoop *loop;
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
+	guint watch_id;
+	bool reset_nl_supp = false;
 	bool new_path = false;
-	int ret;
+	bool watching_cfg = false;
+	struct flock lock_fd = {0, };
+	int fd;
+	int ret = -1;
+
+	if ((tcmu_cfg = tcmu_initialize_config()) == NULL) {
+		tcmu_err("initializing the tcmu config failed: %m\n");
+		exit(EXIT_FAILURE);
+	}
 
 	while (1) {
 		int option_index = 0;
@@ -971,8 +1224,7 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'l':
-			if (!tcmu_logdir_create(optarg))
-				goto free_opt;
+			snprintf(tcmu_cfg->def_log_dir, PATH_MAX, "%s", optarg);
 			break;
 		case 'f':
 			nr_files = atol(optarg);
@@ -980,55 +1232,91 @@ int main(int argc, char **argv)
 				tcmu_err("--nofile=%d should be in [%lu, %lu]\n", nr_files,
 					(unsigned long)TCMUR_MIN_OPEN_FD,
 					(unsigned long)TCMUR_MAX_OPEN_FD);
-				goto free_opt;
+				goto free_config;
 			}
 
-			ret = tcmu_set_max_fd_limit(nr_files);
-			if (ret)
-				goto free_opt;
+			if (tcmu_set_max_fd_limit(nr_files))
+				goto free_config;
 			break;
 		case 'd':
-			tcmu_set_log_level(TCMU_CONF_LOG_DEBUG_SCSI_CMD);
+			tcmu_cfg->def_log_level = TCMU_CONF_LOG_DEBUG_SCSI_CMD;
 			break;
 		case 'V':
 			tcmu_info("tcmu-runner %s\n", TCMUR_VERSION);
-			goto free_opt;
+			goto free_config;
 		default:
 		case 'h':
 			usage();
-			goto free_opt;
+			goto free_config;
 		}
 	}
-
-	if (!tcmu_logdir_getenv())
-		goto free_opt;
 
 	/*
 	 * The order of setting up config and logger is important, because
 	 * the log directory may be configured via the system config file
 	 * which will be used in logger setting up.
 	 */
-	tcmu_cfg = tcmu_setup_config(NULL);
-	if (!tcmu_cfg)
-		goto free_opt;
+	if (tcmu_load_config(tcmu_cfg)) {
+		tcmu_err("Loading TCMU config failed!\n");
+		goto free_config;
+	}
 
-	if (tcmu_setup_log())
-		goto destroy_config;
+	if (tcmu_setup_log(tcmu_cfg->log_dir))
+		goto free_config;
+
+	tcmu_crit("Starting...\n");
+
+	fd = creat(TCMU_LOCK_FILE, S_IRUSR | S_IWUSR);
+	if (fd == -1) {
+		tcmu_err("creat(%s) failed: [%m]\n", TCMU_LOCK_FILE);
+		goto free_config;
+	}
+
+	lock_fd.l_type = F_WRLCK;
+	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
+		if (errno == EAGAIN) {
+			tcmu_err("tcmu-runner is already running...\n");
+		} else {
+			tcmu_err("fcntl(F_SETLK) on lockfile %s failed: [%m]\n",
+			         TCMU_LOCK_FILE);
+		}
+		goto close_fd;
+	}
+
+	if (load_our_module() < 0) {
+		tcmu_err("couldn't load module\n");
+		goto close_fd;
+	}
 
 	tcmu_dbg("handler path: %s\n", handler_path);
 
-	ret = load_our_module();
-	if (ret < 0) {
-		tcmu_err("couldn't load module\n");
-		goto destroy_log;
+	/*
+	 * If this is a restart we need to prevent new nl cmds from being
+	 * sent to us until we have everything ready.
+	 */
+	tcmu_dbg("blocking netlink\n");
+	reset_nl_supp = true;
+	ret = tcmu_cfgfs_mod_param_set_u32("block_netlink", 1);
+	tcmu_dbg("blocking netlink done\n");
+	if (ret == -ENOENT) {
+		reset_nl_supp = false;
+	} else {
+		/*
+		 * If it exists ignore errors and try to reset in case kernel is
+		 * in an invalid state
+		 */
+		tcmu_dbg("resetting netlink\n");
+		tcmu_cfgfs_mod_param_set_u32("reset_netlink", 1);
+		tcmu_dbg("reset netlink done\n");
 	}
 
 	ret = open_handlers();
 	if (ret < 0) {
 		tcmu_err("couldn't open handlers\n");
-		goto destroy_log;
+		goto close_fd;
 	}
 	tcmu_dbg("%d runner handlers found\n", ret);
+	ret = -1;
 
 	/*
 	 * Convert from tcmu-runner's handler struct to libtcmu's
@@ -1037,10 +1325,12 @@ int main(int argc, char **argv)
 	darray_foreach(tmp_r_handler, g_runner_handlers) {
 		struct tcmulib_handler tmp_handler;
 
+		memset(&tmp_handler, 0, sizeof(tmp_handler));
 		tmp_handler.name = (*tmp_r_handler)->name;
 		tmp_handler.subtype = (*tmp_r_handler)->subtype;
 		tmp_handler.cfg_desc = (*tmp_r_handler)->cfg_desc;
 		tmp_handler.check_config = (*tmp_r_handler)->check_config;
+		tmp_handler.update_logdir = (*tmp_r_handler)->update_logdir;
 		tmp_handler.reconfig = dev_reconfig;
 		tmp_handler.added = dev_added;
 		tmp_handler.removed = dev_removed;
@@ -1061,18 +1351,24 @@ int main(int argc, char **argv)
 		goto err_free_handlers;
 	}
 
-	loop = g_main_loop_new(NULL, FALSE);
-	if (g_unix_signal_add(SIGINT, sighandler, loop) <= 0 ||
-	    g_unix_signal_add(SIGTERM, sighandler, loop) <= 0) {
-		tcmu_err("couldn't setup signal handlers\n");
-		goto err_tcmulib_close;
+	tcmu_cfg->ctx = tcmulib_context;
+	if (tcmu_watch_config(tcmu_cfg)) {
+		tcmu_warn("Dynamic config file changes is not supported.\n");
+	} else {
+		watching_cfg = true;
 	}
 
-	darray_free(handlers);
+	loop = g_main_loop_new(NULL, FALSE);
+	if (g_unix_signal_add(SIGINT, handle_sig, loop) <= 0 ||
+	    g_unix_signal_add(SIGTERM, handle_sig, loop) <= 0 ||
+	    g_unix_signal_add(SIGHUP, handle_sighup, loop) <= 0) {
+		tcmu_err("couldn't setup signal handlers\n");
+		goto unwatch_cfg;
+	}
 
 	/* Set up event for libtcmu */
 	libtcmu_gio = g_io_channel_unix_new(tcmulib_get_master_fd(tcmulib_context));
-	g_io_add_watch(libtcmu_gio, G_IO_IN, tcmulib_callback, tcmulib_context);
+	watch_id = g_io_add_watch(libtcmu_gio, G_IO_IN, tcmulib_callback, tcmulib_context);
 
 	/* Set up DBus name, see callback */
 	reg_id = g_bus_own_name(G_BUS_TYPE_SYSTEM,
@@ -1085,31 +1381,47 @@ int main(int argc, char **argv)
 				NULL  // user date free func
 		);
 
+	if (reset_nl_supp) {
+		tcmu_cfgfs_mod_param_set_u32("block_netlink", 0);
+		reset_nl_supp = false;
+	}
 	g_main_loop_run(loop);
 
-	tcmu_dbg("Exiting...\n");
+	tcmu_crit("Exiting...\n");
 	g_bus_unown_name(reg_id);
 	g_main_loop_unref(loop);
+	g_source_remove(watch_id);
 	g_io_channel_shutdown(libtcmu_gio, TRUE, NULL);
-	tcmulib_close(tcmulib_context);
+	g_io_channel_unref (libtcmu_gio);
+	g_object_unref(manager);
 
-	tcmu_destroy_config(tcmu_cfg);
-	tcmu_destroy_log();
+	ret = 0;
 
-	return 0;
-
-err_tcmulib_close:
+unwatch_cfg:
+	if (watching_cfg)
+		tcmu_unwatch_config(tcmu_cfg);
 	tcmulib_close(tcmulib_context);
 err_free_handlers:
 	darray_free(handlers);
-destroy_log:
+close_fd:
+	if (reset_nl_supp)
+		tcmu_cfgfs_mod_param_set_u32("block_netlink", 0);
+
+	lock_fd.l_type = F_UNLCK;
+	if (fcntl(fd, F_SETLK, &lock_fd) == -1) {
+		tcmu_err("fcntl(UNLCK) on lockfile %s failed: [%m]\n",
+		         TCMU_LOCK_FILE);
+	}
+	close(fd);
+
 	tcmu_destroy_log();
-destroy_config:
-	tcmu_destroy_config(tcmu_cfg);
-free_opt:
+free_config:
+	tcmu_free_config(tcmu_cfg);
 	if (new_path)
 		free(handler_path);
-	tcmu_logdir_destroy();
 
-	exit(1);
+	if (ret)
+		exit(EXIT_FAILURE);
+
+	return 0;
 }

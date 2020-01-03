@@ -1,17 +1,9 @@
 /*
- * Copyright 2017, Red Hat, Inc.
+ * Copyright (c) 2017 Red Hat, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 #define _GNU_SOURCE
@@ -26,14 +18,21 @@
 #include "libtcmu_priv.h"
 #include "tcmur_device.h"
 #include "tcmur_aio.h"
+#include "tcmu_runner_priv.h"
 #include "tcmu-runner.h"
 
 struct tcmu_work {
 	struct tcmu_device *dev;
-	struct tcmulib_cmd *cmd;
-	tcmu_work_fn_t fn;
+	void *data;
+	tcmu_work_fn_t work_fn;
+	tcmu_done_fn_t done_fn;
 	struct list_node entry;
 };
+
+static void _cleanup_mutex_lock(void *arg)
+{
+	pthread_mutex_unlock(arg);
+}
 
 void track_aio_request_start(struct tcmur_device *rdev)
 {
@@ -48,7 +47,7 @@ void track_aio_request_start(struct tcmur_device *rdev)
 	pthread_cleanup_pop(0);
 }
 
-void track_aio_request_finish(struct tcmur_device *rdev, int *is_idle)
+void track_aio_request_finish(struct tcmur_device *rdev, int *wake_up)
 {
 	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 	pthread_cond_t *cond;
@@ -57,16 +56,37 @@ void track_aio_request_finish(struct tcmur_device *rdev, int *is_idle)
 	pthread_mutex_lock(&aio_track->track_lock);
 
 	assert(aio_track->tracked_aio_ops > 0);
-
 	--aio_track->tracked_aio_ops;
-	if (is_idle) {
-		*is_idle = (aio_track->tracked_aio_ops == 0) ? 1 : 0;
+
+	if (wake_up) {
+		++aio_track->pending_wakeups;
+		*wake_up = (aio_track->pending_wakeups == 1) ? 1 : 0;
 	}
 
 	if (!aio_track->tracked_aio_ops && aio_track->is_empty_cond) {
 		cond = aio_track->is_empty_cond;
 		aio_track->is_empty_cond = NULL;
 		pthread_cond_signal(cond);
+	}
+
+	pthread_mutex_unlock(&aio_track->track_lock);
+	pthread_cleanup_pop(0);
+}
+
+void track_aio_wakeup_finish(struct tcmur_device *rdev, int *wake_up)
+{
+	struct tcmu_track_aio *aio_track = &rdev->track_queue;
+
+	pthread_cleanup_push(_cleanup_mutex_lock, (void *)&aio_track->track_lock);
+	pthread_mutex_lock(&aio_track->track_lock);
+
+	if (aio_track->pending_wakeups > 1) {
+		aio_track->pending_wakeups = 1;
+		*wake_up = 1;
+	} else {
+		assert(aio_track->pending_wakeups > 0);
+		aio_track->pending_wakeups = 0;
+		*wake_up = 0;
 	}
 
 	pthread_mutex_unlock(&aio_track->track_lock);
@@ -121,13 +141,13 @@ static void _cleanup_io_work(void *arg)
 static void *io_work_queue(void *arg)
 {
 	struct tcmu_device *dev = arg;
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int ret;
 
 	while (1) {
 		struct tcmu_work *work;
-		struct tcmulib_cmd *cmd;
+		void *data;
 
 		pthread_cleanup_push(_cleanup_mutex_lock, &io_wq->io_lock);
 		pthread_mutex_lock(&io_wq->io_lock);
@@ -145,12 +165,11 @@ static void *io_work_queue(void *arg)
 		pthread_cleanup_pop(0);
 
 		/* kick start I/O request */
-		cmd = work->cmd;
+		data = work->data;
 		pthread_cleanup_push(_cleanup_io_work, work);
 
-		ret = work->fn(work->dev, cmd);
-		if (ret)
-			cmd->done(dev, cmd, ret);
+		ret = work->work_fn(work->dev, data);
+		work->done_fn(dev, data, ret);
 
 		pthread_cleanup_pop(1); /* cleanup work */
 	}
@@ -158,20 +177,21 @@ static void *io_work_queue(void *arg)
 	return NULL;
 }
 
-static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-			tcmu_work_fn_t fn)
+static int aio_queue(struct tcmu_device *dev, void *data, tcmu_work_fn_t work_fn,
+		     tcmu_done_fn_t done_fn)
 {
 	struct tcmu_work *work;
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 
 	work = malloc(sizeof(*work));
 	if (!work)
-		return SAM_STAT_TASK_SET_FULL;
+		return TCMU_STS_NO_RESOURCE;
 
-	work->fn = fn;
+	work->work_fn = work_fn;
+	work->done_fn = done_fn;
 	work->dev = dev;
-	work->cmd = cmd;
+	work->data = data;
 	list_node_init(&work->entry);
 
 	/* cleanup push/pop not _really_ required here atm */
@@ -184,21 +204,21 @@ static int aio_schedule(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	pthread_mutex_unlock(&io_wq->io_lock);
 	pthread_cleanup_pop(0);
 
-	return TCMU_ASYNC_HANDLED;
+	return TCMU_STS_ASYNC_HANDLED;
 }
 
-int async_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
-		     tcmu_work_fn_t work_fn)
+int aio_request_schedule(struct tcmu_device *dev, void *data,
+			 tcmu_work_fn_t work_fn, tcmu_done_fn_t done_fn)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret;
 
 	if (!rhandler->nr_threads) {
-		ret = work_fn(dev, cmd);
+		ret = work_fn(dev, data);
 		if (!ret)
-			ret = TCMU_ASYNC_HANDLED;
+			ret = TCMU_STS_ASYNC_HANDLED;
 	} else {
-		ret = aio_schedule(dev, cmd, work_fn);
+		ret = aio_queue(dev, data, work_fn, done_fn);
 	}
 
 	return ret;
@@ -209,10 +229,11 @@ int setup_aio_tracking(struct tcmur_device *rdev)
 	int ret;
 	struct tcmu_track_aio *aio_track = &rdev->track_queue;
 
+	aio_track->pending_wakeups = 0;
 	aio_track->tracked_aio_ops = 0;
 	ret = pthread_mutex_init(&aio_track->track_lock, NULL);
 	if (ret != 0) {
-		return ret;
+		return -ret;
 	}
 
 	return 0;
@@ -234,7 +255,7 @@ void cleanup_aio_tracking(struct tcmur_device *rdev)
 void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 {
 	struct tcmur_handler *r_handler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int i, nr_threads = r_handler->nr_threads;
 
@@ -244,7 +265,7 @@ void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 
 	for (i = 0; i < nr_threads; i++) {
 		if (io_wq->io_wq_threads[i]) {
-			cancel_thread(io_wq->io_wq_threads[i]);
+			tcmu_thread_cancel(io_wq->io_wq_threads[i]);
 		}
 	}
 }
@@ -252,7 +273,7 @@ void cleanup_io_work_queue_threads(struct tcmu_device *dev)
 int setup_io_work_queue(struct tcmu_device *dev)
 {
 	struct tcmur_handler *r_handler = tcmu_get_runner_handler(dev);
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int ret, i, nr_threads = r_handler->nr_threads;
 
@@ -272,8 +293,10 @@ int setup_io_work_queue(struct tcmu_device *dev)
 
 	/* TODO: Allow user to override device defaults */
 	io_wq->io_wq_threads = calloc(nr_threads, sizeof(pthread_t));
-	if (!io_wq->io_wq_threads)
+	if (!io_wq->io_wq_threads) {
+		ret = ENOMEM;
 		goto cleanup_cond;
+	}
 
 	for (i = 0; i < nr_threads; i++) {
 		ret = pthread_create(&io_wq->io_wq_threads[i], NULL,
@@ -293,12 +316,12 @@ cleanup_cond:
 cleanup_lock:
 	pthread_mutex_destroy(&io_wq->io_lock);
 out:
-	return ret;
+	return -ret;
 }
 
 void cleanup_io_work_queue(struct tcmu_device *dev, bool cancel)
 {
-	struct tcmur_device *rdev = tcmu_get_daemon_dev_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmu_io_queue *io_wq = &rdev->work_queue;
 	int ret;
 

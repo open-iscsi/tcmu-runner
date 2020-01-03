@@ -1,17 +1,9 @@
 /*
  * Copyright 2016, IBM Corp.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * This file is licensed to you under your choice of the GNU Lesser
+ * General Public License, version 2.1 or any later version (LGPLv2.1 or
+ * later), or the Apache License 2.0.
  */
 
 /*
@@ -60,6 +52,7 @@
 
 #include "be_byteshift.h"
 #include "tcmu-runner.h"
+#include "tcmur_device.h"
 #include "libtcmu.h"
 
 struct fbo_state {
@@ -82,11 +75,9 @@ struct fbo_state {
 	int curr_handler;
 };
 
-static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd);
-
 static void fbo_report_op_change(struct tcmu_device *dev, uint8_t code)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 
 	pthread_mutex_lock(&state->state_mtx);
 	if (code > state->event_op_ch_code)
@@ -95,46 +86,47 @@ static void fbo_report_op_change(struct tcmu_device *dev, uint8_t code)
 }
 
 /* Note: this is called per lun, not per mapping */
-static int fbo_open(struct tcmu_device *dev)
+static int fbo_open(struct tcmu_device *dev, bool reopen)
 {
 	struct fbo_state *state;
 	int64_t size;
 	char *options;
 	char *path;
+	int ret;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
 		return -ENOMEM;
 
-	tcmu_set_dev_private(dev, state);
+	tcmur_dev_set_private(dev, state);
 
 #if 0
 	/* TBD: If we can figure out how the hw_block_size attribute
 	 * gets set (and change it), we could use that in the future.
 	 */
-	state->block_size = tcmu_get_attribute(dev, "hw_block_size");
+	state->block_size = tcmu_cfgfs_dev_get_attr(dev, "hw_block_size");
 	if (state->block_size == -1) {
 		tcmu_err("Could not get device block size\n");
 		goto err;
 	}
-	tcmu_set_dev_block_size(dev, state->block_size);
+	tcmu_dev_set_block_size(dev, state->block_size);
 #else
 	/* MM logical units use a block size of 2048 */
 	state->block_size = 2048;
-	tcmu_set_dev_block_size(dev, state->block_size);
+	tcmu_dev_set_block_size(dev, state->block_size);
 #endif
 
-	size = tcmu_get_device_size(dev);
-	if (size == -1) {
+	size = tcmu_cfgfs_dev_get_info_u64(dev, "Size", &ret);
+	if (ret < 0) {
 		tcmu_err("Could not get device size\n");
 		goto err;
 	}
 
-	tcmu_set_dev_num_lbas(dev, size / state->block_size);
+	tcmu_dev_set_num_lbas(dev, size / state->block_size);
 	state->num_lbas = size / state->block_size;
 
-	tcmu_dbg("open: cfgstring %s\n", tcmu_get_dev_cfgstring(dev));
-	options = strchr(tcmu_get_dev_cfgstring(dev), '/');
+	tcmu_dbg("open: cfgstring %s\n", tcmu_dev_get_cfgstring(dev));
+	options = strchr(tcmu_dev_get_cfgstring(dev), '/');
 	if (!options) {
 		tcmu_err("invalid cfgstring\n");
 		goto err;
@@ -187,15 +179,11 @@ err:
 
 static void fbo_close(struct tcmu_device *dev)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 
+	pthread_mutex_destroy(&state->state_mtx);
 	close(state->fd);
 	free(state);
-}
-
-static int set_medium_error(uint8_t *sense, unsigned asc_ascq)
-{
-	return tcmu_set_sense_data(sense, MEDIUM_ERROR, asc_ascq, NULL);
 }
 
 static int fbo_emulate_inquiry(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt,
@@ -204,8 +192,7 @@ static int fbo_emulate_inquiry(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt
 	uint8_t	buf[36];
 
 	if ((cdb[1] & 0x01) || cdb[2])
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	memset(buf, 0, sizeof(buf));
 
@@ -225,19 +212,18 @@ static int fbo_emulate_inquiry(uint8_t *cdb, struct iovec *iovec, size_t iov_cnt
 	/* TBD: Resid data? */
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_request_sense(struct tcmu_device *dev, uint8_t *cdb,
 				     struct iovec *iovec, size_t iov_cnt,
 				     uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t buf[18];
 
 	if (cdb[1] & 0x01)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	/* Note that upon successful completion, Request Sense returns the
 	 * sense data in the data buffer, not as sense data.
@@ -259,7 +245,7 @@ static int fbo_emulate_request_sense(struct tcmu_device *dev, uint8_t *cdb,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, sizeof(buf));
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_handle_rwerp_page(uint8_t *buf, size_t buf_len,
@@ -327,7 +313,7 @@ static int fbo_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec,
 	uint8_t page_control = (cdb[2] >> 6) & 0x3;
 	uint8_t page_code = cdb[2] & 0x3F;
 	bool return_pages = true;
-	size_t alloc_len = tcmu_get_xfer_length(cdb);
+	size_t alloc_len = tcmu_cdb_get_xfer_length(cdb);
 	int i;
 	int ret;
 	int used_len;
@@ -336,9 +322,7 @@ static int fbo_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec,
 
 	/* We don't support saved pages */
 	if (page_control == 3)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_SAVING_PARAMETERS_NOT_SUPPORTED,
-					   NULL);
+		return TCMU_STS_NOTSUPP_SAVE_PARAMS;
 
 	memset(buf, 0, sizeof(buf));
 
@@ -383,8 +367,7 @@ static int fbo_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec,
 		}
 
 		if (!got_sense)
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB, NULL);
+			return TCMU_STS_INVALID_CDB;
 	}
 
 	if (sense_ten) {
@@ -397,7 +380,7 @@ static int fbo_emulate_mode_sense(uint8_t *cdb, struct iovec *iovec,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_mode_select(uint8_t *cdb, struct iovec *iovec,
@@ -405,7 +388,7 @@ static int fbo_emulate_mode_select(uint8_t *cdb, struct iovec *iovec,
 {
 	bool select_ten = (cdb[0] == MODE_SELECT_10);
 	uint8_t page_code;
-	size_t alloc_len = tcmu_get_xfer_length(cdb);
+	size_t alloc_len = tcmu_cdb_get_xfer_length(cdb);
 	int i;
 	int ret;
 	int used_len;
@@ -415,21 +398,16 @@ static int fbo_emulate_mode_select(uint8_t *cdb, struct iovec *iovec,
 
 	/* Abort if !PF or SP */
 	if (!(cdb[1] & 0x10) || (cdb[1] & 0x01))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	if (alloc_len > sizeof(in_buf))
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 
 	memset(buf, 0, sizeof(buf));
 
 	if (tcmu_memcpy_from_iovec(in_buf, sizeof(in_buf), iovec, iov_cnt) !=
 	    alloc_len)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 
 	/* Mode parameter header length */
 	used_len = select_ten ? 8 : 4;
@@ -443,16 +421,10 @@ static int fbo_emulate_mode_select(uint8_t *cdb, struct iovec *iovec,
 								    sizeof(buf) - used_len,
 								    0);
 				if (ret <= 0)
-					return tcmu_set_sense_data(sense,
-								   ILLEGAL_REQUEST,
-								   ASC_INVALID_FIELD_IN_CDB,
-								   NULL);
+					return TCMU_STS_INVALID_CDB;
 
 				if (used_len + ret > alloc_len)
-					return tcmu_set_sense_data(sense,
-								   ILLEGAL_REQUEST,
-								   ASC_PARAMETER_LIST_LENGTH_ERROR,
-								   NULL);
+					return TCMU_STS_INVALID_PARAM_LIST_LEN;
 
 				got_sense = true;
 				break;
@@ -460,41 +432,39 @@ static int fbo_emulate_mode_select(uint8_t *cdb, struct iovec *iovec,
 		}
 
 		if (!got_sense)
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-						   NULL);
+			return TCMU_STS_INVALID_PARAM_LIST;
 
 		/* We don't support changing anything, so data must match */
 		if (memcmp(&buf[used_len], &in_buf[used_len], ret))
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-						   NULL);
+			return TCMU_STS_INVALID_PARAM_LIST;
 
 		used_len += ret;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_allow_medium_removal(struct tcmu_device *dev,
 					    uint8_t *cdb, uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 
+	pthread_mutex_lock(&state->state_mtx);
 	/* We're ignoring the persistent prevent bit */
 	if (cdb[4] & 0x01)
 		state->flags |= FBO_PREV_EJECT;
 	else
 		state->flags &= ~FBO_PREV_EJECT;
+	pthread_mutex_unlock(&state->state_mtx);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_read_toc(struct tcmu_device *dev, uint8_t *cdb,
 				struct iovec *iovec, size_t iov_cnt,
 				uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t time_bit = cdb[1] & 0x02;
 	uint8_t format = cdb[2] & 0x0f;
 	uint8_t buf[512];
@@ -553,18 +523,17 @@ static int fbo_emulate_read_toc(struct tcmu_device *dev, uint8_t *cdb,
 		break;
 
 	default:
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_get_configuration(struct tcmu_device *dev, uint8_t *cdb,
 					 struct iovec *iovec, size_t iov_cnt,
 					 uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t rt = cdb[1] & 0x03;
 	uint16_t start = be16toh(*(uint16_t *)&cdb[2]);
 	int used_len;
@@ -573,8 +542,7 @@ static int fbo_emulate_get_configuration(struct tcmu_device *dev, uint8_t *cdb,
 
 	/* Reserved value for RT */
 	if (rt == 3)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	memset(buf, 0, sizeof(buf));
 
@@ -797,7 +765,7 @@ static int fbo_emulate_get_configuration(struct tcmu_device *dev, uint8_t *cdb,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_get_event_status_notification(struct tcmu_device *dev,
@@ -806,16 +774,15 @@ static int fbo_emulate_get_event_status_notification(struct tcmu_device *dev,
 						     size_t iov_cnt,
 						     uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t class_req = cdb[4];
-	uint16_t alloc_len = tcmu_get_xfer_length(cdb);
+	uint16_t alloc_len = tcmu_cdb_get_xfer_length(cdb);
 	int used_len;
 	uint8_t buf[8];
 
 	if (!(cdb[1] & 0x01))
 		/* We don't support asynchronous operation */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	memset(buf, 0, sizeof(buf));
 
@@ -876,14 +843,14 @@ done:
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_read_disc_information(struct tcmu_device *dev,
                                              uint8_t *cdb, struct iovec *iovec,
                                              size_t iov_cnt, uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t buf[34];
 
 	memset(buf, 0, sizeof(buf));
@@ -901,14 +868,14 @@ static int fbo_emulate_read_disc_information(struct tcmu_device *dev,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, 34);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_read_dvd_structure(struct tcmu_device *dev, uint8_t *cdb,
 					  struct iovec *iovec, size_t iov_cnt,
 					  uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t format = cdb[7];
 	uint32_t start_phys;
 	uint32_t end_phys;
@@ -918,8 +885,7 @@ static int fbo_emulate_read_dvd_structure(struct tcmu_device *dev, uint8_t *cdb,
 	// TBD: If we simulate start/stop, then fail if stopped and format != 0xff
 	/* Fail anything other than layer 0 */
 	if (cdb[6])
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	memset(buf, 0, sizeof(buf));
 
@@ -962,9 +928,8 @@ static int fbo_emulate_read_dvd_structure(struct tcmu_device *dev, uint8_t *cdb,
 
 	case 0x09:	// DVD-RAM Medium Status (Cartridge Info)
 		if (state->flags & FBO_READ_ONLY)
-			return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						   ASC_INVALID_FIELD_IN_CDB,
-						   NULL);
+			return TCMU_STS_INVALID_CDB;
+
 		buf[1] = 6;	// DVD Structure Data Length
 		buf[5] = 0x10;	// Disc Type Identification
 
@@ -994,18 +959,17 @@ static int fbo_emulate_read_dvd_structure(struct tcmu_device *dev, uint8_t *cdb,
 		break;
 
 	default:
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_emulate_mechanism_status(struct tcmu_device *dev, uint8_t *cdb,
 					struct iovec *iovec, size_t iov_cnt,
 					uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t buf[8];
 
 	memset(buf, 0, sizeof(buf));
@@ -1018,7 +982,7 @@ static int fbo_emulate_mechanism_status(struct tcmu_device *dev, uint8_t *cdb,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, 8);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_do_sync(struct fbo_state *state, uint8_t *sense)
@@ -1028,16 +992,16 @@ static int fbo_do_sync(struct fbo_state *state, uint8_t *sense)
 	rc = fsync(state->fd);
 	if (rc) {
 		tcmu_err("sync failed: %m\n");
-		return set_medium_error(sense, ASC_WRITE_ERROR);
+		return TCMU_STS_WR_ERR;
 	}
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static void *fbo_async_sync_cache(void *arg)
 {
 	struct tcmu_device *dev = (struct tcmu_device *)arg;
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t sense[SENSE_BUFFERSIZE];
 
 	pthread_mutex_lock(&state->state_mtx);
@@ -1060,20 +1024,19 @@ static void *fbo_async_sync_cache(void *arg)
 static int fbo_synchronize_cache(struct tcmu_device *dev, uint8_t *cdb,
 				 uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	pthread_t thr;
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	/* Reserved bit */
 	if (cdb[1] & 0x01)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	if (cdb[1] & 0x02) {
 		/* Immediate Bit set */
 		pthread_create(&thr, NULL, fbo_async_sync_cache, dev);
 
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 
 	return fbo_do_sync(state, sense);
@@ -1085,36 +1048,34 @@ static int fbo_check_lba_and_length(struct fbo_state *state, uint8_t *cdb,
 	uint64_t lba;
 	uint32_t num_blocks;
 
-	lba = tcmu_get_lba(cdb);
-	num_blocks = tcmu_get_xfer_length(cdb);
+	lba = tcmu_cdb_get_lba(cdb);
+	num_blocks = tcmu_cdb_get_xfer_length(cdb);
 
 	if (lba >= state->num_lbas || lba + num_blocks > state->num_lbas)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_LBA_OUT_OF_RANGE, NULL);
+		return TCMU_STS_RANGE;
 
 	*plba = lba;
 	*plen = num_blocks * state->block_size;
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		    size_t iov_cnt, uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t fua = cdb[1] & 0x08;
 	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
 	int remaining;
-	size_t ret;
+	ssize_t ret;
 	int rc;
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	/* DPO and RelAdr bits should be 0 */
 	if (cdb[0] != READ_6 && cdb[1] & 0x11)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	rc = fbo_check_lba_and_length(state, cdb, sense, &cur_lba, &length);
 	if (rc)
@@ -1126,7 +1087,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		rc = fsync(state->fd);
 		if (rc) {
 			tcmu_err("sync failed: %m\n");
-			return set_medium_error(sense, ASC_READ_ERROR);
+			return TCMU_STS_RD_ERR;
 		}
 	}
 
@@ -1141,10 +1102,10 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		ret = preadv(state->fd, iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			rc = set_medium_error(sense, ASC_READ_ERROR);
+			rc = TCMU_STS_RD_ERR;
 			break;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
@@ -1153,7 +1114,7 @@ static int fbo_read(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	state->flags &= ~FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 static void fbo_cleanup_buffer(void *buf)
@@ -1165,16 +1126,15 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 			 size_t iov_cnt, uint64_t offset, int length,
 			 uint8_t *sense)
 {
-	size_t ret;
+	ssize_t ret;
 	uint32_t cmp_offset;
 	void *buf;
-	int rc = SAM_STAT_GOOD;
+	int rc = TCMU_STS_OK;
 	int remaining;
 
 	buf = malloc(length);
 	if (!buf)
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
 
 	pthread_cleanup_push(fbo_cleanup_buffer, buf);
 	memset(buf, 0, length);
@@ -1190,18 +1150,17 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 		ret = pread(state->fd, buf, remaining, offset);
 		if (ret < 0) {
 			tcmu_err("read failed: %m\n");
-			rc = set_medium_error(sense, ASC_READ_ERROR);
+			rc = TCMU_STS_RD_ERR;
 			break;
 		}
 
-		cmp_offset = tcmu_compare_with_iovec(buf, iovec, ret);
+		cmp_offset = tcmu_iovec_compare(buf, iovec, ret);
 		if (cmp_offset != -1) {
-			rc = tcmu_set_sense_data(sense, MISCOMPARE,
-					ASC_MISCOMPARE_DURING_VERIFY_OPERATION,
-					&cmp_offset);
+			rc = TCMU_STS_MISCOMPARE;
+			tcmu_sense_set_info(sense, cmp_offset);
 			break;
 		}
-		tcmu_seek_in_iovec(iovec, ret);
+		tcmu_iovec_seek(iovec, ret);
 
 		offset += ret;
 		remaining -= ret;
@@ -1220,25 +1179,23 @@ static int fbo_do_verify(struct fbo_state *state, struct iovec *iovec,
 static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		     size_t iov_cnt, uint8_t *sense, bool do_verify)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	struct iovec write_iovec[iov_cnt];
 	uint8_t fua = cdb[1] & 0x08;
 	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
 	int remaining;
-	size_t ret;
-	int rc = SAM_STAT_GOOD;
+	ssize_t ret;
+	int rc = TCMU_STS_OK;
 	int rc1;
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	if (state->flags & FBO_READ_ONLY)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_CANT_WRITE_INCOMPATIBLE_FORMAT,
-					   NULL);
+		return TCMU_STS_WR_ERR_INCOMPAT_FRMT;
 
 	rc = fbo_check_lba_and_length(state, cdb, sense, &cur_lba, &length);
-	if (rc != SAM_STAT_GOOD)
+	if (rc != TCMU_STS_OK)
 		return rc;
 
 	offset = state->block_size * cur_lba;
@@ -1256,19 +1213,19 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 		ret = pwritev(state->fd, write_iovec, iov_cnt, offset);
 		if (ret < 0) {
 			tcmu_err("write failed: %m\n");
-			rc = set_medium_error(sense, ASC_WRITE_ERROR);
+			rc = TCMU_STS_WR_ERR;
 			break;
 		}
-		tcmu_seek_in_iovec(write_iovec, ret);
+		tcmu_iovec_seek(write_iovec, ret);
 		offset += ret;
 		remaining -= ret;
 	}
 
-	if (rc == SAM_STAT_GOOD && (do_verify || fua)) {
+	if (rc == TCMU_STS_OK && (do_verify || fua)) {
 		rc1 = fsync(state->fd);
 		if (rc1) {
 			tcmu_err("sync failed: %m\n");
-			rc = set_medium_error(sense, ASC_WRITE_ERROR);
+			rc = TCMU_STS_WR_ERR;
 		}
 	}
 
@@ -1276,7 +1233,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 	state->flags &= ~FBO_DEV_IO;
 	pthread_mutex_unlock(&state->state_mtx);
 
-	if (!do_verify || rc != SAM_STAT_GOOD)
+	if (!do_verify || rc != TCMU_STS_OK)
 		return rc;
 
 	offset = state->block_size * cur_lba;
@@ -1286,7 +1243,7 @@ static int fbo_write(struct tcmu_device *dev, uint8_t *cdb, struct iovec *iovec,
 static int fbo_verify(struct tcmu_device *dev, uint8_t *cdb,
 		      struct iovec *iovec, size_t iov_cnt, uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint64_t cur_lba = 0;
 	uint64_t offset;
 	int length = 0;
@@ -1294,14 +1251,11 @@ static int fbo_verify(struct tcmu_device *dev, uint8_t *cdb,
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	if (state->flags & FBO_READ_ONLY)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_CANT_WRITE_INCOMPATIBLE_FORMAT,
-					   NULL);
+		return TCMU_STS_WR_ERR_INCOMPAT_FRMT;
 
 	/* All of these bits are reserved for MM logical units */
 	if (cdb[1] & 0x13)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	rc = fbo_check_lba_and_length(state, cdb, sense, &cur_lba, &length);
 	if (rc)
@@ -1314,19 +1268,18 @@ static int fbo_verify(struct tcmu_device *dev, uint8_t *cdb,
 
 static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint32_t done_blocks = 0;
 	uint64_t offset = 0;
 	uint8_t *buf;
 	unsigned int length = 1024 * 1024;
-	size_t ret;
-	int rc = SAM_STAT_GOOD;
+	ssize_t ret;
+	int rc = TCMU_STS_OK;
 
 	buf = malloc(length);
 	if (!buf) {
 		tcmu_dbg("  malloc failed\n");
-		return tcmu_set_sense_data(sense, HARDWARE_ERROR,
-					   ASC_INTERNAL_TARGET_FAILURE, NULL);
+		return TCMU_STS_NO_RESOURCE;
 	}
 
 	pthread_cleanup_push(fbo_cleanup_buffer, buf);
@@ -1340,7 +1293,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 		ret = pwrite(state->fd, buf, length, offset);
 		if (ret == -1) {
 			tcmu_err("Could not write: %m\n");
-			rc = set_medium_error(sense, ASC_WRITE_ERROR);
+			rc = TCMU_STS_WR_ERR;
 			break;
 		}
 		done_blocks += length / state->block_size;
@@ -1363,7 +1316,7 @@ static int fbo_do_format(struct tcmu_device *dev, uint8_t *sense)
 static void *fbo_async_format(void *arg)
 {
 	struct tcmu_device *dev = (struct tcmu_device *)arg;
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t sense[SENSE_BUFFERSIZE];
 
 	pthread_mutex_lock(&state->state_mtx);
@@ -1386,61 +1339,44 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 				   struct iovec *iovec, size_t iov_cnt,
 				   uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	pthread_t thr;
 	uint8_t param_list[12];
 
 	// TBD: If we simulate start/stop, then fail if stopped
 	if (state->flags & FBO_READ_ONLY)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_CANT_WRITE_INCOMPATIBLE_FORMAT,
-					   NULL);
+		return TCMU_STS_WR_ERR_INCOMPAT_FRMT;
 
 	if (!(cdb[1] & 0x10) || ((cdb[1] & 0x07) != 1) || cdb[3] || cdb[4])
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_CDB, NULL);
+		return TCMU_STS_INVALID_CDB;
 
 	if (tcmu_memcpy_from_iovec(param_list, 12, iovec, iov_cnt) < 12)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_PARAMETER_LIST_LENGTH_ERROR,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST_LEN;
 
 	if (!(param_list[1] & 0x80) && (param_list[1] & 0x7c))
 		/* Options Valid not set but option bits set */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
 	if (param_list[1] & 0x1c)
 		/* We don't support these options */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
 	if (get_unaligned_be16(&param_list[2]) != 8)
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
 	if (param_list[8])
 		/* We only support Format Type 0 */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
 	if ((cdb[1] & 0x08 || !(param_list[1] & 0x20)) &&
 	    get_unaligned_be16(&param_list[4])  != state->num_lbas)
 		/* Number of Blocks doesn't match */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
 	if ((((uint32_t)param_list[9] << 16) +
 	     get_unaligned_be16(&param_list[10])) != state->block_size)
 		/* Block Size is wrong */
-		return tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					   ASC_INVALID_FIELD_IN_PARAMETER_LIST,
-					   NULL);
+		return TCMU_STS_INVALID_PARAM_LIST;
 
 	pthread_mutex_lock(&state->state_mtx);
 	/* Note that while our caller already checked this flag, the
@@ -1449,9 +1385,8 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 	 */
 	if (state->flags & FBO_FORMATTING) {
 		pthread_mutex_unlock(&state->state_mtx);
-		return tcmu_set_sense_data(sense, NOT_READY,
-					   ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					   &state->format_progress);
+		tcmu_sense_set_key_specific_info(sense, state->format_progress);
+		return TCMU_STS_FRMT_IN_PROGRESS;
 	}
 	state->format_progress = 0;
 	state->flags |= FBO_FORMATTING;
@@ -1461,7 +1396,7 @@ static int fbo_emulate_format_unit(struct tcmu_device *dev, uint8_t *cdb,
 		/* Immediate Bit set */
 		pthread_create(&thr, NULL, fbo_async_format, dev);
 
-		return SAM_STAT_GOOD;
+		return TCMU_STS_OK;
 	}
 
 	return fbo_do_format(dev, sense);
@@ -1471,7 +1406,7 @@ static int fbo_emulate_read_format_capacities(struct tcmu_device *dev,
 					      uint8_t *cdb, struct iovec *iovec,
 					      size_t iov_cnt, uint8_t *sense)
 {
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	int used_len;
 	uint8_t buf[20];
 
@@ -1493,19 +1428,20 @@ static int fbo_emulate_read_format_capacities(struct tcmu_device *dev,
 
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, buf, used_len);
 
-	return SAM_STAT_GOOD;
+	return TCMU_STS_OK;
 }
 
 /*
- * Return scsi status or TCMU_NOT_HANDLED
+ * Return scsi status or TCMU_STS_NOT_HANDLED
  */
-static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd)
 {
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
 	uint8_t *cdb = cmd->cdb;
 	struct iovec *iovec = cmd->iovec;
 	size_t iov_cnt = cmd->iov_cnt;
 	uint8_t *sense = cmd->sense_buf;
-	struct fbo_state *state = tcmu_get_dev_private(dev);
+	struct fbo_state *state = tcmur_dev_get_private(dev);
 	bool do_verify = false;
 	int ret;
 
@@ -1516,16 +1452,14 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	    cdb[0] != REQUEST_SENSE &&
 	    cdb[0] != GET_CONFIGURATION &&
 	    cdb[0] != GPCMD_GET_EVENT_STATUS_NOTIFICATION) {
-		ret = tcmu_set_sense_data(sense, NOT_READY,
-					  ASC_NOT_READY_FORMAT_IN_PROGRESS,
-					  &state->format_progress);
-		cmd->done(dev, cmd, ret);
-		return 0;
+		tcmu_sense_set_key_specific_info(sense, state->format_progress);
+		ret = TCMU_STS_FRMT_IN_PROGRESS;
+		return ret;
 	}
 
 	switch(cdb[0]) {
 	case TEST_UNIT_READY:
-		ret = tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		ret = tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt);
 		break;
 	case REQUEST_SENSE:
 		ret = fbo_emulate_request_sense(dev, cdb, iovec, iov_cnt, sense);
@@ -1557,7 +1491,7 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = fbo_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
 		break;
 	case START_STOP:
-		ret = tcmu_emulate_start_stop(dev, cdb, sense);
+		ret = tcmu_emulate_start_stop(dev, cdb);
 		break;
 	case ALLOW_MEDIUM_REMOVAL:
 		ret = fbo_emulate_allow_medium_removal(dev, cdb, sense);
@@ -1569,14 +1503,12 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case READ_CAPACITY:
 		if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
 			/* Reserved bits for MM logical units */
-			ret = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-						  ASC_INVALID_FIELD_IN_CDB,
-						  NULL);
+			return TCMU_STS_INVALID_CDB;
 		else
 			ret = tcmu_emulate_read_capacity_10(state->num_lbas,
 							    state->block_size,
 							    cdb, iovec,
-							    iov_cnt, sense);
+							    iov_cnt);
 		break;
 	case VERIFY:
 		ret = fbo_verify(dev, cdb, iovec, iov_cnt, sense);
@@ -1609,11 +1541,10 @@ static int fbo_handle_cmd(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 						   sense);
 		break;
 	default:
-		ret = TCMU_NOT_HANDLED;
+		ret = TCMU_STS_NOT_HANDLED;
 	}
 
-	cmd->done(dev, cmd, ret);
-	return 0;
+	return ret;
 }
 
 static const char fbo_cfg_desc[] =

@@ -18,11 +18,11 @@ One goal of TCMU is that configuring a userspace-backed LUN should be as easy as
 
 ### License
 
-tcmu-runner is [Apache 2.0 licensed](http://www.apache.org/licenses/LICENSE-2.0).
+tcmu-runner is LGPLv2.1 or Apache License 2.0.
 
 ### Releases
 
-Tarballs are available from https://fedorahosted.org/released/tcmu-runner/ .
+Tarballs are available from https://github.com/open-iscsi/tcmu-runner/releases.
 
 ### Development
 
@@ -33,14 +33,14 @@ We encourage pull requests and issues tracking via Github, and the [target-devel
 ##### Building tcmu-runner
 
 1. Clone this repo.
-1. Type `./install_dep.sh` to install development packages for dependencies, or you can do it manually:
+1. Type `./extra/install_dep.sh` to install development packages for dependencies, or you can do it manually:
    * *Note:* Install cmake and other packages which usually ending with "-devel" or "-dev": libnl3, libglib2 (or glib2-devel on Fedora), libpthread, libdl, libkmod, libgfapi (Gluster), librbd1 (Ceph), zlib.
-1. Type `cd tcmu-runner/`
-1. Type `cmake .`
-   * *Note:* tcmu-runner can be compiled without the Gluster or qcow handlers using the `-Dwith-glfs=false` and `-Dwith-qcow=false` cmake parameters respectively.
+1. Type `cd ./extra && ./make_runnerrpms.sh [--without (rbd|glfs|qcow|zbc|fbo)]` to build the RPM packages automatically.
+1. Type `cmake . [-Dwith-<rbd|glfs|qcow|zbc|fbo>=false]`
    * *Note:* If using systemd, `-DSUPPORT_SYSTEMD=ON -DCMAKE_INSTALL_PREFIX=/usr` should be passed to cmake, so files are installed to the correct location.
 1. Type `make`
 1. Type `make install`
+1. Type `xargs rm < install_manifest.txt` to uninstall from source
 
 
 ##### Running tcmu-runner
@@ -104,12 +104,28 @@ o- backstores .......................................................... [...]
 /backstores/user:rbd> create cfgstring=pool/rbd1;osd_op_timeout=30 name=rbd0 size=1G
 Created user-backed storage object rbd0 size 1073741824.
 
+The cfgstrng format is:
 
-Note that the cfgstring is handler specific. The format is:
+cfgstring=;tcmu-runner daemon arguments;handler arguments
 
-- **rbd**: /pool_name/image_name[;osd_op_timeout=N;conf=N]
+The following tcmu-runner daemon arguments are optional:
+
+- tcmur_cmd_time_out: Number of seconds before logging the command as timed out,
+and executing a handler specific timeout handler if supported.
+
+If passed in they must start before the handler specific arguments and each
+argument must start and end with a semicolon ";".
+
+Example using the rbd cfgstring with the optional tcmur_cmd_timeout arg:
+
+create ;tcmur_cmd_timeout=20;pool/rbd1;osd_op_timeout=30 name=rbd0 size=1G
+
+The handler specific arguments and their formats are:
+
+- **rbd**: /pool_name/image_name[;osd_op_timeout=N;conf=N;id=N]
 (osd_op_timeout is optional and N is in seconds)
 (conf is optional and N is the path to the conf file)
+(id is optional and N is the id to connect to the cluster as)
 - **qcow**: /path_to_file
 - **glfs**: /volume@hostname/filename
 - **file**: /path_to_file
@@ -140,8 +156,8 @@ backstores.
 
 - Logger setting:
 
-There are 5 logging levels supported:
-
+# There are 6 logging levels supported:
+0. CRIT
 1. ERROR
 2. WARNING
 3. INFO
@@ -153,15 +169,15 @@ uncomment the following line in /etc/tcmu/tcmu.conf and set your level number:
 
 \# log_level = 3
 
-The priority of the logdir setting can be managed via following options:
-
-1. Cli argument
-</br>eg: --tcmu_log_dir/-l `LOG_DIR_PATH` [Highest prio]
-2. Environment variable
+The precedence of the config settings is as mentioned belows:
+1. Options set through config file /etc/tcmu/tcmu.conf  [Top Prio]
+</br>eg: uncommenting and adjusting key:value at /etc/tcmu/tcmu.conf
+2. Arguments passed at daemon
+</br>eg: -l/--tcmu-log-dir, -d/--debug
+3. Environment variable.
 </br>eg: export TCMU_LOGDIR="/var/log/mylogdir/"
-3. Configuration file
-</br>eg: uncommenting and adjusting value of 'log_dir_path' at /etc/tcmu/tcmu.conf
-4. Default logdir as hard coded i.e. '/var/log/' [Least prio]
+4. Code level defaults.  [Least Prio]
+</br>eg: TCMU_LOG_DIR_DEFAULT = '/var/log/' & TCMU_CONF_LOG_INFO = INFO
 
 - System configuration:
 
@@ -221,10 +237,10 @@ loop and SCSI command handling for your plugin, and your handler's registered
 functions are called repeatedly to handle storage requests as required by the
 upper SCSI layer, which will handle most of the SCSI commands for you.
 
-* *Note:* If the .handle_cmd is also implemented by the handler, tcmu-runner will
-try to pass through the commands to the handler first, if and only when the handler
-won't support the commands it should return TCMU_NOT_HANDLED, then the tcmu-runner
-will handle them in generic.
+* *Note:* If the .handle_cmd is also implemented by the handler, tcmu-runner
+will try to pass through the commands to the handler first. If and only when
+the handler won't support the commands it should return TCMU_STS_NOT_HANDLED,
+then the tcmu-runner will handle them in the generic handler.
 
 The `file_example` handler is an example of this type.
 
