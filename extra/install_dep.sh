@@ -28,8 +28,8 @@ if [ y`uname`y = yLinuxy ]; then
 		$SUDO apt update
 		
 		# for generic
-		$SUDO apt install -y cmake make gcc libnl-3-dev libglib2.0-dev zlib1g kmod
-		$SUDO apt install -y libnl-3-dev libglib2.0-0 libkmod-dev libgoogle-perftools-dev
+		$SUDO apt install -y cmake make gcc zlib1g kmod
+		$SUDO apt install -y libnl-3-dev libnl-genl-3-dev libglib2.0-0 libkmod-dev libgoogle-perftools-dev
 		
 		# for glusterfs
 		$SUDO apt install -y libglusterfs-dev
