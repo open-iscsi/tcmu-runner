@@ -37,8 +37,18 @@ if [ y`uname`y = yLinuxy ]; then
 		# for ceph
 		$SUDO apt install -y librados2 librbd-dev
 		;;
+	sles|opensuse-tumbleweed)
+		# for generic
+		$SUDO zypper install -y cmake make gcc libnl3-200 glib2 zlib kmod
+		$SUDO zypper install -y libnl3-devel glib2-devel zlib-devel libkmod-devel gperftools-devel
+
+		#for glusterfs
+		$SUDO zypper install -y glusterfs-devel glusterfs
+		#for ceph
+		$SUDO zypper install -y librbd-devel librados-devel librados2
+		;;
 	*)
-		echo "TODO: only fedora/rhel/centos/debian are supported for now!"
+		echo "TODO: distro not supported for now!"
 		;;
 	esac
 else
