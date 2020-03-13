@@ -314,14 +314,14 @@ size_t tcmu_memcpy_from_iovec(
 	return copied;
 }
 
-#define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 1)
+#define CDB_TO_BUF_SIZE(bytes) ((bytes) * 3 + 2)
 #define CDB_FIX_BYTES 64 /* 64 bytes for default */
 #define CDB_FIX_SIZE CDB_TO_BUF_SIZE(CDB_FIX_BYTES)
 void tcmu_cdb_print_info(struct tcmu_device *dev,
 			 const struct tcmulib_cmd *cmd,
 			 const char *info)
 {
-	int i, n, bytes;
+	int i, n, bytes, info_len = 0;
 	char fix[CDB_FIX_SIZE], *buf;
 
 	buf = fix;
@@ -330,8 +330,11 @@ void tcmu_cdb_print_info(struct tcmu_device *dev,
 	if (bytes < 0)
 		return;
 
-	if (bytes > CDB_FIX_SIZE) {
-		buf = malloc(CDB_TO_BUF_SIZE(bytes));
+	if (info)
+		info_len = strlen(info);
+
+	if (CDB_TO_BUF_SIZE(bytes) + info_len > CDB_FIX_SIZE) {
+		buf = malloc(CDB_TO_BUF_SIZE(bytes) + info_len);
 		if (!buf) {
 			tcmu_dev_err(dev, "out of memory\n");
 			return;
@@ -353,7 +356,7 @@ void tcmu_cdb_print_info(struct tcmu_device *dev,
 		tcmu_dev_dbg_scsi_cmd(dev, "%s", buf);
 	}
 
-	if (bytes > CDB_FIX_SIZE)
+	if (buf != fix)
 		free(buf);
 }
 
