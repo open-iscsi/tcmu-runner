@@ -62,6 +62,8 @@ enum {
 	TCMU_STS_TOO_MANY_TGT_DESC,
 };
 
+#define TCMU_THREAD_NAME_LEN 16
+
 #define SENSE_BUFFERSIZE 96
 
 #define CFGFS_ROOT "/sys/kernel/config/target"
@@ -106,6 +108,8 @@ struct tcmulib_cmd {
 /* Set/Get methods for the opaque tcmu_device */
 void *tcmu_dev_get_private(struct tcmu_device *dev);
 void tcmu_dev_set_private(struct tcmu_device *dev, void *priv);
+const char *tcmu_dev_get_uio_name(struct tcmu_device *dev);
+void tcmu_set_thread_name(const char *prefix, struct tcmu_device *dev);
 int tcmu_dev_get_fd(struct tcmu_device *dev);
 char *tcmu_dev_get_memory_info(struct tcmu_device *dev, void **base,
 			       size_t *len, off_t *offset);

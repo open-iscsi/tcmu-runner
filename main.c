@@ -756,6 +756,8 @@ static void *tcmur_cmdproc_thread(void *arg)
 	int ret;
 	bool dev_stopping = false;
 
+	tcmu_set_thread_name("cmdproc", dev);
+
 	pthread_cleanup_push(tcmur_stop_device, dev);
 
 	while (1) {

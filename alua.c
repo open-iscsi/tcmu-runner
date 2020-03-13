@@ -544,8 +544,12 @@ bool lock_is_required(struct tcmu_device *dev)
 
 static void *alua_lock_thread_fn(void *arg)
 {
+	struct tcmu_device *dev = arg;
+
+	tcmu_set_thread_name("alua-lock", dev);
+
 	/* TODO: set UA based on bgly's patches */
-	tcmu_acquire_dev_lock(arg, -1);
+	tcmu_acquire_dev_lock(dev, -1);
 	return NULL;
 }
 

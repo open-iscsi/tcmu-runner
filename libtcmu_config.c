@@ -401,6 +401,8 @@ static void *dyn_config_start(void *arg)
 	char buf[BUF_LEN];
 	char *p;
 
+	tcmu_set_thread_name("dyn-config", NULL);
+
 	monitor = inotify_init();
 	if (monitor == -1) {
 		tcmu_err("Failed to init inotify %m\n");

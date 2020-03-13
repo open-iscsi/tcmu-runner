@@ -835,6 +835,49 @@ void tcmu_dev_set_private(struct tcmu_device *dev, void *private)
 	dev->hm_private = private;
 }
 
+const char *tcmu_dev_get_uio_name(struct tcmu_device *dev)
+{
+	return dev->dev_name;
+}
+
+void tcmu_set_thread_name(const char *prefix, struct tcmu_device *dev)
+{
+	const char *uio = dev ? tcmu_dev_get_uio_name(dev) : NULL;
+	char *pname;
+	int end;
+
+	if (!prefix) {
+		tcmu_dev_err(dev, "failed to set name for thread %lu\n",
+			     pthread_self());
+		return;
+	}
+
+	end = strlen(prefix);
+
+	if (uio)
+	       end += strlen(uio) + 1; // extra 1 byte for '-'
+
+	if (end >= TCMU_THREAD_NAME_LEN) {
+		tcmu_dev_warn(dev, "the length for prefix(%s) + uio(%s) is (%d) should < (%d)\n",
+			      prefix, uio, end, TCMU_THREAD_NAME_LEN);
+		tcmu_dev_warn(dev, "will truncate the thread name to %d\n",
+			      TCMU_THREAD_NAME_LEN - 1);
+
+		/* truncate the thread name to 15 characters */
+		end = TCMU_THREAD_NAME_LEN - 1;
+	}
+
+	if (asprintf(&pname, "%s%s%s", prefix, uio ? "-" : "",  uio ? uio : "") == -1) {
+		tcmu_dev_err(dev, "no memory for pname\n");
+		return;
+	}
+
+	pname[end] = '\0';
+
+	pthread_setname_np(pthread_self(), pname);
+	free(pname);
+}
+
 void tcmu_dev_set_num_lbas(struct tcmu_device *dev, uint64_t num_lbas)
 {
 	dev->num_lbas = num_lbas;

@@ -1004,6 +1004,8 @@ static void *fbo_async_sync_cache(void *arg)
 	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t sense[SENSE_BUFFERSIZE];
 
+	tcmu_set_thread_name("fbo-cache", dev);
+
 	pthread_mutex_lock(&state->state_mtx);
 	state->async_cache_count++;
 	state->flags |= FBO_BUSY_EVENT;
@@ -1318,6 +1320,8 @@ static void *fbo_async_format(void *arg)
 	struct tcmu_device *dev = (struct tcmu_device *)arg;
 	struct fbo_state *state = tcmur_dev_get_private(dev);
 	uint8_t sense[SENSE_BUFFERSIZE];
+
+	tcmu_set_thread_name("fbo-format", dev);
 
 	pthread_mutex_lock(&state->state_mtx);
 	state->flags |= FBO_BUSY_EVENT | FBO_FORMAT_IMMED;
