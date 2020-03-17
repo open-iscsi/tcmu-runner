@@ -75,6 +75,7 @@ struct glfs_state {
 	glfs_t *fs;
 	glfs_fd_t *gfd;
 	gluster_server *hosts;
+	bool no_fencing;
 
 	/*
 	 * Current tcmu helper API reports WCE=1, but doesn't
@@ -536,9 +537,13 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 
 #if GFAPI_VERSION766
 	ret = glfs_fsetxattr(gfsp->gfd, GF_ENFORCE_MANDATORY_LOCK, "set", 4, 0);
-	if (ret < 0) {
-		tcmu_dev_err(dev,"glfs_fsetxattr failed: %m\n");
-		goto close;
+	if (ret) {
+		if (errno == EINVAL) {
+			gfsp->no_fencing = true;
+		} else {
+			tcmu_dev_err(dev,"glfs_fsetxattr failed: %m\n");
+			goto close;
+		}
 	}
 #endif
 
@@ -612,6 +617,9 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 	glfs_cbk_cookie *cookie = data;
 	struct tcmu_device *dev = cookie->dev;
 	struct tcmur_cmd *tcmur_cmd = cookie->tcmur_cmd;
+#if GFAPI_VERSION766
+	struct glfs_state *gfsp = tcmur_dev_get_private(dev);
+#endif
 	size_t length = cookie->length;
 	int err = -errno;
 
@@ -642,10 +650,12 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 			 * time another client has taken the lock we
 			 * will get EBUSY too.
 			 */
-			tcmu_dev_dbg(dev, "failed with errno %d.\n", err);
-			tcmu_notify_lock_lost(dev);
-			ret = TCMU_STS_BUSY;
-			break;
+			if (!gfsp->no_fencing) {
+				tcmu_dev_dbg(dev, "failed with errno %d.\n", err);
+				tcmu_notify_lock_lost(dev);
+				ret = TCMU_STS_BUSY;
+				break;
+			}
 #endif
 		default:
 			tcmu_dev_dbg(dev, "failed with errno %d.\n", err);
@@ -917,6 +927,9 @@ static int tcmu_glfs_lock(struct tcmu_device *dev, uint16_t tag)
 	struct flock lock;
 	int ret;
 
+	if (state->no_fencing)
+		return 0;
+
 	lock.l_type = F_WRLCK | F_RDLCK;
 	lock.l_whence = SEEK_SET;
 	lock.l_start = 0;
@@ -934,6 +947,9 @@ static int tcmu_glfs_unlock(struct tcmu_device *dev)
 	struct glfs_state *state = tcmur_dev_get_private(dev);
 	struct flock lock;
 	int ret;
+
+	if (state->no_fencing)
+		return 0;
 
 	lock.l_type = F_UNLCK;
 	lock.l_whence = SEEK_SET;
