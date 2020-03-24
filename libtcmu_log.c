@@ -524,8 +524,6 @@ static bool log_dequeue_msg(struct log_buf *logbuf)
 
 static void *log_thread_start(void *arg)
 {
-	tcmu_logbuf = arg;
-
 	tcmu_set_thread_name("logger", NULL);
 
 	pthread_cleanup_push(log_cleanup, arg);
@@ -697,9 +695,11 @@ int tcmu_setup_log(char *log_dir)
 	if (ret < 0)
 		tcmu_err("create file output error \n");
 
+	tcmu_logbuf = logbuf;
 	ret = pthread_create(&logbuf->thread_id, NULL, log_thread_start,
 			     logbuf);
 	if (ret) {
+		tcmu_logbuf = NULL;
 		log_cleanup(logbuf);
 		return ret;
 	}
