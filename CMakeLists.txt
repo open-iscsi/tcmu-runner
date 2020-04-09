@@ -36,6 +36,16 @@ pkg_check_modules(KMOD REQUIRED libkmod)
 find_library(PTHREAD pthread)
 find_library(DL dl)
 
+list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/s3-c/test/lib")
+list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/install/usr/local/lib64")
+list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/s3util/lib")
+
+find_library(AWS-CORE aws-cpp-sdk-core)
+find_library(AWS-S3 aws-cpp-sdk-s3)
+find_library(S3Shared s3shared)
+find_library(S3SharedC s3sharedC)
+
+
 if (with-tcmalloc)
   find_library(TCMALLOC_LIB tcmalloc)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free")
@@ -170,6 +180,26 @@ target_include_directories(handler_file
   PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 
+# Stuff for building the hikvision_file handler
+add_library(handler_hikvision_file
+  SHARED
+  handler_hikvision_file.c
+  )
+set_target_properties(handler_hikvision_file
+  PROPERTIES
+  PREFIX ""
+  )
+target_include_directories(handler_hikvision_file
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  /c++/C-Example/linux/install/usr/local/include
+  /c++/C-Example/linux/s3util/include
+  /c++/C-Example/linux/s3-c/test/include
+  )
+target_link_libraries(handler_hikvision_file 
+  ${AWS-CORE} ${AWS-S3} ${S3Shared} ${S3SharedC})
+
+
+install(TARGETS handler_hikvision_file DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 if (with-fbo)
 	# Stuff for building the file optical handler
 	add_library(handler_file_optical
