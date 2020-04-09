@@ -124,7 +124,7 @@ static void hikvision_file_close(struct tcmu_device *dev)
  * 
  * return                   the size of read data.
  */
-static int hikvision_file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int hikvision_file_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 							   struct iovec *iov, size_t iov_cnt, size_t length,
 							   off_t offset)
 {
@@ -190,7 +190,7 @@ static int hikvision_file_read(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
  * 
  * return                   the size of read data.
  */
-static int hikvision_file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
+static int hikvision_file_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 								struct iovec *iov, size_t iov_cnt, size_t length,
 								off_t offset)
 {
@@ -249,7 +249,7 @@ static int hikvision_file_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd
 	return ret;
 }
 
-static int hikvision_file_flush(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
+static int hikvision_file_flush(struct tcmu_device *dev, struct tcmur_cmd *cmd)
 {
 	// Get the file state of tcmu_device.
 	int ret;
