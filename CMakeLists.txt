@@ -40,8 +40,8 @@ list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/s3-c/test/lib")
 list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/install/usr/local/lib64")
 list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/s3util/lib")
 
-find_library(AWS-CORE aws-cpp-sdk-core)
-find_library(AWS-S3 aws-cpp-sdk-s3)
+find_library(AWSCORE aws-cpp-sdk-core)
+find_library(AWSS3 aws-cpp-sdk-s3)
 find_library(S3Shared s3shared)
 find_library(S3SharedC s3sharedC)
 
@@ -195,11 +195,9 @@ target_include_directories(handler_hikvision_file
   /c++/C-Example/linux/s3util/include
   /c++/C-Example/linux/s3-c/test/include
   )
-target_link_libraries(handler_hikvision_file 
-  ${AWS-CORE} ${AWS-S3} ${S3Shared} ${S3SharedC})
-
-
+target_link_libraries(handler_hikvision_file ${AWSCORE} ${AWSS3} ${S3Shared} ${S3SharedC})
 install(TARGETS handler_hikvision_file DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+
 if (with-fbo)
 	# Stuff for building the file optical handler
 	add_library(handler_file_optical
