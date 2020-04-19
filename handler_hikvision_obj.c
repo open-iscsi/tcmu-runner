@@ -38,6 +38,8 @@
 #include "tcmur_device.h"
 
 // Use self-define header
+#include "S3TestWrapper.h"
+
 #define MB_UNIT "MB"
 #define KB_UNIT "KB"
 
@@ -46,7 +48,7 @@
 #define max_num(a, b) ({ a < b ? b : a; })
 #define min_num(a, b) ({ a < b ? a : b; })
 
-struct hikvision_file_state
+struct hikvision_obj_state
 {
 	char *iqn;
 	double fragment_size;
@@ -63,7 +65,7 @@ struct io_segment
 	off_t offset;
 	size_t len;
 };
-static void parse_config_by_array(struct hikvision_file_state *state, char *cfgString);
+static void parse_config_by_array(struct hikvision_obj_state *state, char *cfgString);
 int seg_read(struct io_segment *ios, size_t fragment_size);
 int seg_write(struct io_segment *ios, size_t fragment_size);
 int gen_ios(struct tcmu_device *dev, size_t length, off_t offset, struct io_segment **p_ios);
@@ -71,11 +73,11 @@ size_t ios_2_mem(char *dest, size_t length, struct io_segment *ios, size_t ios_c
 size_t mem_2_ios(void *src, size_t length, struct io_segment *ios, size_t ios_cnt);
 void free_ios(struct io_segment *ios, size_t ios_cnt);
 
-static int hikvision_file_open(struct tcmu_device *dev, bool reopen)
+static int hikvision_obj_open(struct tcmu_device *dev, bool reopen)
 {
-	struct hikvision_file_state *state;
+	struct hikvision_obj_state *state;
 	char *cfgString;
-	struct hikvision_file_state *hm_private;
+	struct hikvision_obj_state *hm_private;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
@@ -102,10 +104,10 @@ static int hikvision_file_open(struct tcmu_device *dev, bool reopen)
 	return 0;
 }
 
-static void hikvision_file_close(struct tcmu_device *dev)
+static void hikvision_obj_close(struct tcmu_device *dev)
 {
 	// Get the file state of tcmu_device.
-	struct hikvision_file_state *state = tcmur_dev_get_private(dev);
+	struct hikvision_obj_state *state = tcmur_dev_get_private(dev);
 
 	// free the state
 	free(state);
@@ -122,11 +124,11 @@ static void hikvision_file_close(struct tcmu_device *dev)
  * 
  * return                   the size of read data.
  */
-static int hikvision_file_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
+static int hikvision_obj_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 							   struct iovec *iov, size_t iov_cnt, size_t length,
 							   off_t offset)
 {
-	struct hikvision_file_state *state = tcmur_dev_get_private(dev);
+	struct hikvision_obj_state *state = tcmur_dev_get_private(dev);
 	struct io_segment *ios;
 	ssize_t ret;
 	size_t ios_cnt = gen_ios(dev, length, offset, &ios);
@@ -188,11 +190,11 @@ static int hikvision_file_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
  * 
  * return                   the size of read data.
  */
-static int hikvision_file_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
+static int hikvision_obj_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 								struct iovec *iov, size_t iov_cnt, size_t length,
 								off_t offset)
 {
-	struct hikvision_file_state *state = tcmur_dev_get_private(dev);
+	struct hikvision_obj_state *state = tcmur_dev_get_private(dev);
 	struct io_segment *ios;
 	ssize_t ret;
 	int i = 0;
@@ -247,7 +249,7 @@ static int hikvision_file_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 	return ret;
 }
 
-static int hikvision_file_flush(struct tcmu_device *dev, struct tcmur_cmd *cmd)
+static int hikvision_obj_flush(struct tcmu_device *dev, struct tcmur_cmd *cmd)
 {
 	// Get the file state of tcmu_device.
 	int ret;
@@ -255,7 +257,7 @@ static int hikvision_file_flush(struct tcmu_device *dev, struct tcmur_cmd *cmd)
 	return ret;
 }
 
-static int hikvision_file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
+static int hikvision_obj_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
 	switch (cfg->type)
 	{
@@ -275,22 +277,22 @@ static int hikvision_file_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_i
 	}
 }
 
-static const char hikvision_file_cfg_desc[] =
+static const char hikvision_obj_cfg_desc[] =
 	"The format of config string should be '/iqn/path/lun-name/frag_size'.";
 
 // Init the tcmu_handler with given static method defined in this class.
-static struct tcmur_handler hikvision_file_handler = {
-	.cfg_desc = hikvision_file_cfg_desc,
+static struct tcmur_handler hikvision_obj_handler = {
+	.cfg_desc = hikvision_obj_cfg_desc,
 
-	.reconfig = hikvision_file_reconfig,
+	.reconfig = hikvision_obj_reconfig,
 
-	.open = hikvision_file_open,
-	.close = hikvision_file_close,
-	.read = hikvision_file_read,
-	.write = hikvision_file_write,
-	.flush = hikvision_file_flush,
-	.name = "HikVison-File-Storage-backed Handler",
-	.subtype = "Hikvision_File",
+	.open = hikvision_obj_open,
+	.close = hikvision_obj_close,
+	.read = hikvision_obj_read,
+	.write = hikvision_obj_write,
+	.flush = hikvision_obj_flush,
+	.name = "HikVison-Obj-Storage-backed Handler",
+	.subtype = "hikvision_obj",
 	.nr_threads = 2,
 };
 
@@ -298,10 +300,10 @@ static struct tcmur_handler hikvision_file_handler = {
 int handler_init(void)
 {
 	// Regist the hikvision_handler to running_handler list
-	return tcmur_register_handler(&hikvision_file_handler);
+	return tcmur_register_handler(&hikvision_obj_handler);
 }
 
-static void parse_config_by_array(struct hikvision_file_state *state, char *cfgString)
+static void parse_config_by_array(struct hikvision_obj_state *state, char *cfgString)
 {
 	int i, length, virgule_symbol_count, iqn_size, lun_size, frag_size;
 	char *iqn = (char *)calloc(100, sizeof(char));
@@ -365,10 +367,24 @@ static void parse_config_by_array(struct hikvision_file_state *state, char *cfgS
 int OBJ_read(char *key, char *value, size_t fragment_size)
 {
 	char path[512];
+	char* keyCopy;
+	char* delim;
+	char* BucketName;
 	int fd;
+	int downloadResult;
 	ssize_t ret;
 	sprintf(path, "%s%s", TCMU_KV_DEMO_DIR, key);
 	
+	// download the file with given path.
+	keyCopy = strdup(key);
+	delim = "_";
+	BucketName = strtok(keyCopy, delim);
+	downloadResult = downloadfile(BucketName, key, path);
+	free(keyCopy);
+	tcmu_err("Download Result: %d\n", downloadResult);
+
+
+
 	fd = open(path, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR);
 	if (fd == -1)
 	{
@@ -393,8 +409,13 @@ int OBJ_read(char *key, char *value, size_t fragment_size)
 int OBJ_write(char *key, char *value, size_t fragment_size)
 {
 	char path[512];
+	char* keyCopy;
+	char* delim;
+	char* BucketName;
 	int fd;
 	ssize_t ret;
+	int uploadResult;
+	sprintf(path, "%s%s", TCMU_KV_DEMO_DIR, key);
 	fd = open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
 	if (fd == -1)
 	{
@@ -405,6 +426,14 @@ int OBJ_write(char *key, char *value, size_t fragment_size)
 	tcmu_err("Write with value length : %zu\n", fragment_size);
 	ret = write(fd, value, fragment_size);
 	close(fd);
+
+    // upload the file to minio
+	keyCopy = strdup(key);
+	delim = "_";
+	BucketName = strtok(keyCopy, delim);
+	uploadResult = uploadfile(BucketName, key, path);
+	free(keyCopy);
+	tcmu_err("Upload Result: %d\n", uploadResult);
 
 	return ret;
 }
@@ -445,7 +474,7 @@ int gen_ios(struct tcmu_device *dev, size_t length, off_t offset,
 {
 	int i = 0;
 	//获取iqn、条带大小fragment_size
-	struct hikvision_file_state *state = tcmur_dev_get_private(dev);
+	struct hikvision_obj_state *state = tcmur_dev_get_private(dev);
 	//计算条带编号
 	int s_count = offset / state->fragment_size;
 	int e_count = (offset + length - 1) / state->fragment_size;

@@ -36,14 +36,18 @@ pkg_check_modules(KMOD REQUIRED libkmod)
 find_library(PTHREAD pthread)
 find_library(DL dl)
 
-list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/s3-c/test/lib")
 list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/install/usr/local/lib64")
+list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/s3-c/test/lib")
 list(APPEND CMAKE_LIBRARY_PATH "/c++/C-Example/linux/s3util/lib")
 
-find_library(AWSCORE aws-cpp-sdk-core)
-find_library(AWSS3 aws-cpp-sdk-s3)
-find_library(S3Shared s3shared)
-find_library(S3SharedC s3sharedC)
+# find_library(AWSCORE aws-cpp-sdk-core)
+# find_library(AWSS3 aws-cpp-sdk-s3)
+# find_library(S3SHARED s3shared)
+find_library(S3SHAREDC s3sharedC)
+# link_directories(/c++/C-Example/linux/s3-c/test/lib)
+link_directories(/c++/C-Example/linux/.deps/install/lib64)
+# link_directories(/c++/C-Example/linux/s3util/lib)
+# link_directories(/c++/C-Example/linux/install/usr/local/lib64)
 
 
 if (with-tcmalloc)
@@ -52,7 +56,7 @@ if (with-tcmalloc)
 endif(with-tcmalloc)
 
 # Stuff for building the shared library
-add_library(tcmu
+add_library(tcmu  
   SHARED
   strlcpy.c
   configfs.c
@@ -180,7 +184,27 @@ target_include_directories(handler_file
   PUBLIC ${PROJECT_SOURCE_DIR}/ccan
   )
 
-# Stuff for building the hikvision_file handler
+# Stuff for building the handler_hikvision_obj handler
+add_library(handler_hikvision_obj
+  SHARED
+  handler_hikvision_file.c
+  )
+set_target_properties(handler_hikvision_obj
+  PROPERTIES
+  PREFIX ""
+  )
+target_include_directories(handler_hikvision_obj
+  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+  /c++/C-Example/linux/s3-c/test/include
+  /c++/C-Example/linux/install/usr/local/include
+  /c++/C-Example/linux/s3util/include
+  )
+target_link_libraries(handler_hikvision_obj ${S3SHAREDC})
+# target_link_libraries(handler_hikvision_file ${S3SHAREDC} ${S3SHARED} ${AWSCORE} ${AWSS3})
+# target_link_libraries(handler_hikvision_file ${S3SHAREDC})
+install(TARGETS handler_hikvision_obj DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+
+# Stuff for building the handler_hikvision_file handler
 add_library(handler_hikvision_file
   SHARED
   handler_hikvision_file.c
@@ -191,11 +215,7 @@ set_target_properties(handler_hikvision_file
   )
 target_include_directories(handler_hikvision_file
   PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-  /c++/C-Example/linux/install/usr/local/include
-  /c++/C-Example/linux/s3util/include
-  /c++/C-Example/linux/s3-c/test/include
   )
-target_link_libraries(handler_hikvision_file ${AWSCORE} ${AWSS3} ${S3Shared} ${S3SharedC})
 install(TARGETS handler_hikvision_file DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 
 if (with-fbo)
