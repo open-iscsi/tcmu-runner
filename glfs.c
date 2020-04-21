@@ -761,9 +761,11 @@ static int tcmu_glfs_reconfig(struct tcmu_device *dev,
 	struct glfs_state *gfsp = tcmur_dev_get_private(dev);
 	struct stat st;
 	int ret = -EIO;
+	int retry = 0;
 
 	switch (cfg->type) {
 	case TCMULIB_CFG_DEV_SIZE:
+retry:
 		ret = glfs_lstat(gfsp->fs, gfsp->hosts->path, &st);
 		if (ret) {
 			tcmu_dev_warn(dev, "glfs_lstat failed: %m\n");
@@ -772,6 +774,15 @@ static int tcmu_glfs_reconfig(struct tcmu_device *dev,
 			/* Let the targetcli command return success */
 			ret = 0;
 		} else if (st.st_size != cfg->data.dev_size) {
+			/*
+			 * Retry 5 times to make sure that the size has been
+			 * successfully updated.
+			 */
+			if (retry++ < 5) {
+				sleep (1);
+				goto retry;
+			}
+
 			tcmu_dev_err(dev,
 				     "device size and backing size disagree: device %"PRId64" backing %lld\n",
 				     cfg->data.dev_size, (long long) st.st_size);
