@@ -563,23 +563,19 @@ static int tcmu_glfs_open(struct tcmu_device *dev, bool reopen)
 		if (round_down(st.st_size, block_size) == dev_size)
 			goto out;
 
-		if (!reopen) {
-			ret = -EINVAL;
-			goto close;
-		}
+		if (reopen)
+			goto out;
 
-		/*
-		 * If we are here this should be in reopen path,
-		 * then we should also update the device size in
-		 * kernel.
-		 */
-		tcmu_dev_info(dev,
-			      "device size and backing size disagree:device %lld backing %lld\n",
-			      dev_size, (long long) st.st_size);
+		tcmu_dev_warn(dev,
+			      "device size (%lld) and backing file size (%lld) not matching, updating it to kernel\n",
+			      (long long)dev_size, (long long) st.st_size);
 
+		/* Update the device size in kernel. */
 		ret = tcmur_dev_update_size(dev, st.st_size);
 		if (ret)
 			goto close;
+
+		tcmu_dev_info(dev, "loaded with size (%lld)\n", (long long) st.st_size);
 	}
 
 out:
@@ -772,10 +768,15 @@ static int tcmu_glfs_reconfig(struct tcmu_device *dev,
 			/* Let the targetcli command return success */
 			ret = 0;
 		} else if (st.st_size != cfg->data.dev_size) {
-			tcmu_dev_err(dev,
-				     "device size and backing size disagree: device %"PRId64" backing %lld\n",
-				     cfg->data.dev_size, (long long) st.st_size);
-			ret = -EINVAL;
+			/*
+			 * Currently we cannot update the size to kernel here,
+			 * because it will be overrided by kernel with the old
+			 * value after it gets the genl reply.
+			 */
+			tcmu_dev_warn(dev,
+				      "device size (%lld) and backing file size (%lld) not matching, and ignoring it\n",
+				      (long long)cfg->data.dev_size, (long long) st.st_size);
+			return -EINVAL;
 		}
 		return ret;
 	case TCMULIB_CFG_DEV_CFGSTR:
