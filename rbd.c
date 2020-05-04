@@ -512,8 +512,13 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 
 	ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
 	if (ret < 0) {
-		tcmu_dev_err(dev, "Could not check lock ownership. Error: %s.\n",
-			     strerror(-ret));
+		if (ret == -ESHUTDOWN) {
+			tcmu_dev_dbg(dev, "Client is blacklisted. Could not check lock ownership.\n");
+		} else {
+			tcmu_dev_err(dev, "Could not check lock ownership. Error: %s.\n",
+				     strerror(-ret));
+		}
+
 		if (ret == -ESHUTDOWN || ret == -ETIMEDOUT)
 			return ret;
 
