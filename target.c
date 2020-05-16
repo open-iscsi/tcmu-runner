@@ -226,8 +226,8 @@ static void *tgt_port_grp_recovery_thread_fn(void *arg)
 	/*
 	 * This will return when all running commands have completed at
 	 * the target layer. Handlers must call tcmu_notify_lock_lost
-	 * before completing the failed command, so the device will be on
-	 * the list reopen list when setting enable=0 returns..
+	 * before completing the failed command, so all the devices will be
+	 * on the tpg->devs list when setting enable=0 returns.
 	 */
 	ret = tcmu_set_tpg_int(tpg, "enable", 0);
 
@@ -285,6 +285,7 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 	struct alua_grp *group;
 	struct tgt_port_grp *tpg;
 	struct tgt_port *port, *enabled_port = NULL;
+	pthread_attr_t attr;
 	int ret;
 
 	pthread_mutex_lock(&tpg_recovery_lock);
@@ -329,8 +330,13 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 		ret = -ENOMEM;
 		goto done;
 	}
+
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
 	ret = pthread_create(&tpg->recovery_thread, NULL,
 			     tgt_port_grp_recovery_thread_fn, tpg);
+	pthread_attr_destroy(&attr);
 	if (ret) {
 		tcmu_dev_err(dev, "Could not start recovery thread. Err %d\n",
 			     ret);
