@@ -179,6 +179,16 @@ void tcmu_cancel_recovery(struct tcmu_device *dev)
 void tcmu_notify_conn_lost(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	struct list_head alua_list;
+	int ret;
+
+	list_head_init(&alua_list);
+	ret = tcmu_get_alua_grps(dev, &alua_list);
+	if (ret) {
+		/* User is deleting device so fast fail */
+		tcmu_dev_warn(dev, "Could not find any tpgs.\n");
+		return;
+	}
 
 	pthread_mutex_lock(&rdev->state_lock);
 
@@ -200,10 +210,11 @@ void tcmu_notify_conn_lost(struct tcmu_device *dev)
 	tcmu_dev_err(dev, "Handler connection lost (lock state %d)\n",
 		     rdev->lock_state);
 
-	if (!tcmu_add_dev_to_recovery_list(dev))
+	if (!tcmu_add_dev_to_recovery_list(dev, &alua_list))
 		rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
 unlock:
 	pthread_mutex_unlock(&rdev->state_lock);
+	tcmu_release_alua_grps(&alua_list);
 }
 
 /**
@@ -439,11 +450,11 @@ done:
 
 	tcmu_dev_info(dev, "Lock acquisition %s\n",
 		      rdev->lock == TCMUR_DEV_LOCK_LOCKED ? "successful" : "unsuccessful");
-	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
 	pthread_cond_signal(&rdev->lock_cond);
 	pthread_mutex_unlock(&rdev->state_lock);
 
+	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 	return ret;
 }
 
