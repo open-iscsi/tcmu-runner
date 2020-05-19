@@ -54,6 +54,7 @@
 #include "tcmu-runner.h"
 #include "tcmur_device.h"
 #include "libtcmu.h"
+#include "libtcmu_common.h"
 
 struct fbo_state {
 	int fd;
