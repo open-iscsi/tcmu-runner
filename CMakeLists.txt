@@ -97,6 +97,7 @@ target_link_libraries(tcmu_static
 
 # Stuff for building the main binary
 add_executable(tcmu-runner
+  tcmur_work.c
   tcmur_cmd_handler.c
   tcmur_aio.c
   tcmur_device.c
