@@ -48,6 +48,7 @@
 #include "version.h"
 #include "libtcmu_config.h"
 #include "libtcmu_log.h"
+#include "tcmur_work.h"
 
 #define TCMU_LOCK_FILE   "/run/tcmu.lock"
 
@@ -600,7 +601,7 @@ static void tcmur_stop_device(void *arg)
 	 * The lock thread can fire off the recovery thread, so make sure
 	 * it is done first.
 	 */
-	tcmu_cancel_lock_thread(dev);
+	tcmur_flush_work(rdev->lock_work);
 	tcmu_cancel_recovery(dev);
 
 	tcmu_release_dev_lock(dev);
@@ -1032,9 +1033,9 @@ static int dev_added(struct tcmu_device *dev)
 
 	rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
 
-	ret = pthread_cond_init(&rdev->lock_cond, NULL);
-	if (ret) {
-		ret = -ret;
+	rdev->lock_work = tcmur_create_work();
+	if (!rdev->lock_work) {
+		ret = -ENOMEM;
 		goto close_dev;
 	}
 
@@ -1042,13 +1043,13 @@ static int dev_added(struct tcmu_device *dev)
 			     dev);
 	if (ret) {
 		ret = -ret;
-		goto cleanup_lock_cond;
+		goto cleanup_lock_work;
 	}
 
 	return 0;
 
-cleanup_lock_cond:
-	pthread_cond_destroy(&rdev->lock_cond);
+cleanup_lock_work:
+	tcmur_destroy_work(rdev->lock_work);
 close_dev:
 	rhandler->close(dev);
 cleanup_aio_tracking:
@@ -1095,9 +1096,7 @@ static void dev_removed(struct tcmu_device *dev)
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(rdev);
 
-	ret = pthread_cond_destroy(&rdev->lock_cond);
-	if (ret != 0)
-		tcmu_err("could not cleanup lock cond %d\n", ret);
+	tcmur_destroy_work(rdev->lock_work);
 
 	ret = pthread_mutex_destroy(&rdev->state_lock);
 	if (ret != 0)

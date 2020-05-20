@@ -20,6 +20,7 @@
 #include "tcmu-runner.h"
 #include "tcmur_device.h"
 #include "tcmur_cmd_handler.h"
+#include "tcmur_work.h"
 #include "tcmu_runner_priv.h"
 #include "target.h"
 
@@ -44,17 +45,12 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	int ret, attempt = 0;
 	bool needs_close = false;
-	bool cancel_lock = false;
 
 	pthread_mutex_lock(&rdev->state_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_STOPPING) {
 		ret = 0;
 		goto done;
 	}
-
-	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKING &&
-	    pthread_self() != rdev->lock_thread)
-		cancel_lock = true;
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	/*
@@ -62,8 +58,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 	 * async lock requests in progress that might be accessing
 	 * the device.
 	 */
-	if (cancel_lock)
-		tcmu_cancel_lock_thread(dev);
+	tcmur_flush_work(rdev->lock_work);
 
 	/*
 	 * Force a reacquisition of the lock when we have reopend the
@@ -229,27 +224,6 @@ void tcmu_notify_lock_lost(struct tcmu_device *dev)
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
-}
-
-int tcmu_cancel_lock_thread(struct tcmu_device *dev)
-{
-	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
-	int ret;
-
-	pthread_mutex_lock(&rdev->state_lock);
-	if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKING) {
-		pthread_mutex_unlock(&rdev->state_lock);
-		return 0;
-	}
-	/*
-	 * It looks like lock calls are not cancelable, so
-	 * we wait here to avoid crashes.
-	 */
-	tcmu_dev_dbg(rdev->dev, "waiting for lock thread to exit\n");
-	ret = pthread_cond_wait(&rdev->lock_cond, &rdev->state_lock);
-	pthread_mutex_unlock(&rdev->state_lock);
-
-	return ret;
 }
 
 void tcmu_release_dev_lock(struct tcmu_device *dev)
@@ -441,7 +415,6 @@ done:
 		      rdev->lock == TCMUR_DEV_LOCK_LOCKED ? "successful" : "unsuccessful");
 	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
-	pthread_cond_signal(&rdev->lock_cond);
 	pthread_mutex_unlock(&rdev->state_lock);
 
 	return ret;

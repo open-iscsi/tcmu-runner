@@ -25,6 +25,7 @@
 #include "libtcmu_priv.h"
 #include "tcmu-runner.h"
 #include "tcmur_device.h"
+#include "tcmur_work.h"
 #include "target.h"
 #include "alua.h"
 
@@ -542,7 +543,7 @@ bool lock_is_required(struct tcmu_device *dev)
 	return !!rhandler->lock;
 }
 
-static void *alua_lock_thread_fn(void *arg)
+static void alua_lock_work_fn(void *arg)
 {
 	struct tcmu_device *dev = arg;
 
@@ -550,13 +551,11 @@ static void *alua_lock_thread_fn(void *arg)
 
 	/* TODO: set UA based on bgly's patches */
 	tcmu_acquire_dev_lock(dev, -1);
-	return NULL;
 }
 
 int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
-	pthread_attr_t attr;
 	int ret = TCMU_STS_OK;
 
 	if (!lock_is_required(dev))
@@ -576,17 +575,10 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	rdev->lock_state = TCMUR_DEV_LOCK_LOCKING;
 
 	/*
-	 * Make the lock_thread as detached to fix the memory leakage bug.
-	 */
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
-	/*
 	 * The initiator is going to be queueing commands, so do this
 	 * in the background to avoid command timeouts.
 	 */
-	if (pthread_create(&rdev->lock_thread, &attr, alua_lock_thread_fn,
-			   dev)) {
+	if (tcmur_run_work(rdev->lock_work, dev, alua_lock_work_fn)) {
 		tcmu_dev_err(dev, "Could not start implicit transition thread:%s\n",
 			     strerror(errno));
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
@@ -594,8 +586,6 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	} else {
 		ret = TCMU_STS_BUSY;
 	}
-
-	pthread_attr_destroy(&attr);
 
 done:
 	pthread_mutex_unlock(&rdev->state_lock);
