@@ -38,6 +38,8 @@ enum {
 	TCMUR_DEV_LOCK_UNKNOWN,
 };
 
+struct tcmur_work;
+
 struct tcmur_device {
 	struct tcmu_device *dev;
 	void *hm_private;
@@ -52,8 +54,7 @@ struct tcmur_device {
 
 	bool lock_lost;
 	uint8_t lock_state;
-	pthread_t lock_thread;
-	pthread_cond_t lock_cond;
+	struct tcmur_work *event_work;
 
 	/* General lock for lock state, thread, dev state, etc */
 	pthread_mutex_t state_lock;
@@ -79,7 +80,6 @@ struct tcmur_device {
 
 bool tcmu_dev_in_recovery(struct tcmu_device *dev);
 void tcmu_cancel_recovery(struct tcmu_device *dev);
-int tcmu_cancel_lock_thread(struct tcmu_device *dev);
 
 void tcmu_notify_conn_lost(struct tcmu_device *dev);
 void tcmu_notify_lock_lost(struct tcmu_device *dev);
