@@ -26,6 +26,7 @@
 #include "tcmu-runner.h"
 #include "tcmu_runner_priv.h"
 #include "tcmur_cmd_handler.h"
+#include "tcmur_work.h"
 #include "alua.h"
 
 static void _cleanup_spin_lock(void *arg)

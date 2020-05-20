@@ -22,6 +22,7 @@
 #define TCMUR_DEV_FLAG_IS_OPEN		(1 << 2)
 #define TCMUR_DEV_FLAG_STOPPING		(1 << 3)
 #define TCMUR_DEV_FLAG_STOPPED		(1 << 4)
+#define TCMUR_DEV_FLAG_TRY_REAP		(1 << 5)
 
 #define TCMUR_UA_DEV_SIZE_CHANGED	0
 
@@ -49,7 +50,6 @@ struct tcmur_device {
 	uint32_t flags;
 	uint8_t failover_type;
 
-	pthread_t recovery_thread;
 	struct list_node recovery_entry;
 
 	bool lock_lost;
