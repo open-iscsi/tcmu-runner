@@ -978,7 +978,7 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 }
 
 static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev)
-		{
+{
 	tcmu_notify_lock_lost(dev);
 	/*
 	 * This will happen during failback normally, because
@@ -996,7 +996,7 @@ static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev)
  * to try a different OSD.
  */
 static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev)
-		{
+{
 	tcmu_dev_err(dev, "Timing out cmd.\n");
 	tcmu_notify_conn_lost(dev);
 
