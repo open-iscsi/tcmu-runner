@@ -942,6 +942,7 @@ static int dev_added(struct tcmu_device *dev)
 	tcmu_dev_set_private(dev, rdev);
 	list_node_init(&rdev->recovery_entry);
 	list_head_init(&rdev->cmds_list);
+	rdev->failover_type = TCMUR_DEV_FAILOVER_NOT_SET;
 	rdev->dev = dev;
 
 	parse_tcmu_runner_args(dev);

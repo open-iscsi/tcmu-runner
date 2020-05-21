@@ -776,6 +776,25 @@ int alua_check_state(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
+	if (rdev->failover_type == TCMUR_DEV_FAILOVER_NOT_SET) {
+		struct list_head group_list;
+
+		/*
+		 * Normally the initiator will send an INQUIRY when a
+		 * path is discovered. If tcmu-runner restarts before the
+		 * multipath layer removes a path, then it might start
+		 * sending IO first. Run tcmu_get_alua_grps here if it's not
+		 * been run yet so the failover_type gets set and the lock
+		 * state gets updated.
+		 */
+		list_head_init(&group_list);
+		if (tcmu_get_alua_grps(dev, &group_list))
+			return TCMU_STS_HW_ERR;
+		tcmu_release_alua_grps(&group_list);
+
+		tcmu_update_dev_lock_state(dev);
+	}
+
 	if (rdev->failover_type == TCMUR_DEV_FAILOVER_EXPLICIT) {
 		if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKED) {
 			tcmu_dev_dbg(dev, "device lock not held.\n");
