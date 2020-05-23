@@ -724,6 +724,12 @@ static void check_for_timed_out_cmds(struct tcmu_device *dev)
 		}
 
 		tcmur_cmd->timed_out = true;
+		/*
+		 * These time outs are only currently used for diagnostic
+		 * purposes right now, so we do not want to escalate the
+		 * error handler and just return true here.
+		 */
+	       tcmu_notify_cmd_timed_out(dev);
 	}
 	pthread_spin_unlock(&rdev->lock);
 }
