@@ -110,18 +110,23 @@ struct rbd_aio_cb {
 #ifdef LIBRADOS_SUPPORTS_SERVICES
 
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
-static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
-					   bool has_lock)
+static int tcmu_rbd_service_status_update(struct tcmu_device *dev,
+					  bool has_lock)
 {
 	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	char *status_buf = NULL;
 	int ret;
 
-	ret = asprintf(&status_buf, "%s%c%s%c", "lock_owner", '\0',
-		       has_lock ? "true" : "false", '\0');
+	ret = asprintf(&status_buf,
+		       "%s%c%s%c%s%c%"PRIu64"%c%s%c%"PRIu64"%c%s%c%"PRIu64"%c",
+		       "lock_owner", '\0', has_lock ? "true" : "false", '\0',
+		       "lock_lost_cnt", '\0', rdev->lock_lost_cnt, '\0',
+		       "conn_lost_cnt", '\0', rdev->conn_lost_cnt, '\0',
+		       "cmd_timed_out_cnt", '\0', rdev->cmd_timed_out_cnt, '\0');
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not allocate status buf. Service will not be updated.\n");
-		return;
+		return ret;
 	}
 
 	ret = rados_service_update_status(state->cluster, status_buf);
@@ -131,8 +136,23 @@ static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
 	}
 
 	free(status_buf);
+	return ret;
 }
+
 #endif /* RBD_LOCK_ACQUIRE_SUPPORT */
+
+static int tcmu_rbd_report_event(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+
+	/*
+	 * We ignore the specific event and report all the current counter
+	 * values, because tools like gwcli/dashboard may not see every
+	 * update, and we do not want one event to overwrite the info.
+	 */
+	return tcmu_rbd_service_status_update(dev,
+			rdev->lock_state == TCMUR_DEV_LOCK_LOCKED ? true : false);
+}
 
 static int tcmu_rbd_service_register(struct tcmu_device *dev)
 {
@@ -185,8 +205,14 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not register service to cluster. (Err %d)\n",
 			     ret);
+		goto free_meta_buf;
 	}
 
+	ret = tcmu_rbd_report_event(dev);
+	if (ret < 0)
+		tcmu_dev_err(dev, "Could not update status. (Err %d)\n", ret);
+
+free_meta_buf:
 	free(metadata_buf);
 free_daemon_buf:
 	free(daemon_buf);
@@ -1488,6 +1514,9 @@ struct tcmur_handler tcmu_rbd_handler = {
 	.read	       = tcmu_rbd_read,
 	.write	       = tcmu_rbd_write,
 	.reconfig      = tcmu_rbd_reconfig,
+#ifdef LIBRADOS_SUPPORTS_SERVICES
+	.report_event  = tcmu_rbd_report_event,
+#endif
 #ifdef LIBRBD_SUPPORTS_AIO_FLUSH
 	.flush	       = tcmu_rbd_flush,
 #endif
