@@ -998,7 +998,7 @@ static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev)
 static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev)
 {
 	tcmu_dev_err(dev, "Timing out cmd.\n");
-	tcmu_notify_conn_lost(dev);
+	tcmu_notify_cmd_timed_out(dev, true);
 
 	/*
 	 * TODO: For AA, we will want to kill the ceph tcp connections

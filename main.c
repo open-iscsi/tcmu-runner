@@ -597,6 +597,7 @@ static void tcmur_stop_device(void *arg)
 	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
 	pthread_mutex_unlock(&rdev->state_lock);
 
+	tcmur_flush_work(rdev->event_work);
 	/*
 	 * The lock thread can fire off the recovery thread, so make sure
 	 * it is done first.
@@ -724,6 +725,12 @@ static void check_for_timed_out_cmds(struct tcmu_device *dev)
 		}
 
 		tcmur_cmd->timed_out = true;
+		/*
+		 * These time outs are only currently used for diagnostic
+		 * purpposes right now, so we do not want to escalate the
+		 * error handler and just return true here.
+		 */
+	       tcmu_notify_cmd_timed_out(dev, true);
 	}
 	pthread_spin_unlock(&rdev->lock);
 }
@@ -1039,15 +1046,23 @@ static int dev_added(struct tcmu_device *dev)
 		goto close_dev;
 	}
 
+	rdev->event_work = tcmur_create_work();
+	if (!rdev->event_work) {
+		ret = -ENOMEM;
+		goto cleanup_lock_work;
+	}
+
 	ret = pthread_create(&rdev->cmdproc_thread, NULL, tcmur_cmdproc_thread,
 			     dev);
 	if (ret) {
 		ret = -ret;
-		goto cleanup_lock_work;
+		goto cleanup_event_work;
 	}
 
 	return 0;
 
+cleanup_event_work:
+	tcmur_destroy_work(rdev->event_work);
 cleanup_lock_work:
 	tcmur_destroy_work(rdev->lock_work);
 close_dev:
@@ -1096,6 +1111,7 @@ static void dev_removed(struct tcmu_device *dev)
 	cleanup_io_work_queue(dev, false);
 	cleanup_aio_tracking(rdev);
 
+	tcmur_destroy_work(rdev->event_work);
 	tcmur_destroy_work(rdev->lock_work);
 
 	ret = pthread_mutex_destroy(&rdev->state_lock);

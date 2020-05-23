@@ -53,6 +53,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 
+	tcmur_flush_work(rdev->event_work);
 	/*
 	 * There are no SCSI commands running but there may be
 	 * async lock requests in progress that might be accessing
@@ -162,6 +163,59 @@ void tcmu_cancel_recovery(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "Recovery thread wait done\n");
 }
 
+struct tcmur_event_data {
+	struct tcmu_device *dev;
+	enum tcmur_event evt;
+};
+
+static void __tcmu_report_event(void *data)
+{
+	struct tcmur_event_data *evt_data = data;
+	struct tcmu_device *dev = evt_data->dev;
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	int ret;
+
+	/*
+	 * For cmd timeouts and unbalanced systems we will get a burst so wait
+	 * a second to batch up the updates.
+	 */
+	sleep(1);
+
+	ret = rhandler->report_event(dev, evt_data->evt);
+	if (ret)
+		tcmu_dev_err(dev, "Could not report events. Error %d.\n", ret);
+
+	free(evt_data);
+}
+
+static void tcmu_report_event(struct tcmu_device *dev, enum tcmur_event evt)
+{
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+	struct tcmur_event_data *evt_data;
+	int ret;
+
+	if (!rhandler->report_event)
+		return;
+
+	evt_data = calloc(1, sizeof(*evt_data));
+	if (!evt_data) {
+		tcmu_dev_err(dev, "Could not allocate evt data. Dropping event.\n");
+		return;
+	}
+
+	evt_data->dev = dev;
+	evt_data->evt = evt;
+
+	ret = tcmur_run_work(rdev->event_work, evt_data, __tcmu_report_event);
+	if (!ret)
+		return;
+
+	if (ret != -EBUSY)
+		tcmu_dev_err(dev, "Could not execute event work. Error %d", ret);
+	free(evt_data);
+}
+
 /**
  * tcmu_notify_conn_lost - notify runner the device instace has lost its
  *			   connection to its backend storage.
@@ -195,10 +249,25 @@ void tcmu_notify_conn_lost(struct tcmu_device *dev)
 	tcmu_dev_err(dev, "Handler connection lost (lock state %d)\n",
 		     rdev->lock_state);
 
-	if (!tcmu_add_dev_to_recovery_list(dev))
+	if (!tcmu_add_dev_to_recovery_list(dev)) {
 		rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
+		rdev->conn_lost_cnt++;
+
+		tcmu_report_event(dev, TCMUR_EVT_CONN_LOST);
+	}
 unlock:
 	pthread_mutex_unlock(&rdev->state_lock);
+}
+
+static void __tcmu_notify_lock_lost(struct tcmu_device *dev)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+
+	rdev->lock_lost = true;
+	rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+	rdev->lock_lost_cnt++;
+
+	tcmu_report_event(dev, TCMUR_EVT_LOCK_LOST);
 }
 
 /**
@@ -220,8 +289,7 @@ void tcmu_notify_lock_lost(struct tcmu_device *dev)
 	 * reaquire the lock do not change state.
 	 */
 	if (rdev->lock_state != TCMUR_DEV_LOCK_LOCKING) {
-		rdev->lock_lost = true;
-		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
+		__tcmu_notify_lock_lost(dev);
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 }
@@ -443,8 +511,7 @@ check_state:
 	if (rdev->lock_state == TCMUR_DEV_LOCK_LOCKED &&
 	    state != TCMUR_DEV_LOCK_LOCKED) {
 		tcmu_dev_dbg(dev, "Updated out of sync lock state.\n");
-		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
-		rdev->lock_lost = true;
+		__tcmu_notify_lock_lost(dev);
 	}
 	pthread_mutex_unlock(&rdev->state_lock);
 }
@@ -461,4 +528,15 @@ void *tcmur_dev_get_private(struct tcmu_device *dev)
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
 	return rdev->hm_private;
+}
+
+void tcmu_notify_cmd_timed_out(struct tcmu_device *dev, bool can_access_dev)
+{
+	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
+
+	rdev->cmd_timed_out_cnt++;
+	if (!can_access_dev)
+		tcmu_notify_conn_lost(dev);
+	else
+		tcmu_report_event(dev, TCMUR_EVT_CMD_TIMED_OUT);
 }

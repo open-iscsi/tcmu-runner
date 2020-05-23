@@ -54,6 +54,12 @@ struct tcmur_device {
 
 	struct list_node recovery_entry;
 
+	/* tcmur_event counters */
+	uint64_t lock_lost_cnt;
+	uint64_t conn_lost_cnt;
+	uint64_t cmd_timed_out_cnt;
+	struct tcmur_work *event_work;
+
 	bool lock_lost;
 	uint8_t lock_state;
 	struct tcmur_work *lock_work;
@@ -85,6 +91,7 @@ void tcmu_cancel_recovery(struct tcmu_device *dev);
 
 void tcmu_notify_conn_lost(struct tcmu_device *dev);
 void tcmu_notify_lock_lost(struct tcmu_device *dev);
+void tcmu_notify_cmd_timed_out(struct tcmu_device *dev, bool can_access_dev);
 
 int __tcmu_reopen_dev(struct tcmu_device *dev, int retries);
 int tcmu_reopen_dev(struct tcmu_device *dev, int retries);

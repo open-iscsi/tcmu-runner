@@ -628,7 +628,7 @@ static void glfs_async_cbk(glfs_fd_t *fd, ssize_t ret, void *data)
 			 */
 			tcmu_dev_err(dev, "Timing out cmd after 30 minutes.\n");
 
-			tcmu_notify_conn_lost(dev);
+			tcmu_notify_cmd_timed_out(dev, true);
 			ret = TCMU_STS_TIMEOUT;
 			break;
 #if GFAPI_VERSION766

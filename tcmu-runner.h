@@ -58,6 +58,12 @@ struct tcmur_cmd {
 	void (*done)(struct tcmu_device *dev, struct tcmur_cmd *cmd, int ret);
 };
 
+enum tcmur_event {
+	TCMUR_EVT_LOCK_LOST,
+	TCMUR_EVT_CONN_LOST,
+	TCMUR_EVT_CMD_TIMED_OUT,
+};
+
 struct tcmulib_cfg_info;
 
 struct tcmur_handler {
@@ -145,6 +151,13 @@ struct tcmur_handler {
 	int (*flush)(struct tcmu_device *dev, struct tcmur_cmd *cmd);
 	int (*unmap)(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		     uint64_t off, uint64_t len);
+
+	/*
+	 * Notify the handler of an event.
+	 *
+	 * Return 0 on success and a -Exyz error code on error.
+	 */
+	int (*report_event)(struct tcmu_device *dev, enum tcmur_event evt);
 
 	/*
 	 * If the lock is acquired and the tag is not TCMU_INVALID_LOCK_TAG,
