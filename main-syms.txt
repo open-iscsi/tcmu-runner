@@ -4,6 +4,8 @@
 	tcmur_handle_writesame;
 	tcmu_notify_lock_lost;
 	tcmu_notify_conn_lost;
+	tcmu_notify_cmd_timed_out;
+	tcmu_event_name;
 	tcmur_dev_update_size;
 	tcmur_dev_set_private;
 	tcmur_dev_get_private;
