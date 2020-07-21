@@ -48,7 +48,6 @@ struct tcmur_device {
 	uint32_t flags;
 	uint8_t failover_type;
 
-	pthread_t recovery_thread;
 	struct list_node recovery_entry;
 
 	bool lock_lost;
