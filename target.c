@@ -22,6 +22,7 @@
 #include "libtcmu_log.h"
 #include "libtcmu_common.h"
 #include "tcmur_device.h"
+#include "tcmur_work.h"
 #include "target.h"
 #include "alua.h"
 
@@ -212,7 +213,7 @@ fail:
  * then sends IO only for it to fail due to the handler not
  * being able to reach its backend).
  */
-static void *tgt_port_grp_recovery_thread_fn(void *arg)
+static void tgt_port_grp_recovery_work_fn(void *arg)
 {
 	struct tgt_port_grp *tpg = arg;
 	struct tcmur_device *rdev, *tmp_rdev;
@@ -275,7 +276,6 @@ done:
 	}
 
 	free_tgt_port_grp(tpg);
-	return NULL;
 }
 
 int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
@@ -329,8 +329,8 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 		ret = -ENOMEM;
 		goto done;
 	}
-	ret = pthread_create(&tpg->recovery_thread, NULL,
-			     tgt_port_grp_recovery_thread_fn, tpg);
+
+	ret = tcmur_run_work(rdev->event_work, tpg, tgt_port_grp_recovery_work_fn);
 	if (ret) {
 		tcmu_dev_err(dev, "Could not start recovery thread. Err %d\n",
 			     ret);
