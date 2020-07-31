@@ -547,8 +547,6 @@ static void alua_event_work_fn(void *arg)
 {
 	struct tcmu_device *dev = arg;
 
-	tcmu_set_thread_name("alua-lock", dev);
-
 	/* TODO: set UA based on bgly's patches */
 	tcmu_acquire_dev_lock(dev, -1);
 }

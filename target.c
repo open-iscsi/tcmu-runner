@@ -220,8 +220,6 @@ static void tgt_port_grp_recovery_work_fn(void *arg)
 	bool enable_tpg = false;
 	int ret;
 
-	tcmu_set_thread_name("tpg-recovery", NULL);
-
 	tcmu_dbg("Disabling %s/%s/tpgt_%hu.\n", tpg->fabric, tpg->wwn,
 		  tpg->tpgt);
 	/*
