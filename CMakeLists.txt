@@ -172,21 +172,23 @@ target_include_directories(handler_file
   )
 
 if (with-fbo)
-	# Stuff for building the file optical handler
-	add_library(handler_file_optical
-  	SHARED
-	scsi.c
-  	file_optical.c
-  	)
-	set_target_properties(handler_file_optical
-  	PROPERTIES
-  	PREFIX ""
-  	)
-	target_include_directories(handler_file_optical
-  	PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-  	)
-	target_link_libraries(handler_file_optical ${PTHREAD} ${TCMALLOC_LIB})
-	install(TARGETS handler_file_optical DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+  # Stuff for building the file optical handler
+  add_library(handler_file_optical
+    SHARED
+    scsi.c
+    file_optical.c
+    )
+  
+  set_target_properties(handler_file_optical
+    PROPERTIES
+    PREFIX ""
+    )
+
+  target_include_directories(handler_file_optical
+    PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+    )
+  target_link_libraries(handler_file_optical ${PTHREAD} ${TCMALLOC_LIB})
+  install(TARGETS handler_file_optical DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-fbo)
 
 # The minimal library consumer
@@ -197,109 +199,109 @@ add_executable(consumer
 target_link_libraries(consumer tcmu)
 
 if (with-zbc)
-	# Stuff for building the file zbc handler
-	add_library(handler_file_zbc
-	  SHARED
-	  scsi.c
-	  file_zbc.c
-	  )
-	set_target_properties(handler_file_zbc
-	  PROPERTIES
-	  PREFIX ""
-	  )
-	target_include_directories(handler_file_zbc
-	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-	  )
-	target_link_libraries(handler_file_zbc ${TCMALLOC_LIB})
-	install(TARGETS handler_file_zbc DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+  # Stuff for building the file zbc handler
+  add_library(handler_file_zbc
+    SHARED
+    scsi.c
+    file_zbc.c
+    )
+  set_target_properties(handler_file_zbc
+    PROPERTIES
+    PREFIX ""
+    )
+  target_include_directories(handler_file_zbc
+    PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+    )
+  target_link_libraries(handler_file_zbc ${TCMALLOC_LIB})
+  install(TARGETS handler_file_zbc DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-zbc)
 
 if (with-rbd)
-	find_library(LIBRBD rbd)
+  find_library(LIBRBD rbd)
 
-	# Stuff for building the rbd handler
-	add_library(handler_rbd
-	  SHARED
-	  rbd.c
-	  )
-	set_target_properties(handler_rbd
-	  PROPERTIES
-	  PREFIX ""
-	  )
-	target_include_directories(handler_rbd
-	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-	  )
-	target_link_libraries(handler_rbd
-	  ${LIBRBD}
-	  ${TCMALLOC_LIB}
-	  )
-	install(TARGETS handler_rbd DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+  # Stuff for building the rbd handler
+  add_library(handler_rbd
+    SHARED
+    rbd.c
+    )
+  set_target_properties(handler_rbd
+    PROPERTIES
+    PREFIX ""
+    )
+  target_include_directories(handler_rbd
+    PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+    )
+  target_link_libraries(handler_rbd
+    ${LIBRBD}
+    ${TCMALLOC_LIB}
+    )
+  install(TARGETS handler_rbd DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-rbd)
 
 if (with-glfs)
-	find_library(GFAPI gfapi)
+  find_library(GFAPI gfapi)
 
-    set(GFAPI_VERSION760 0)
+  set(GFAPI_VERSION760 0)
 
-    pkg_check_modules(GFAPI760 glusterfs-api>=7.6 QUIET)
-	if (GFAPI760_FOUND)
-		set(GFAPI_VERSION760 1)
-	endif (GFAPI760_FOUND)
+  pkg_check_modules(GFAPI760 glusterfs-api>=7.6 QUIET)
+  if (GFAPI760_FOUND)
+    set(GFAPI_VERSION760 1)
+  endif (GFAPI760_FOUND)
 
-    set(GFAPI_VERSION766 0)
+  set(GFAPI_VERSION766 0)
 
-    pkg_check_modules(GFAPI766 glusterfs-api>=7.6.6 QUIET)
-	if (GFAPI766_FOUND)
-		set(GFAPI_VERSION766 1)
-	endif (GFAPI766_FOUND)
+  pkg_check_modules(GFAPI766 glusterfs-api>=7.6.6 QUIET)
+  if (GFAPI766_FOUND)
+    set(GFAPI_VERSION766 1)
+  endif (GFAPI766_FOUND)
 
-	# Stuff for building the glfs handler
-	add_library(handler_glfs
-	  SHARED
-	  glfs.c
-	  )
-	set_target_properties(handler_glfs
-	  PROPERTIES
-	  PREFIX ""
-	  )
-	target_include_directories(handler_glfs
-	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-	  )
-	target_link_libraries(handler_glfs
-	  ${GFAPI}
-	  ${TCMALLOC_LIB}
-	  )
-	install(TARGETS handler_glfs DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+  # Stuff for building the glfs handler
+  add_library(handler_glfs
+    SHARED
+    glfs.c
+    )
+  set_target_properties(handler_glfs
+    PROPERTIES
+    PREFIX ""
+    )
+  target_include_directories(handler_glfs
+    PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+    )
+  target_link_libraries(handler_glfs
+    ${GFAPI}
+    ${TCMALLOC_LIB}
+    )
+  install(TARGETS handler_glfs DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-glfs)
 
 if (with-qcow)
-	find_package(ZLIB REQUIRED)
+  find_package(ZLIB REQUIRED)
 
-	# Stuff for building the qcow handler
-	add_library(handler_qcow
-	  SHARED
-	  qcow.c
-	  )
-	set_target_properties(handler_qcow
-	  PROPERTIES
-	  PREFIX ""
-	  )
-	target_include_directories(handler_qcow
-	  PUBLIC ${PROJECT_SOURCE_DIR}/ccan
-	  )
+  # Stuff for building the qcow handler
+  add_library(handler_qcow
+    SHARED
+    qcow.c
+    )
+  set_target_properties(handler_qcow
+    PROPERTIES
+    PREFIX ""
+    )
+  target_include_directories(handler_qcow
+    PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+    )
 
-	CHECK_INCLUDE_FILE("linux/falloc.h" HAVE_LINUX_FALLOC)
-	if (HAVE_LINUX_FALLOC)
-		set_target_properties(handler_qcow
-		  PROPERTIES
-		  COMPILE_FLAGS "-DHAVE_LINUX_FALLOC"
-		  )
-	endif (HAVE_LINUX_FALLOC)
-	target_link_libraries(handler_qcow
-	  ${ZLIB_LIBRARIES}
-	  ${TCMALLOC_LIB}
-	  )
-	install(TARGETS handler_qcow DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+  CHECK_INCLUDE_FILE("linux/falloc.h" HAVE_LINUX_FALLOC)
+  if (HAVE_LINUX_FALLOC)
+    set_target_properties(handler_qcow
+      PROPERTIES
+      COMPILE_FLAGS "-DHAVE_LINUX_FALLOC"
+      )
+  endif (HAVE_LINUX_FALLOC)
+  target_link_libraries(handler_qcow
+    ${ZLIB_LIBRARIES}
+    ${TCMALLOC_LIB}
+    )
+  install(TARGETS handler_qcow DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-qcow)
 
 # stamp out a header file to pass some of the CMake settings
@@ -327,5 +329,4 @@ install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
 if (SUPPORT_SYSTEMD)
   install(FILES tcmu-runner.service DESTINATION /usr/lib/systemd/system/)
 endif (SUPPORT_SYSTEMD)
-install(FILES tcmu-runner.8
-    DESTINATION ${CMAKE_INSTALL_PREFIX}/share/man/man8)
+install(FILES tcmu-runner.8 DESTINATION ${CMAKE_INSTALL_PREFIX}/share/man/man8)
