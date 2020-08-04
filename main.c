@@ -79,6 +79,9 @@ int tcmur_register_handler(struct tcmur_handler *handler)
 		}
 	}
 
+	if (handler->init)
+		handler->init();
+
 	darray_append(g_runner_handlers, handler);
 	return 0;
 }
@@ -106,6 +109,8 @@ static void free_dbus_handler(struct tcmur_handler *handler)
 	g_free((char*)handler->opaque);
 	g_free((char*)handler->subtype);
 	g_free((char*)handler->cfg_desc);
+	if (handler->destroy)
+		handler->destroy();
 	g_free(handler);
 }
 
@@ -1197,7 +1202,8 @@ int main(int argc, char **argv)
 {
 	darray(struct tcmulib_handler) handlers = darray_new();
 	struct tcmulib_context *tcmulib_context;
-	struct tcmur_handler **tmp_r_handler;
+	struct tcmur_handler **tmp_r_handler, *r_handler;
+	struct tcmulib_handler *handler;
 	GMainLoop *loop;
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
@@ -1409,6 +1415,11 @@ unwatch_cfg:
 		tcmu_unwatch_config(tcmu_cfg);
 	tcmulib_close(tcmulib_context);
 err_free_handlers:
+	darray_foreach(handler, handlers) {
+		r_handler = handler->hm_private;
+		if (r_handler && r_handler->destroy)
+			r_handler->destroy();
+	}
 	darray_free(handlers);
 close_fd:
 	if (reset_nl_supp)
