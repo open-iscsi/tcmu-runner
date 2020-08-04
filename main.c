@@ -136,6 +136,20 @@ static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
 	return ret;
 }
 
+static void tcmur_unregister_all_dbus_handlers(void)
+{
+	struct tcmur_handler *handler;
+	int i;
+	for (i = 0; i < darray_size(g_runner_handlers); i++) {
+		handler = darray_item(g_runner_handlers, i);
+		if (handler->_is_dbus_handler == true) {
+			if (tcmur_unregister_handler(handler))
+				free_dbus_handler(handler);
+		}
+	}
+	darray_free(g_runner_handlers);
+}
+
 static int is_handler(const struct dirent *dirent)
 {
 	if (strncmp(dirent->d_name, "handler_", 8))
@@ -1423,6 +1437,8 @@ unwatch_cfg:
 		tcmu_unwatch_config(tcmu_cfg);
 	tcmulib_close(tcmulib_context);
 err_free_handlers:
+	tcmur_unregister_all_dbus_handlers();
+
 	darray_foreach(handler, handlers) {
 		r_handler = handler->hm_private;
 		if (r_handler && r_handler->destroy)
