@@ -104,7 +104,7 @@ struct gluster_cacheconn {
 	darray(char *) cfgstring;
 } gluster_cacheconn;
 
-static darray(struct gluster_cacheconn *) glfs_cache = darray_new();
+static darray(struct gluster_cacheconn *) glfs_cache;
 
 const char *const gluster_transport_lookup[] = {
 	[GLUSTER_TRANSPORT_TCP] = "tcp",
@@ -965,6 +965,17 @@ static int tcmu_glfs_unlock(struct tcmu_device *dev)
 }
 #endif
 
+static int tcmu_glfs_init(void)
+{
+	darray_init(glfs_cache);
+	return 0;
+}
+
+static void tcmu_glfs_destroy(void)
+{
+	darray_free(glfs_cache);
+}
+
 /*
  * For backstore creation
  *
@@ -1005,6 +1016,8 @@ struct tcmur_handler glfs_handler = {
 	.lock           = tcmu_glfs_lock,
 	.unlock         = tcmu_glfs_unlock,
 #endif
+	.init           = tcmu_glfs_init,
+	.destroy        = tcmu_glfs_destroy,
 };
 
 /* Entry point must be named "handler_init". */

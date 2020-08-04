@@ -68,6 +68,7 @@ struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
 int tcmur_register_handler(struct tcmur_handler *handler)
 {
 	struct tcmur_handler *h;
+	int ret;
 	int i;
 
 	for (i = 0; i < darray_size(g_runner_handlers); i++) {
@@ -79,9 +80,16 @@ int tcmur_register_handler(struct tcmur_handler *handler)
 		}
 	}
 
-	if (handler->init)
-		handler->init();
+	if (handler->init) {
+		ret = handler->init();
+		if (ret) {
+			tcmu_err("Failed to init handler %s, ret = %d\n",
+				 handler->subtype, ret);
+			return ret;
+		}
+	}
 
+	tcmu_info("Handler %s is registered\n", handler->subtype);
 	darray_append(g_runner_handlers, handler);
 	return 0;
 }
