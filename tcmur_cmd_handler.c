@@ -776,7 +776,7 @@ int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
 	if (tcmu_dev_in_recovery(dev))
 		return TCMU_STS_BUSY;
 
-	ret = alua_check_state(dev, cmd);
+	ret = alua_check_state(dev, cmd, false);
 	if (ret)
 		return ret;
 
@@ -1723,7 +1723,7 @@ int tcmur_handle_caw(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
 		return TCMU_STS_OK;
 	}
 
-	ret = alua_check_state(dev, cmd);
+	ret = alua_check_state(dev, cmd, false);
 	if (ret)
 		return ret;
 
@@ -2118,6 +2118,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	uint8_t *cdb = cmd->cdb;
+	bool is_read = false;
 
 	track_aio_request_start(rdev);
 
@@ -2128,10 +2129,12 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 	/* Don't perform alua implicit transition if command is not supported */
 	switch(cdb[0]) {
+	/* Skip to grab the lock for reads */
 	case READ_6:
 	case READ_10:
 	case READ_12:
 	case READ_16:
+		is_read = true;
 	case WRITE_6:
 	case WRITE_10:
 	case WRITE_12:
@@ -2146,7 +2149,7 @@ static int tcmur_cmd_handler(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case WRITE_SAME:
 	case WRITE_SAME_16:
 	case FORMAT_UNIT:
-		ret = alua_check_state(dev, cmd);
+		ret = alua_check_state(dev, cmd, is_read);
 		if (ret)
 			goto untrack;
 		break;
