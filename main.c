@@ -68,6 +68,7 @@ struct tcmur_handler *tcmu_get_runner_handler(struct tcmu_device *dev)
 int tcmur_register_handler(struct tcmur_handler *handler)
 {
 	struct tcmur_handler *h;
+	int ret;
 	int i;
 
 	for (i = 0; i < darray_size(g_runner_handlers); i++) {
@@ -79,6 +80,16 @@ int tcmur_register_handler(struct tcmur_handler *handler)
 		}
 	}
 
+	if (handler->init) {
+		ret = handler->init();
+		if (ret) {
+			tcmu_err("Failed to init handler %s, ret = %d\n",
+				 handler->subtype, ret);
+			return ret;
+		}
+	}
+
+	tcmu_info("Handler %s is registered\n", handler->subtype);
 	darray_append(g_runner_handlers, handler);
 	return 0;
 }
@@ -106,6 +117,8 @@ static void free_dbus_handler(struct tcmur_handler *handler)
 	g_free((char*)handler->opaque);
 	g_free((char*)handler->subtype);
 	g_free((char*)handler->cfg_desc);
+	if (handler->destroy)
+		handler->destroy();
 	g_free(handler);
 }
 
@@ -121,6 +134,20 @@ static bool tcmur_unregister_dbus_handler(struct tcmur_handler *handler)
 	}
 
 	return ret;
+}
+
+static void tcmur_unregister_all_dbus_handlers(void)
+{
+	struct tcmur_handler *handler;
+	int i;
+	for (i = 0; i < darray_size(g_runner_handlers); i++) {
+		handler = darray_item(g_runner_handlers, i);
+		if (handler->_is_dbus_handler == true) {
+			if (tcmur_unregister_handler(handler))
+				free_dbus_handler(handler);
+		}
+	}
+	darray_free(g_runner_handlers);
 }
 
 static int is_handler(const struct dirent *dirent)
@@ -1197,7 +1224,8 @@ int main(int argc, char **argv)
 {
 	darray(struct tcmulib_handler) handlers = darray_new();
 	struct tcmulib_context *tcmulib_context;
-	struct tcmur_handler **tmp_r_handler;
+	struct tcmur_handler **tmp_r_handler, *r_handler;
+	struct tcmulib_handler *handler;
 	GMainLoop *loop;
 	GIOChannel *libtcmu_gio;
 	guint reg_id;
@@ -1409,6 +1437,13 @@ unwatch_cfg:
 		tcmu_unwatch_config(tcmu_cfg);
 	tcmulib_close(tcmulib_context);
 err_free_handlers:
+	tcmur_unregister_all_dbus_handlers();
+
+	darray_foreach(handler, handlers) {
+		r_handler = handler->hm_private;
+		if (r_handler && r_handler->destroy)
+			r_handler->destroy();
+	}
 	darray_free(handlers);
 close_fd:
 	if (reset_nl_supp)

@@ -194,6 +194,10 @@ struct tcmur_handler {
 	 * Update the logdir called by dynamic config thread.
 	 */
 	bool (*update_logdir)(void);
+
+	/* To init/destroy some global resrouces if needed */
+	int (*init)(void);
+	void (*destroy)(void);
 };
 
 void tcmur_cmd_complete(struct tcmu_device *dev, void *data, int rc);
