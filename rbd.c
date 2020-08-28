@@ -156,7 +156,7 @@ static int tcmu_rbd_report_event(struct tcmu_device *dev)
 	 * update, and we do not want one event to overwrite the info.
 	 */
 	return tcmu_rbd_service_status_update(dev,
-			rdev->lock_state == TCMUR_DEV_LOCK_LOCKED ? true : false);
+			rdev->lock_state == TCMUR_DEV_LOCK_WRITE_LOCKED ? true : false);
 }
 
 static int tcmu_rbd_service_register(struct tcmu_device *dev)
@@ -677,7 +677,7 @@ static int tcmu_rbd_get_lock_state(struct tcmu_device *dev)
 
 	ret = tcmu_rbd_has_lock(dev);
 	if (ret == 1)
-		return TCMUR_DEV_LOCK_LOCKED;
+		return TCMUR_DEV_LOCK_WRITE_LOCKED;
 	else if (ret == 0 || ret == -ESHUTDOWN)
 		return TCMUR_DEV_LOCK_UNLOCKED;
 	else
