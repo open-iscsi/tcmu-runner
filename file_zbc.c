@@ -952,12 +952,13 @@ static int zbc_evpd_inquiry(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	case 0x00:
 		/* Supported VPD pages */
 		data[3] = 5;
-		data[4] = 0x83;
-		data[5] = 0xb0;
-		data[6] = 0xb1;
-		data[7] = 0xb6;
+		data[4] = 0x0;
+		data[5] = 0x83;
+		data[6] = 0xb0;
+		data[7] = 0xb1;
+		data[8] = 0xb6;
 
-		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, 8);
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, 9);
 		break;
 
 	case 0x83:
