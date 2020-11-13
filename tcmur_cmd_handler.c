@@ -1308,6 +1308,12 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	 * data, after the last segment descriptor.
 	 * */
 	inline_dl = be32toh(*(uint32_t *)&par[12]);
+	if (inline_dl != 0) {
+		tcmu_dev_err(dev, "non-zero xcopy inline_dl %u unsupported\n",
+			     inline_dl);
+		ret = TCMU_STS_INVALID_PARAM_LIST_LEN;
+		goto err;
+	}
 
 	/* From spc4r31, section 6.3.1 EXTENDED COPY command introduction
 	 *
