@@ -1161,6 +1161,12 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 {
 	int i, ret;
 
+	if (tdll % XCOPY_TARGET_DESC_LEN) {
+		tcmu_dev_err(udev,
+			"CSCD descriptor list length %u not a multiple of %u\n",
+			(unsigned int)tdll, XCOPY_TARGET_DESC_LEN);
+		return TCMU_STS_NOTSUPP_TGT_DESC_TYPE;
+	}
 	/* From spc4r36q,section 6.4.3.4 CSCD DESCRIPTOR LIST LENGTH field
 	 * If the number of CSCD descriptors exceeds the allowed number, the copy
 	 * manager shall terminate the command with CHECK CONDITION status, with
@@ -1173,7 +1179,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 		return TCMU_STS_TOO_MANY_TGT_DESC;
 	}
 
-	for (i = 0; i < RCR_OP_MAX_TARGET_DESC_COUNT; i++) {
+	for (i = 0; tdll >= XCOPY_TARGET_DESC_LEN; i++) {
 		/*
 		 * Only Identification Descriptor Target Descriptor support
 		 * for now.
@@ -1184,6 +1190,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 				return ret;
 
 			tgt_desc += XCOPY_TARGET_DESC_LEN;
+			tdll -= XCOPY_TARGET_DESC_LEN;
 		} else {
 			tcmu_dev_err(udev, "Unsupport target descriptor type code 0x%x\n",
 				     tgt_desc[0]);
