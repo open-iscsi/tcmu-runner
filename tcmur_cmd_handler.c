@@ -1198,6 +1198,7 @@ static int xcopy_parse_target_descs(struct tcmu_device *udev,
 		}
 	}
 
+	ret = TCMU_STS_CP_TGT_DEV_NOTCONN;
 	if (xcopy->src_dev)
 		ret = xcopy_locate_udev(udev->ctx, xcopy->dst_tid_wwn,
 					&xcopy->dst_dev);
