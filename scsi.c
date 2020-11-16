@@ -481,14 +481,11 @@ int tcmu_emulate_inquiry(
 	size_t iov_cnt)
 {
 	if (!(cdb[1] & 0x01)) {
-		if (!cdb[2])
-			return tcmu_emulate_std_inquiry(port, cdb, iovec,
-							iov_cnt);
-		else
+		if (cdb[2])
 			return TCMU_STS_INVALID_CDB;
-	} else {
-		return tcmu_emulate_evpd_inquiry(dev, port, cdb, iovec, iov_cnt);
+		return tcmu_emulate_std_inquiry(port, cdb, iovec, iov_cnt);
 	}
+	return tcmu_emulate_evpd_inquiry(dev, port, cdb, iovec, iov_cnt);
 }
 
 int tcmu_emulate_test_unit_ready(
