@@ -1349,6 +1349,18 @@ static int xcopy_parse_parameter_list(struct tcmu_device *dev,
 	if (ret != TCMU_STS_OK)
 		goto err;
 
+	/*
+	 * tcmu-runner can't determine whether the device(s) referred to in an
+	 * XCOPY request should be accessible to the initiator via transport
+	 * settings, ACLs, etc. XXX Consequently, we need to fail any
+	 * cross-device requests for safety reasons.
+	 */
+	if (dev != xcopy->src_dev || dev != xcopy->dst_dev) {
+		tcmu_dev_err(dev, "Cross-device XCOPY not supported\n");
+		ret = TCMU_STS_CP_TGT_DEV_NOTCONN;
+		goto err;
+	}
+
 	if (tcmu_dev_get_block_size(xcopy->src_dev) !=
 	    tcmu_dev_get_block_size(xcopy->dst_dev)) {
 		tcmu_dev_err(dev, "The block size of src dev %u != dst dev %u\n",
