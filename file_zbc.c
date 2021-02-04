@@ -2129,14 +2129,6 @@ static int zbc_write(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 
 		/* Get the zone of the current LBA */
 		zone = zbc_get_zone(zdev, lba, false);
-		if (lba + nr_lbas > zone->start + zone->len) {
-			tcmu_dev_err(dev,
-				     "Write boundary violation lba %"PRIu64", xfer len %zu\n",
-				     lba, nr_lbas);
-			return tcmu_sense_set_data(cmd->sense_buf,
-						   ILLEGAL_REQUEST,
-						   ASC_WRITE_BOUNDARY_VIOLATION);
-		}
 
 		/* If the zone is not open, implicitly open it */
 		if (zbc_zone_seq(zone) && !zbc_zone_is_open(zone)) {
