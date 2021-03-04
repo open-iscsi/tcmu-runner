@@ -365,7 +365,7 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 		pthread_mutex_lock(&state->lock);
 		state->refcount++;
 		pthread_mutex_unlock(&state->lock);
-	
+
 		ret = aio_request_schedule(dev, tcmur_ucmd, unmap_work_fn,
 					   tcmur_cmd_complete);
 		if (ret != TCMU_STS_ASYNC_HANDLED)
@@ -373,9 +373,7 @@ static int align_and_split_unmap(struct tcmu_device *dev,
 
 		nlbas -= lbas;
 		lba += lbas;
-
 		lbas = min(opt_unmap_gran, nlbas);
-
 	}
 
 	return ret;
