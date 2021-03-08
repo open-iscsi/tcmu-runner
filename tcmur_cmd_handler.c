@@ -680,8 +680,18 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 	uint8_t *cdb = cmd->cdb;
 	uint64_t lba = tcmu_cdb_get_lba(cdb);
 	uint64_t nlbas = tcmu_cdb_get_xfer_length(cdb);
+	uint32_t align = tcmu_dev_get_unmap_gran_align(dev);
 	struct unmap_state *state;
 	int ret;
+
+	/* If not aligned then falls back to the writesame without unmap */
+	if (lba % align || nlbas % align) {
+		tcmu_dev_dbg(dev,
+			     "Start lba: %"PRIu64" or nlbas: %"PRIu64" not aligned to %"PRIu32"\n",
+			     lba, nlbas, align);
+		tcmu_dev_dbg(dev, "Falls back to writesame without unmap!\n");
+		return TCMU_STS_NOT_HANDLED;
+	}
 
 	tcmu_dev_dbg(dev, "Do UNMAP in WRITE_SAME cmd!\n");
 
@@ -718,8 +728,11 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	if (ret)
 		return ret;
 
-	if (rhandler->unmap && (cmd->cdb[1] & 0x08))
-		return handle_unmap_in_writesame(dev, cmd);
+	if (rhandler->unmap && (cmd->cdb[1] & 0x08)) {
+		ret = handle_unmap_in_writesame(dev, cmd);
+		if (ret != TCMU_STS_NOT_HANDLED)
+			return ret;
+	}
 
 	max_xfer_length = tcmu_dev_get_max_xfer_len(dev) * block_size;
 	length = round_up(length, max_xfer_length);
@@ -782,8 +795,11 @@ int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
 	if (ret)
 		return ret;
 
-	if (rhandler->unmap && (cmd->cdb[1] & 0x08))
-		return handle_unmap_in_writesame(dev, cmd);
+	if (rhandler->unmap && (cmd->cdb[1] & 0x08)) {
+		ret = handle_unmap_in_writesame(dev, cmd);
+		if (ret != TCMU_STS_NOT_HANDLED)
+			return ret;
+	}
 
 	tcmur_cmd->cmd_state = write_same_fn;
 	tcmur_cmd->done = handle_generic_cbk;
