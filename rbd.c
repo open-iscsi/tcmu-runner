@@ -1022,8 +1022,9 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	char *pool, *name, *next_opt;
 	char *config, *dev_cfg_dup;
 	struct tcmu_rbd_state *state;
-	uint32_t max_blocks;
+	uint32_t max_blocks, unmap_gran;
 	int ret;
+	char buf[128];
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
@@ -1133,8 +1134,20 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	max_blocks = (image_info.obj_size * 4) / tcmu_dev_get_block_size(dev);
 	tcmu_dev_set_opt_xcopy_rw_len(dev, max_blocks);
 	tcmu_dev_set_max_unmap_len(dev, max_blocks);
-	tcmu_dev_set_opt_unmap_gran(dev, image_info.obj_size /
-				    tcmu_dev_get_block_size(dev), false);
+	ret = rados_conf_get(state->cluster, "rbd_discard_granularity_bytes", buf,
+			     sizeof(buf));
+	if (!ret) {
+		tcmu_dev_dbg(dev, "rbd_discard_granularity_bytes: %s\n", buf);
+		unmap_gran = atoi(buf) / tcmu_dev_get_block_size(dev);
+	} else {
+		tcmu_dev_warn(dev,
+			      "Failed to get 'rbd_discard_granularity_bytes', %d\n",
+			      ret);
+		unmap_gran = image_info.obj_size / tcmu_dev_get_block_size(dev);
+	}
+	tcmu_dev_dbg(dev, "unmap_gran: %d\n", unmap_gran);
+	tcmu_dev_set_opt_unmap_gran(dev, unmap_gran, false);
+	tcmu_dev_set_unmap_gran_align(dev, unmap_gran);
 	tcmu_dev_set_write_cache_enabled(dev, 0);
 
 #if defined LIBRADOS_SUPPORTS_GETADDRS || defined RBD_LOCK_ACQUIRE_SUPPORT
