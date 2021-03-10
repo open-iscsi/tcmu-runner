@@ -151,6 +151,10 @@ struct tcmur_handler {
 	int (*flush)(struct tcmu_device *dev, struct tcmur_cmd *cmd);
 	int (*unmap)(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 		     uint64_t off, uint64_t len);
+	int (*writesame)(struct tcmu_device *dev, struct tcmur_cmd *cmd, uint64_t off,
+			 uint64_t len, struct iovec *iovec, size_t iov_cnt);
+	int (*caw)(struct tcmu_device *dev, struct tcmur_cmd *cmd, uint64_t off,
+		   uint64_t len, struct iovec *iovec, size_t iov_cnt);
 
 	/*
 	 * Notify the handler of an event.
