@@ -711,6 +711,23 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 	return TCMU_STS_ASYNC_HANDLED;
 }
 
+static int tcmur_writesame_work_fn(struct tcmu_device *dev, void *data)
+{
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+	tcmur_writesame_fn_t write_same_fn = tcmur_cmd->cmd_state;
+	uint8_t *cdb = cmd->cdb;
+	uint64_t off = tcmu_cdb_to_byte(dev, cdb);
+	uint64_t len = tcmu_lba_to_byte(dev, tcmu_cdb_get_xfer_length(cdb));
+
+	/*
+	 * Write contents of the logical block data(from the Data-Out Buffer)
+	 * to each LBA in the specified LBA range.
+	 */
+	return write_same_fn(dev, tcmur_cmd, off, len, cmd->iovec,
+			     cmd->iov_cnt);
+}
+
 static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
@@ -724,6 +741,13 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	struct write_same *write_same;
 	int i, ret;
 
+	if (tcmu_dev_in_recovery(dev))
+		return TCMU_STS_BUSY;
+
+	ret = alua_check_state(dev, cmd, false);
+	if (ret)
+		return ret;
+
 	ret = handle_writesame_check(dev, cmd);
 	if (ret)
 		return ret;
@@ -732,6 +756,14 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		ret = handle_unmap_in_writesame(dev, cmd);
 		if (ret != TCMU_STS_NOT_HANDLED)
 			return ret;
+	}
+
+	if (rhandler->writesame) {
+		tcmur_cmd->cmd_state = rhandler->writesame;
+		tcmur_cmd->done = handle_generic_cbk;
+		return aio_request_schedule(dev, tcmur_cmd,
+					    tcmur_writesame_work_fn,
+					    tcmur_cmd_complete);
 	}
 
 	max_xfer_length = tcmu_dev_get_max_xfer_len(dev) * block_size;
@@ -757,54 +789,6 @@ static int handle_writesame(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 		     start_lba, write_lbas);
 
 	return aio_request_schedule(dev, tcmur_cmd, writesame_work_fn,
-				    tcmur_cmd_complete);
-}
-
-static int tcmur_writesame_work_fn(struct tcmu_device *dev, void *data)
-{
-	struct tcmur_cmd *tcmur_cmd = data;
-	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
-	tcmur_writesame_fn_t write_same_fn = tcmur_cmd->cmd_state;
-	uint8_t *cdb = cmd->cdb;
-	uint64_t off = tcmu_cdb_to_byte(dev, cdb);
-	uint64_t len = tcmu_lba_to_byte(dev, tcmu_cdb_get_xfer_length(cdb));
-
-	/*
-	 * Write contents of the logical block data(from the Data-Out Buffer)
-	 * to each LBA in the specified LBA range.
-	 */
-	return write_same_fn(dev, tcmur_cmd, off, len, cmd->iovec,
-			     cmd->iov_cnt);
-}
-
-int tcmur_handle_writesame(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
-			   tcmur_writesame_fn_t write_same_fn)
-{
-	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
-	int ret;
-
-	if (tcmu_dev_in_recovery(dev))
-		return TCMU_STS_BUSY;
-
-	ret = alua_check_state(dev, cmd, false);
-	if (ret)
-		return ret;
-
-	ret = handle_writesame_check(dev, cmd);
-	if (ret)
-		return ret;
-
-	if (rhandler->unmap && (cmd->cdb[1] & 0x08)) {
-		ret = handle_unmap_in_writesame(dev, cmd);
-		if (ret != TCMU_STS_NOT_HANDLED)
-			return ret;
-	}
-
-	tcmur_cmd->cmd_state = write_same_fn;
-	tcmur_cmd->done = handle_generic_cbk;
-
-	return aio_request_schedule(dev, tcmur_cmd, tcmur_writesame_work_fn,
 				    tcmur_cmd_complete);
 }
 
@@ -1689,13 +1673,32 @@ static int handle_caw_check(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	return TCMU_STS_OK;
 }
 
+static int tcmur_caw_fn(struct tcmu_device *dev, void *data)
+{
+	struct tcmur_cmd *tcmur_cmd = data;
+	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
+	tcmur_caw_fn_t caw_fn = tcmur_cmd->cmd_state;
+	uint64_t off = tcmu_cdb_to_byte(dev, cmd->cdb);
+	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
+
+	return caw_fn(dev, tcmur_cmd, off, half, cmd->iovec, cmd->iov_cnt);
+}
+
 static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 {
+	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
 	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	uint8_t sectors = cmd->cdb[13];
 	int ret;
+
+	if (tcmu_dev_in_recovery(dev))
+		return TCMU_STS_BUSY;
+
+	ret = alua_check_state(dev, cmd, false);
+	if (ret)
+		return ret;
 
 	/* From sbc4r12a section 5.3 COMPARE AND WRITE command
 	 * A NUMBER OF LOGICAL BLOCKS field set to zero specifies that no
@@ -1712,6 +1715,13 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	ret = handle_caw_check(dev, cmd);
 	if (ret)
 		return ret;
+
+	if (rhandler->caw) {
+		tcmur_cmd->cmd_state = rhandler->caw;
+		tcmur_cmd->done = handle_generic_cbk;
+		return aio_request_schedule(dev, tcmur_cmd, tcmur_caw_fn,
+					    tcmur_cmd_complete);
+	}
 
 	if (tcmur_cmd_state_init(tcmur_cmd, 0, half))
 		return TCMU_STS_NO_RESOURCE;
@@ -1728,54 +1738,6 @@ static int handle_caw(struct tcmu_device *dev, struct tcmulib_cmd *cmd)
 	pthread_mutex_unlock(&rdev->caw_lock);
 	tcmur_cmd_state_free(tcmur_cmd);
 	return ret;
-}
-
-static int tcmur_caw_fn(struct tcmu_device *dev, void *data)
-{
-	struct tcmur_cmd *tcmur_cmd = data;
-	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
-	tcmur_caw_fn_t caw_fn = tcmur_cmd->cmd_state;
-	uint64_t off = tcmu_cdb_to_byte(dev, cmd->cdb);
-	size_t half = (tcmu_iovec_length(cmd->iovec, cmd->iov_cnt)) / 2;
-
-	return caw_fn(dev, tcmur_cmd, off, half, cmd->iovec, cmd->iov_cnt);
-}
-
-int tcmur_handle_caw(struct tcmu_device *dev, struct tcmur_cmd *tcmur_cmd,
-		     tcmur_caw_fn_t caw_fn)
-{
-	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
-	uint8_t sectors = cmd->cdb[13];
-	int ret;
-
-	if (tcmu_dev_in_recovery(dev))
-		return TCMU_STS_BUSY;
-
-	/* From sbc4r12a section 5.3 COMPARE AND WRITE command
-	 * A NUMBER OF LOGICAL BLOCKS field set to zero specifies that no
-	 * read operations shall be performed, no logical block data shall
-	 * be transferred from the Data-Out Buffer, no compare operations
-	 * shall be performed, and no write operations shall be performed.
-	 * This condition shall not be considered an error.
-	 */
-	if (!sectors) {
-		tcmu_dev_dbg(dev, "NUMBER OF LOGICAL BLOCKS is zero, just return ok.\n");
-		return TCMU_STS_OK;
-	}
-
-	ret = alua_check_state(dev, cmd, false);
-	if (ret)
-		return ret;
-
-	ret = handle_caw_check(dev, cmd);
-	if (ret)
-		return ret;
-
-	tcmur_cmd->cmd_state = caw_fn;
-	tcmur_cmd->done = handle_generic_cbk;
-
-	return aio_request_schedule(dev, tcmur_cmd, tcmur_caw_fn,
-				    tcmur_cmd_complete);
 }
 
 /* async flush */

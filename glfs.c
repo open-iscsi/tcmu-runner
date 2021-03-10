@@ -886,29 +886,6 @@ out:
 	return TCMU_STS_NO_RESOURCE;
 }
 
-/*
- * Return scsi status or TCMU_STS_NOT_HANDLED
- */
-static int tcmu_glfs_handle_cmd(struct tcmu_device *dev,
-				struct tcmur_cmd *tcmur_cmd)
-{
-	struct tcmulib_cmd *cmd = tcmur_cmd->lib_cmd;
-	uint8_t *cdb = cmd->cdb;
-	int ret;
-
-	switch(cdb[0]) {
-	case WRITE_SAME:
-	case WRITE_SAME_16:
-		ret = tcmur_handle_writesame(dev, tcmur_cmd,
-					     tcmu_glfs_writesame);
-		break;
-	default:
-		ret = TCMU_STS_NOT_HANDLED;
-	}
-
-	return ret;
-}
-
 #if GFAPI_VERSION766
 static int tcmu_glfs_to_sts(int rc)
 {
@@ -1008,7 +985,7 @@ struct tcmur_handler glfs_handler = {
 	.reconfig       = tcmu_glfs_reconfig,
 	.flush          = tcmu_glfs_flush,
 	.unmap          = tcmu_glfs_discard,
-	.handle_cmd     = tcmu_glfs_handle_cmd,
+	.writesame      = tcmu_glfs_writesame,
 
 	.update_logdir  = tcmu_glfs_update_logdir,
 
