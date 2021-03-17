@@ -195,10 +195,12 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 		goto free_image_id_buf;
 	}
 
-	ret = asprintf(&metadata_buf, "%s%c%s%c%s%c%s%c%s%c%s%c",
+	ret = asprintf(&metadata_buf, "%s%c%s%c%s%c%s%c%s%c%s%c%s%c%s%c%s%c%s%c",
 		       "pool_name", '\0', state->pool_name, '\0',
 		       "image_name", '\0', state->image_name, '\0',
-		       "image_id", '\0', image_id_buf, '\0');
+		       "image_id", '\0', image_id_buf, '\0',
+		       "daemon_type", '\0', "portal", '\0',
+		       "daemon_prefix", '\0', u.nodename, '\0');
 	if (ret < 0) {
 		tcmu_dev_err(dev, "Could not allocate metadata buf.\n");
 		ret = -ENOMEM;
