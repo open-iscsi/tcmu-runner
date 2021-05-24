@@ -202,7 +202,7 @@ static int tcmu_read_config(int fd, char *buf, int count)
 
 	do {
 		len = read(fd, buf, count);
-	} while (errno == EAGAIN);
+	} while (len < 0 && errno == EAGAIN);
 
 	errno = save;
 	return len;
