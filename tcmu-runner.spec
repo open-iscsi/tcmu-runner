@@ -39,7 +39,7 @@ Version:       1.5.4
 URL:           https://github.com/open-iscsi/tcmu-runner
 
 #%define _RC
-Release:       %{?_RC:%{_RC}}%{dist}
+Release:       %{?_RC:%{_RC}}%{?dist}
 BuildRoot:     %(mktemp -udp %{_tmppath}/%{name}-%{version}%{?_RC:-%{_RC}})
 Source:       %{name}-%{version}%{?_RC:-%{_RC}}.tar.gz
 ExclusiveOS:   Linux
