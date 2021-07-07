@@ -657,7 +657,7 @@ int tcmur_get_time(struct tcmu_device *dev, struct timespec *time)
 
 	ret = clock_gettime(CLOCK_MONOTONIC_COARSE, time);
 	if (!ret) {
-		tcmu_dev_dbg(dev, "Current time %lu secs.\n", time->tv_sec);
+		tcmu_dev_dbg(dev, "Current time %"PRIdMAX" secs.\n", (intmax_t)time->tv_sec);
 		return 0;
 	}
 
@@ -700,9 +700,9 @@ static bool get_next_cmd_timeout(struct tcmu_device *dev,
 			tmo->tv_sec = 0;
 		}
 
-		tcmu_dev_dbg(dev, "Next cmd id %hu timeout in %lu secs. Current time %lu. Start time %lu\n",
-			     tcmur_cmd->lib_cmd->cmd_id, tmo->tv_sec,
-			     curr_time->tv_sec, tcmur_cmd->start_time.tv_sec);
+		tcmu_dev_dbg(dev, "Next cmd id %hu timeout in %"PRIdMAX" secs. Current time %"PRIdMAX". Start time %"PRIdMAX"\n",
+			     tcmur_cmd->lib_cmd->cmd_id, (intmax_t)tmo->tv_sec,
+			     (intmax_t)curr_time->tv_sec, (intmax_t)tcmur_cmd->start_time.tv_sec);
 		break;
 	}
 	pthread_spin_unlock(&rdev->lock);
