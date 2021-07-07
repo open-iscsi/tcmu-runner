@@ -14,6 +14,7 @@
 #define __LIBTCMU_COMMON_H
 
 #include <stdbool.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
