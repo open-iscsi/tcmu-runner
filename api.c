@@ -28,6 +28,8 @@
 #include "libtcmu_priv.h"
 #include "be_byteshift.h"
 
+__thread int __tcmu_is_ework_thread = 0;
+
 int tcmu_cdb_get_length(uint8_t *cdb)
 {
 	uint8_t group_code = cdb[0] >> 5;

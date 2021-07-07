@@ -403,7 +403,6 @@ static int output_to_fd(int pri, const char *timestamp,
 	int fd = (intptr_t) data;
 	char *buf, *msg;
 	int count, ret, written = 0, r, pid = 0;
-	char pname[TCMU_THREAD_NAME_LEN];
 
 	if (fd == -1)
 		return -1;
@@ -412,13 +411,10 @@ static int output_to_fd(int pri, const char *timestamp,
 	if (pid <= 0)
 		return -1;
 
-	if (pthread_getname_np(pthread_self(), pname, TCMU_THREAD_NAME_LEN))
-		return -1;
-
 	/*
 	 * format: timestamp pid [loglevel] msg
 	 */
-	ret = asprintf(&msg, "%s %d:%s [%s] %s", timestamp, pid, pname,
+	ret = asprintf(&msg, "%s %d [%s] %s", timestamp, pid,
 		       loglevel_string(pri), str);
 	if (ret < 0)
 		return -1;
