@@ -194,6 +194,8 @@ void __tcmu_sense_set_data(uint8_t *sense_buf, uint8_t key, uint16_t asc_ascq);
  */
 void tcmu_thread_cancel(pthread_t thread);
 
+extern __thread int __tcmu_is_ework_thread;
+
 #ifdef __cplusplus
 }
 #endif

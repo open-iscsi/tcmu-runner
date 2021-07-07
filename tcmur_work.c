@@ -41,16 +41,11 @@ free_work:
 
 static void __tcmur_flush_work(struct tcmur_work *work)
 {
-	char pname[TCMU_THREAD_NAME_LEN];
-
-	if (pthread_getname_np(pthread_self(), pname, TCMU_THREAD_NAME_LEN))
-		return;
-
 	/*
 	 * The event work thread may need to do a handler reopen
 	 * call and try to flush itself. Just ignore.
 	 */
-	if (!strcmp(pname, "ework-thread"))
+	if (__tcmu_is_ework_thread)
 		return;
 
 	/*
@@ -79,6 +74,7 @@ static void *tcmur_work_fn(void *data)
 	struct private *p = data;
 
 	tcmu_set_thread_name("ework-thread", NULL);
+	__tcmu_is_ework_thread = 1;
 
 	p->work_fn(p->data);
 

@@ -843,17 +843,13 @@ const char *tcmu_dev_get_uio_name(struct tcmu_device *dev)
 void tcmu_set_thread_name(const char *prefix, struct tcmu_device *dev)
 {
 	const char *uio = dev ? tcmu_dev_get_uio_name(dev) : NULL;
-	char cname[TCMU_THREAD_NAME_LEN];
 	char *pname;
-
-	if (pthread_getname_np(pthread_self(), cname, TCMU_THREAD_NAME_LEN))
-		return;
 
 	/*
 	 * If we are trying to set the pthread name in the
 	 * event work thread, we must ignore it.
 	 */
-	if (!strcmp(cname, "ework-thread")) {
+	if (__tcmu_is_ework_thread) {
 		tcmu_dev_warn(dev, "Do not set name for event work thread in the callback fn\n");
 		return;
 	}
