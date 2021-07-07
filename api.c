@@ -74,7 +74,7 @@ uint64_t tcmu_cdb_get_lba(uint8_t *cdb)
 	case 16:
 		return be64toh(*((u_int64_t *)&cdb[2]));
 	default:
-		assert_perror(EINVAL);
+		assert(0);
 		return 0;	/* not reached */
 	}
 }
@@ -91,7 +91,7 @@ uint32_t tcmu_cdb_get_xfer_length(uint8_t *cdb)
 	case 16:
 		return be32toh(*((u_int32_t *)&cdb[10]));
 	default:
-		assert_perror(EINVAL);
+		assert(0);
 		return 0;	/* not reached */
 	}
 }
