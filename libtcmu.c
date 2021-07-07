@@ -860,7 +860,7 @@ void tcmu_set_thread_name(const char *prefix, struct tcmu_device *dev)
 
 	if (!prefix) {
 		tcmu_dev_err(dev, "Failed to set name for thread %lu\n",
-			     pthread_self());
+			     (long unsigned int)pthread_self());
 		return;
 	}
 
