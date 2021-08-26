@@ -2329,9 +2329,9 @@ void tcmur_set_pending_ua(struct tcmu_device *dev, int ua)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	rdev->pending_uas |= (1 << ua);
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 }
 
 /*
@@ -2348,7 +2348,7 @@ static int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
 		/* The kernel will handle REPORT_LUNS */
 		return TCMU_STS_NOT_HANDLED;
 	}
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 
 	if (!rdev->pending_uas) {
 		ret = TCMU_STS_NOT_HANDLED;
@@ -2364,7 +2364,7 @@ static int handle_pending_ua(struct tcmur_device *rdev, struct tcmulib_cmd *cmd)
 	rdev->pending_uas &= ~(1 << ua);
 
 unlock:
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 	return ret;
 }
 

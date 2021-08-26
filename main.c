@@ -615,14 +615,14 @@ static void tcmur_stop_device(void *arg)
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	bool is_open = false;
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	/* check if this was already called due to thread cancelation */
 	if (rdev->flags & TCMUR_DEV_FLAG_STOPPED) {
-		pthread_mutex_unlock(&rdev->state_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
 		return;
 	}
 	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	/*
 	 * The lock thread can fire off the recovery thread, so make sure
@@ -633,19 +633,19 @@ static void tcmur_stop_device(void *arg)
 
 	tcmu_release_dev_lock(dev);
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {
 		rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
 		is_open = true;
 	}
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	if (is_open)
 		rhandler->close(dev);
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	rdev->flags |= TCMUR_DEV_FLAG_STOPPED;
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	tcmu_dev_dbg(dev, "cmdproc cleanup done\n");
 }
@@ -872,10 +872,10 @@ static void *tcmur_cmdproc_thread(void *arg)
 		 * requests that LIO has completed. We only need to wait for replies
 		 * for outstanding requests so throttle the cmdproc thread now.
 		 */
-		pthread_mutex_lock(&rdev->state_lock);
+		pthread_mutex_lock(&rdev->rdev_lock);
 		if (rdev->flags & TCMUR_DEV_FLAG_STOPPING)
 			dev_stopping = true;
-		pthread_mutex_unlock(&rdev->state_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
 	}
 
 	/*
@@ -1038,7 +1038,7 @@ static int dev_added(struct tcmu_device *dev)
 		goto cleanup_caw_lock;
 	}
 
-	ret = pthread_mutex_init(&rdev->state_lock, NULL);
+	ret = pthread_mutex_init(&rdev->rdev_lock, NULL);
 	if (ret) {
 		ret = -ret;
 		goto cleanup_format_lock;
@@ -1046,7 +1046,7 @@ static int dev_added(struct tcmu_device *dev)
 
 	ret = setup_io_work_queue(dev);
 	if (ret < 0)
-		goto cleanup_state_lock;
+		goto cleanup_rdev_lock;
 
 	ret = setup_aio_tracking(rdev);
 	if (ret < 0)
@@ -1088,8 +1088,8 @@ cleanup_aio_tracking:
 	cleanup_aio_tracking(rdev);
 cleanup_io_work_queue:
 	cleanup_io_work_queue(dev, true);
-cleanup_state_lock:
-	pthread_mutex_destroy(&rdev->state_lock);
+cleanup_rdev_lock:
+	pthread_mutex_destroy(&rdev->rdev_lock);
 cleanup_format_lock:
 	pthread_mutex_destroy(&rdev->format_lock);
 cleanup_caw_lock:
@@ -1106,9 +1106,9 @@ static void dev_removed(struct tcmu_device *dev)
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int ret;
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	rdev->flags |= TCMUR_DEV_FLAG_STOPPING;
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	/*
 	 * The order of cleaning up worker threads and calling ->removed()
@@ -1130,7 +1130,7 @@ static void dev_removed(struct tcmu_device *dev)
 
 	tcmur_destroy_work(rdev->event_work);
 
-	ret = pthread_mutex_destroy(&rdev->state_lock);
+	ret = pthread_mutex_destroy(&rdev->rdev_lock);
 	if (ret != 0)
 		tcmu_err("could not cleanup state lock %d\n", ret);
 

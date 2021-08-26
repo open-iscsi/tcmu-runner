@@ -29,7 +29,7 @@
 static struct list_head tpg_recovery_list = LIST_HEAD_INIT(tpg_recovery_list);
 /*
  * Locking ordering:
- * rdev->state_lock
+ * rdev->rdev_lock
  * tpg_recovery_lock
  */
 static pthread_mutex_t tpg_recovery_lock = PTHREAD_MUTEX_INITIALIZER;
