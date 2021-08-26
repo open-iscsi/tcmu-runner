@@ -48,6 +48,9 @@ struct tcmur_device {
 
 	pthread_t cmdproc_thread;
 
+	/* General lock for the members from "flags" to "pending_uas" */
+	pthread_mutex_t rdev_lock;
+
 	/* TCMUR_DEV flags */
 	uint32_t flags;
 	uint8_t failover_type;
@@ -63,8 +66,6 @@ struct tcmur_device {
 	bool lock_lost;
 	uint8_t lock_state;
 
-	/* General lock for lock state, thread, dev state, etc */
-	pthread_mutex_t state_lock;
 	int pending_uas;
 
 	/*

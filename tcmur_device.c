@@ -29,10 +29,10 @@ bool tcmu_dev_in_recovery(struct tcmu_device *dev)
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int in_recov = false;
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY)
 		in_recov = true;
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 	return in_recov;
 }
 
@@ -46,12 +46,12 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 	int ret, attempt = 0;
 	bool needs_close = false;
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_STOPPING) {
 		ret = 0;
 		goto done;
 	}
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	/*
 	 * There are no SCSI commands running but there may be
@@ -60,11 +60,11 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 	 */
 	tcmur_flush_work(rdev->event_work);
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)
 		needs_close = true;
 	rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	if (pthread_self() != rdev->cmdproc_thread)
 		/*
@@ -77,7 +77,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	ret = aio_wait_for_empty_queue(rdev);
 	if (ret) {
-		pthread_mutex_lock(&rdev->state_lock);
+		pthread_mutex_lock(&rdev->rdev_lock);
 		goto done;
 	}
 
@@ -86,11 +86,11 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 		rhandler->close(dev);
 	}
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	ret = -EIO;
 	while (ret != 0 && !(rdev->flags & TCMUR_DEV_FLAG_STOPPING) &&
 	       (retries < 0 || attempt <= retries)) {
-		pthread_mutex_unlock(&rdev->state_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
 
 		tcmu_dev_dbg(dev, "Opening device. Attempt %d\n", attempt);
 		ret = rhandler->open(dev, true);
@@ -99,7 +99,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 			sleep(1);
 		}
 
-		pthread_mutex_lock(&rdev->state_lock);
+		pthread_mutex_lock(&rdev->rdev_lock);
 		if (!ret) {
 			rdev->flags |= TCMUR_DEV_FLAG_IS_OPEN;
 			rdev->lock_lost = false;
@@ -109,7 +109,7 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 
 done:
 	rdev->flags &= ~TCMUR_DEV_FLAG_IN_RECOVERY;
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	return ret;
 }
@@ -123,13 +123,13 @@ int tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY) {
-		pthread_mutex_unlock(&rdev->state_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
 		return -EBUSY;
 	}
 	rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	return __tcmu_reopen_dev(dev, retries);
 }
@@ -144,13 +144,13 @@ void tcmu_cancel_recovery(struct tcmu_device *dev)
 	 * handlers to fail/complete normally to avoid a segfault.
 	 */
 	tcmu_dev_dbg(dev, "Waiting on recovery thread\n");
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	while (rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY) {
-		pthread_mutex_unlock(&rdev->state_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
 		sleep(1);
-		pthread_mutex_lock(&rdev->state_lock);
+		pthread_mutex_lock(&rdev->rdev_lock);
 	}
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 	tcmu_dev_dbg(dev, "Recovery thread wait done\n");
 }
 
@@ -167,11 +167,11 @@ static void __tcmu_report_event(void *data)
 	 */
 	sleep(1);
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	ret = rhandler->report_event(dev);
 	if (ret)
 		tcmu_dev_err(dev, "Could not report events. Error %d.\n", ret);
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 }
 
 static void tcmu_report_event(struct tcmu_device *dev)
@@ -236,9 +236,9 @@ void tcmu_notify_conn_lost(struct tcmu_device *dev)
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	bool report;
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	report =__tcmu_notify_conn_lost(dev);
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	if (report)
 		tcmu_report_event(dev);
@@ -267,7 +267,7 @@ void tcmu_notify_lock_lost(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	tcmu_dev_warn(dev, "Async lock drop. Old state %d\n", rdev->lock_state);
 	/*
 	 * We could be getting stale IO completions. If we are trying to
@@ -276,7 +276,7 @@ void tcmu_notify_lock_lost(struct tcmu_device *dev)
 	if (rdev->lock_state != TCMUR_DEV_LOCK_WRITE_LOCKING) {
 		__tcmu_notify_lock_lost(dev);
 	}
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 }
 
 void tcmu_release_dev_lock(struct tcmu_device *dev)
@@ -285,20 +285,20 @@ void tcmu_release_dev_lock(struct tcmu_device *dev)
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	int ret;
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (rdev->lock_state != TCMUR_DEV_LOCK_WRITE_LOCKED) {
-		pthread_mutex_unlock(&rdev->state_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
 		return;
 	}
 
 	if (!(rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)) {
 		tcmu_dev_dbg(dev, "Device is closed so unlock is not needed\n");
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
-		pthread_mutex_unlock(&rdev->state_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
 		return;
 	}
 
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	ret = rhandler->unlock(dev);
 	if (ret != TCMU_STS_OK)
@@ -309,9 +309,9 @@ void tcmu_release_dev_lock(struct tcmu_device *dev)
 	 * to unlocked to prevent new IO from executing in case the lock
 	 * is in a state where it cannot be fenced.
 	 */
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 }
 
 int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
@@ -323,16 +323,16 @@ int tcmu_get_lock_tag(struct tcmu_device *dev, uint16_t *tag)
 	if (rdev->failover_type != TCMUR_DEV_FAILOVER_EXPLICIT)
 		return 0;
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (!(rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)) {
 		/*
 		 * Return tmp error until the recovery thread is able to
 		 * start up.
 		 */
-		pthread_mutex_unlock(&rdev->state_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
 		return TCMU_STS_BUSY;
 	}
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 retry:
 	ret = rhandler->get_lock_tag(dev, tag);
@@ -415,10 +415,10 @@ int tcmu_acquire_dev_lock(struct tcmu_device *dev, uint16_t tag)
 	 */
 
 	reopen = false;
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (rdev->lock_lost || !(rdev->flags & TCMUR_DEV_FLAG_IS_OPEN))
 		reopen = true;
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 retry:
 	tcmu_dev_dbg(dev, "lock call state %d retries %d. tag %hu reopen %d\n",
@@ -436,13 +436,13 @@ retry:
 		}
 	}
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (rdev->lock_state == TCMUR_DEV_LOCK_READ_LOCKING) {
-		pthread_mutex_unlock(&rdev->state_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
 		ret = TCMU_STS_OK;
 		goto done;
 	}
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	ret = rhandler->lock(dev, tag);
 	if (ret == TCMU_STS_FENCED) {
@@ -476,7 +476,7 @@ done:
 		tcmu_dev_flush_ring(dev);
 
 	/* TODO: set UA based on bgly's patches */
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (ret != TCMU_STS_OK) {
 		rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 		tcmu_dev_info(dev, "Lock acquisition unsuccessful\n");
@@ -498,7 +498,7 @@ done:
 
 	tcmu_cfgfs_dev_exec_action(dev, "block_dev", 0);
 
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	return ret;
 }
@@ -512,23 +512,23 @@ void tcmu_update_dev_lock_state(struct tcmu_device *dev)
 	if (!rhandler->get_lock_state)
 		return;
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (!(rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)) {
 		tcmu_dev_dbg(dev, "device closed.\n");
 		state = TCMUR_DEV_LOCK_UNKNOWN;
 		goto check_state;
 	}
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	state = rhandler->get_lock_state(dev);
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 check_state:
 	if (rdev->lock_state == TCMUR_DEV_LOCK_WRITE_LOCKED &&
 	    state != TCMUR_DEV_LOCK_WRITE_LOCKED) {
 		tcmu_dev_dbg(dev, "Updated out of sync lock state.\n");
 		__tcmu_notify_lock_lost(dev);
 	}
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 }
 
 void tcmur_dev_set_private(struct tcmu_device *dev, void *private)
@@ -549,10 +549,10 @@ void tcmu_notify_cmd_timed_out(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	rdev->cmd_timed_out_cnt++;
 	__tcmu_notify_conn_lost(dev);
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	tcmu_report_event(dev);
 }

@@ -432,12 +432,12 @@ static int alua_sync_state(struct tcmu_device *dev,
 				 * the first command sent to us so clear
 				 * lock state to avoid later blacklist errors.
 				 */
-				pthread_mutex_lock(&rdev->state_lock);
+				pthread_mutex_lock(&rdev->rdev_lock);
 				if (rdev->lock_state == TCMUR_DEV_LOCK_WRITE_LOCKED) {
 					tcmu_dev_dbg(dev, "Dropping lock\n");
 					rdev->lock_state = TCMUR_DEV_LOCK_UNLOCKED;
 				}
-				pthread_mutex_unlock(&rdev->state_lock);
+				pthread_mutex_unlock(&rdev->rdev_lock);
 			}
 		}
 
@@ -560,7 +560,7 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	if (!lock_is_required(dev))
 		return ret;
 
-	pthread_mutex_lock(&rdev->state_lock);
+	pthread_mutex_lock(&rdev->rdev_lock);
 	if (rdev->lock_state == TCMUR_DEV_LOCK_WRITE_LOCKED) {
 		/* For both read/write cases in this state is good */
 		goto done;
@@ -617,7 +617,7 @@ int alua_implicit_transition(struct tcmu_device *dev, struct tcmulib_cmd *cmd,
 	}
 
 done:
-	pthread_mutex_unlock(&rdev->state_lock);
+	pthread_mutex_unlock(&rdev->rdev_lock);
 	return ret;
 }
 
