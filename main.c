@@ -681,7 +681,7 @@ static bool get_next_cmd_timeout(struct tcmu_device *dev,
 
 	memset(tmo, 0, sizeof(*tmo));
 
-	pthread_spin_lock(&rdev->lock);
+	pthread_spin_lock(&rdev->cmds_list_lock);
 	list_for_each(&rdev->cmds_list, tcmur_cmd, cmds_list_entry) {
 		if (tcmur_cmd->timed_out)
 			continue;
@@ -705,7 +705,7 @@ static bool get_next_cmd_timeout(struct tcmu_device *dev,
 			     (intmax_t)curr_time->tv_sec, (intmax_t)tcmur_cmd->start_time.tv_sec);
 		break;
 	}
-	pthread_spin_unlock(&rdev->lock);
+	pthread_spin_unlock(&rdev->cmds_list_lock);
 
 	return has_timeout;
 }
@@ -728,7 +728,7 @@ static void check_for_timed_out_cmds(struct tcmu_device *dev)
 	if (tcmur_get_time(dev, &curr_time))
 		return;
 
-	pthread_spin_lock(&rdev->lock);
+	pthread_spin_lock(&rdev->cmds_list_lock);
 	list_for_each(&rdev->cmds_list, tcmur_cmd, cmds_list_entry) {
 		if (tcmur_cmd->timed_out)
 			continue;
@@ -758,7 +758,7 @@ static void check_for_timed_out_cmds(struct tcmu_device *dev)
 		 */
 	       tcmu_notify_cmd_timed_out(dev);
 	}
-	pthread_spin_unlock(&rdev->lock);
+	pthread_spin_unlock(&rdev->cmds_list_lock);
 }
 
 static void tcmur_tcmulib_cmd_start(struct tcmu_device *dev,
@@ -775,9 +775,9 @@ static void tcmur_tcmulib_cmd_start(struct tcmu_device *dev,
 	if (rdev->cmd_time_out) {
 		tcmur_cmd->start_time.tv_sec = curr_time->tv_sec;
 
-		pthread_spin_lock(&rdev->lock);
+		pthread_spin_lock(&rdev->cmds_list_lock);
 		list_add_tail(&rdev->cmds_list, &tcmur_cmd->cmds_list_entry);
-		pthread_spin_unlock(&rdev->lock);
+		pthread_spin_unlock(&rdev->cmds_list_lock);
 	}
 }
 
@@ -1020,7 +1020,7 @@ static int dev_added(struct tcmu_device *dev)
 	tcmu_dev_dbg(dev, "Got block_size %d, size in bytes %"PRId64"\n",
 		     block_size, dev_size);
 
-	ret = pthread_spin_init(&rdev->lock, 0);
+	ret = pthread_spin_init(&rdev->cmds_list_lock, 0);
 	if (ret) {
 		ret = -ret;
 		goto free_rdev;
@@ -1095,7 +1095,7 @@ cleanup_format_lock:
 cleanup_caw_lock:
 	pthread_mutex_destroy(&rdev->caw_lock);
 cleanup_dev_lock:
-	pthread_spin_destroy(&rdev->lock);
+	pthread_spin_destroy(&rdev->cmds_list_lock);
 free_rdev:
 	free(rdev);
 	return ret;
@@ -1142,7 +1142,7 @@ static void dev_removed(struct tcmu_device *dev)
 	if (ret != 0)
 		tcmu_err("could not cleanup caw lock %d\n", ret);
 
-	ret = pthread_spin_destroy(&rdev->lock);
+	ret = pthread_spin_destroy(&rdev->cmds_list_lock);
 	if (ret != 0)
 		tcmu_err("could not cleanup mailbox lock %d\n", ret);
 
