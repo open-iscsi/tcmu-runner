@@ -40,8 +40,8 @@ void tcmur_tcmulib_cmd_complete(struct tcmu_device *dev,
 	struct tcmur_cmd *tcmur_cmd = cmd->hm_private;
 	struct timespec curr_time;
 
-	pthread_cleanup_push(_cleanup_spin_lock, (void *)&rdev->lock);
-	pthread_spin_lock(&rdev->lock);
+	pthread_cleanup_push(_cleanup_spin_lock, (void *)&rdev->cmds_list_lock);
+	pthread_spin_lock(&rdev->cmds_list_lock);
 
 	if (tcmur_cmd->timed_out) {
 		if (tcmur_get_time(dev, &curr_time)) {
@@ -60,7 +60,7 @@ void tcmur_tcmulib_cmd_complete(struct tcmu_device *dev,
 
 	tcmulib_command_complete(dev, cmd, rc);
 
-	pthread_spin_unlock(&rdev->lock);
+	pthread_spin_unlock(&rdev->cmds_list_lock);
 	pthread_cleanup_pop(0);
 }
 

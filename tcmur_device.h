@@ -75,13 +75,14 @@ struct tcmur_device {
         struct tcmu_io_queue work_queue;
         struct tcmu_track_aio track_queue;
 
-	pthread_spinlock_t lock; /* protects concurrent updates to mailbox */
 	pthread_mutex_t caw_lock; /* for atomic CAW operation */
 
 	uint32_t format_progress;
 	pthread_mutex_t format_lock; /* for atomic format operations */
 
 	int cmd_time_out;
+
+	pthread_spinlock_t cmds_list_lock; /* protects cmds_list */
 	struct list_head cmds_list;
 };
 
