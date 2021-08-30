@@ -308,10 +308,10 @@ static void tcmu_rbd_rm_stale_entry_from_blacklist(struct tcmu_device *dev, char
 			       "\"blacklistop\": \"rm\","
 			       "\"addr\": \"%s\"}",
 			       addr);
-		free(addr);
 		if (ret < 0) {
 			tcmu_dev_warn(dev, "Could not allocate command. (Err %d)\n",
 				      ret);
+			free(addr);
 			return;
 		}
 		ret = rados_mon_command(state->cluster, (const char**)&cmd, 1, NULL, 0,
@@ -320,8 +320,10 @@ static void tcmu_rbd_rm_stale_entry_from_blacklist(struct tcmu_device *dev, char
 		if (ret < 0) {
 			tcmu_dev_err(dev, "Could not rm blacklist entry '%s'. (Err %d)\n",
 				     addr, ret);
+			free(addr);
 			return;
 		}
+		free(addr);
 	}
 }
 
