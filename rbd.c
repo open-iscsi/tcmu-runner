@@ -1161,9 +1161,11 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 #ifdef LIBRADOS_SUPPORTS_GETADDRS
 	/* Get current entry address for the image */
 	ret = rados_getaddrs(state->cluster, &state->addrs);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not get address. (Err %d)\n", ret);
+		goto stop_image;
+	}
 	tcmu_dev_info(dev, "address: {%s}\n", state->addrs);
-	if (ret < 0)
-		return ret;
 #endif
 
 	free(dev_cfg_dup);
