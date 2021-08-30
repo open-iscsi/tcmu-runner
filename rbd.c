@@ -338,7 +338,7 @@ static int tcmu_rbd_rm_stale_entries_from_blacklist(struct tcmu_device *dev)
 
 	/* Try to remove all the stale blacklist entities */
 	darray_foreach(entry, blacklist_caches) {
-		tcmu_dev_info(dev, "removing addrs: {%s}\n", *entry);
+		tcmu_dev_info(dev, "removing blocklist entry: {%s}\n", *entry);
 		tcmu_rbd_rm_stale_entry_from_blacklist(dev, *entry);
 	}
 
@@ -945,7 +945,7 @@ no_owner:
 #endif
 
 set_lock_tag:
-	tcmu_dev_warn(dev, "Acquired exclusive lock.\n");
+	tcmu_dev_info(dev, "Acquired exclusive lock.\n");
 	if (tag != TCMU_INVALID_LOCK_TAG)
 		ret = tcmu_rbd_set_lock_tag(dev, tag);
 
@@ -1195,6 +1195,7 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 		pthread_mutex_lock(&blacklist_caches_lock);
 		darray_append(blacklist_caches, state->addrs);
 		pthread_mutex_unlock(&blacklist_caches_lock);
+		tcmu_dev_info(dev, "appended blocklist entry: {%s}\n", state->addrs);
 		state->addrs = NULL;
 	}
 
