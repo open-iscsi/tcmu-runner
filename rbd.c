@@ -236,9 +236,10 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 }
 
 #ifdef RBD_LOCK_ACQUIRE_SUPPORT
-static void tcmu_rbd_service_status_update(struct tcmu_device *dev,
+static int tcmu_rbd_service_status_update(struct tcmu_device *dev,
 					   bool has_lock)
 {
+	return 0;
 }
 #endif /* RBD_LOCK_ACQUIRE_SUPPORT */
 
