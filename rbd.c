@@ -216,8 +216,6 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 	}
 
 	ret = tcmu_rbd_report_event(dev);
-	if (ret < 0)
-		tcmu_dev_err(dev, "Could not update status. (Err %d)\n", ret);
 
 free_meta_buf:
 	free(metadata_buf);
