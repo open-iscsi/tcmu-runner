@@ -1398,7 +1398,7 @@ int main(int argc, char **argv)
 	    g_unix_signal_add(SIGTERM, handle_sig, loop) <= 0 ||
 	    g_unix_signal_add(SIGHUP, handle_sighup, loop) <= 0) {
 		tcmu_err("couldn't setup signal handlers\n");
-		goto unwatch_cfg;
+		goto loop_unref;
 	}
 
 	/* Set up event for libtcmu */
@@ -1424,15 +1424,16 @@ int main(int argc, char **argv)
 
 	tcmu_crit("Exiting...\n");
 	g_bus_unown_name(reg_id);
-	g_main_loop_unref(loop);
 	g_source_remove(watch_id);
 	g_io_channel_shutdown(libtcmu_gio, TRUE, NULL);
 	g_io_channel_unref (libtcmu_gio);
-	g_object_unref(manager);
+	if (manager)
+		g_object_unref(manager);
 
 	ret = 0;
 
-unwatch_cfg:
+loop_unref:
+	g_main_loop_unref(loop);
 	if (watching_cfg)
 		tcmu_unwatch_config(tcmu_cfg);
 	tcmulib_close(tcmulib_context);
