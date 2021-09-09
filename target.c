@@ -252,6 +252,12 @@ done:
 	 */
 	list_for_each_safe(&tpg->devs, rdev, tmp_rdev, recovery_entry) {
 		list_del(&rdev->recovery_entry);
+
+		pthread_mutex_lock(&rdev->rdev_lock);
+		if (rdev->flags & TCMUR_DEV_FLAG_REPORTING_EVENT)
+			pthread_cond_wait(&rdev->report_event_cond, &rdev->rdev_lock);
+		pthread_mutex_unlock(&rdev->rdev_lock);
+
 		ret = __tcmu_reopen_dev(rdev->dev, -1);
 		if (ret) {
 			tcmu_dev_err(rdev->dev, "Could not reinitialize device. (err %d).\n",
