@@ -1026,8 +1026,9 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	char *config, *dev_cfg_dup;
 	struct tcmu_rbd_state *state;
 	uint32_t max_blocks, unmap_gran;
-	int ret;
 	char buf[128];
+	char *savedptr = NULL;
+	int ret;
 
 	state = calloc(1, sizeof(*state));
 	if (!state)
@@ -1053,7 +1054,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	}
 	config += 1; /* get past '/' */
 
-	pool = strtok(config, "/");
+	pool = strtok_r(config, "/", &savedptr);
 	if (!pool) {
 		tcmu_dev_err(dev, "Could not get pool name\n");
 		ret = -EINVAL;
@@ -1066,7 +1067,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 		goto free_config;
 	}
 
-	name = strtok(NULL, ";");
+	name = strtok_r(NULL, ";", &savedptr);
 	if (!name) {
 		tcmu_dev_err(dev, "Could not get image name\n");
 		ret = -EINVAL;
@@ -1081,7 +1082,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	}
 
 	/* The next options are optional */
-	next_opt = strtok(NULL, ";");
+	next_opt = strtok_r(NULL, ";", &savedptr);
 	while (next_opt) {
 		if (!strncmp(next_opt, "osd_op_timeout=", 15)) {
 			state->osd_op_timeout = strdup(next_opt + 15);
@@ -1106,7 +1107,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 				goto free_config;
 			}
 		}
-		next_opt = strtok(NULL, ";");
+		next_opt = strtok_r(NULL, ";", &savedptr);
 	}
 
 	ret = tcmu_rbd_image_open(dev);
