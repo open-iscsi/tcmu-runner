@@ -32,7 +32,7 @@
 bool initialized = false;
 char hello_buffer[BLOCKSZ];
 
-static int tcmu_hello_open(struct tcmu_device *dev)
+static int tcmu_hello_open(struct tcmu_device *dev, bool reopn)
 {
 	const char hello_world[] = "Hello world!";
 	const size_t hello_len = sizeof(hello_world);
@@ -44,18 +44,18 @@ static int tcmu_hello_open(struct tcmu_device *dev)
 	return 0;
 }
 
-static int tcmu_hello_close(struct tcmu_device *dev)
+static void tcmu_hello_close(struct tcmu_device *dev)
 {
-	return 0;
 }
 
 /*
  * Return scsi status or TCMU_NOT_HANDLED
  */
-int tcmu_hello_handle_cmd(
+static int tcmu_hello_handle_cmd(
 	struct tcmu_device *dev,
-	struct tcmulib_cmd *tcmulib_cmd)
+	struct tcmur_cmd *tcmur_cmd)
 {
+	struct tcmulib_cmd *tcmulib_cmd = tcmur_cmd->lib_cmd;
 	uint8_t *cdb = tcmulib_cmd->cdb;
 	struct iovec *iovec = tcmulib_cmd->iovec;
 	size_t iov_cnt = tcmulib_cmd->iov_cnt;
@@ -70,37 +70,28 @@ int tcmu_hello_handle_cmd(
 
 	switch (cmd) {
 	case INQUIRY:
-		return tcmu_emulate_inquiry(dev, cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_inquiry(dev, NULL, cdb, iovec, iov_cnt);
 		break;
 	case TEST_UNIT_READY:
-		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt);
 		break;
 	case SERVICE_ACTION_IN_16:
 		if (cdb[1] == READ_CAPACITY_16) {
-			long long size;
-			unsigned long long num_lbas;
-
-			size = tcmu_get_device_size(dev);
-			if (size == -1) {
-				errp("Could not get device size\n");
-				return TCMU_NOT_HANDLED;
-			}
-
-			num_lbas = size / BLOCKSZ;
+			unsigned long long num_lbas = tcmu_dev_get_num_lbas(dev);
 
 			return tcmu_emulate_read_capacity_16(num_lbas, BLOCKSZ,
-							     cdb, iovec, iov_cnt, sense);
+							     cdb, iovec, iov_cnt);
 		} else {
-			return TCMU_NOT_HANDLED;
+			return TCMU_STS_NOT_HANDLED;
 		}
 		break;
 	case MODE_SENSE:
 	case MODE_SENSE_10:
-		return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_sense(dev, cdb, iovec, iov_cnt);
 		break;
 	case MODE_SELECT:
 	case MODE_SELECT_10:
-		return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+		return tcmu_emulate_mode_select(dev, cdb, iovec, iov_cnt);
 		break;
 	case COMPARE_AND_WRITE:
 		break;
@@ -130,21 +121,22 @@ int tcmu_hello_handle_cmd(
 		break;
 	case UNMAP:
 		/* TODO: implement UNMAP */
-		result = tcmu_set_sense_data(sense, ILLEGAL_REQUEST,
-					     ASC_INVALID_FIELD_IN_CDB, NULL);
+#define ASC_INVALID_FIELD_IN_CDB             0x2400
+		result = tcmu_sense_set_data(sense, ILLEGAL_REQUEST,
+					     ASC_INVALID_FIELD_IN_CDB);
 		break;
 	default:
-		result = TCMU_NOT_HANDLED;
+		result = TCMU_STS_NOT_HANDLED;
 		break;
 	}
 
-	dbgp("io done %p %x %d %u\n", cdb, cmd, result, length);
+	tcmu_dbg("io done %p %x %d %u\n", cdb, cmd, result, length);
 
-	if (result == TCMU_NOT_HANDLED)
-		dbgp("io not handled %p %x %x %d %d\n",
+	if (result == TCMU_STS_NOT_HANDLED)
+		tcmu_dbg("io not handled %p %x %x %d %d\n",
 		     cdb, result, cmd, ret, length);
 	else if (result != SAM_STAT_GOOD) {
-		errp("io error %p %x %x %d %d\n",
+		tcmu_err("io error %p %x %x %d %d\n",
 		     cdb, result, cmd, ret, length);
 	}
 

@@ -306,12 +306,16 @@ endif (with-qcow)
 
 add_library(handler_hello
 	SHARED
+    scsi.c
 	hello.c
-	)
+    )
 set_target_properties(handler_hello
-  PROPERTIES
-  PREFIX ""
-  )
+    PROPERTIES
+    PREFIX ""
+    )
+target_include_directories(handler_hello
+    PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+    )
 install(TARGETS handler_hello DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 
 # stamp out a header file to pass some of the CMake settings
