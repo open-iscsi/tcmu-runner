@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
 project (tcmu-runner C)
 set(VERSION 1.5.4)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement -std=c99")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement")
 
 include(GNUInstallDirs)
 include(CheckIncludeFile)
@@ -14,6 +14,7 @@ option(with-rbd "build Ceph rbd handler" true)
 option(with-zbc "build zbc handler" true)
 option(with-fbo "build fbo handler" true)
 option(with-tcmalloc "link against tcmalloc" true)
+option(with-niova "build Niova niova handler" true)
 
 find_library(LIBNL_LIB nl-3)
 find_library(LIBNL_GENL_LIB nl-genl-3)
@@ -317,6 +318,29 @@ target_include_directories(handler_hello
     PUBLIC ${PROJECT_SOURCE_DIR}/ccan
     )
 install(TARGETS handler_hello DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+
+if (with-niova)
+    find_library(NIOVA_BLOCK_LIB niova_block)
+    find_library(IO_URING_LIB uring)
+    add_library(handler_niova
+        SHARED
+        niova.c
+        )
+    set_target_properties(handler_niova
+        PROPERTIES
+        PREFIX ""
+        )
+    target_link_libraries(handler_niova
+        ${NIOVA_BLOCK_LIB}
+        ${IO_URING_LIB}
+        )
+    target_include_directories(handler_niova
+        PUBLIC /usr/local/include
+        PUBLIC ${PROJECT_SOURCE_DIR}/ccan
+        )
+    install(TARGETS handler_niova DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+endif (with-niova)
+
 
 # stamp out a header file to pass some of the CMake settings
 # to the source code
