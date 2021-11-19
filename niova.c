@@ -190,7 +190,11 @@ static int niova_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 	ssize_t ret;
 	struct niova_cb_data *cbd;
 
+	// dev and cmd ref should be valid until cmd_complete called
+	// XXX does tcmu ever cancel requests?
 	cbd = calloc(1, sizeof(*cbd));
+	cbd->ncd_dev = dev;
+	cbd->ncd_cmd = cmd;
 
 	tcmu_dbg("iov@%p:%lu len=%lu off=%lu\n", iov, iov_cnt, length, offset);
 
