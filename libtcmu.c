@@ -767,7 +767,9 @@ static int open_devices(struct tcmulib_context *ctx)
 
 static void release_resources(struct tcmulib_context *ctx)
 {
-	teardown_netlink(ctx->nl_sock);
+	if (ctx->nl_sock)
+		teardown_netlink(ctx->nl_sock);
+
 	darray_free(ctx->handlers);
 	darray_free(ctx->devices);
 	free(ctx);
@@ -775,7 +777,8 @@ static void release_resources(struct tcmulib_context *ctx)
 
 struct tcmulib_context *tcmulib_initialize(
 	struct tcmulib_handler *handlers,
-	size_t handler_count)
+	size_t handler_count,
+	bool use_netlink)
 {
 	struct tcmulib_context *ctx;
 	int ret;
@@ -785,10 +788,12 @@ struct tcmulib_context *tcmulib_initialize(
 	if (!ctx)
 		return NULL;
 
-	ctx->nl_sock = setup_netlink(ctx);
-	if (!ctx->nl_sock) {
-		free(ctx);
-		return NULL;
+	if (use_netlink) {
+		ctx->nl_sock = setup_netlink(ctx);
+		if (!ctx->nl_sock) {
+			free(ctx);
+			return NULL;
+		}
 	}
 
 	darray_init(ctx->handlers);
@@ -817,12 +822,18 @@ void tcmulib_close(struct tcmulib_context *ctx)
 
 int tcmulib_get_master_fd(struct tcmulib_context *ctx)
 {
-	return nl_socket_get_fd(ctx->nl_sock);
+	if (ctx->nl_sock)
+		return nl_socket_get_fd(ctx->nl_sock);
+	else
+		return -1;
 }
 
 int tcmulib_master_fd_ready(struct tcmulib_context *ctx)
 {
-	return nl_recvmsgs_default(ctx->nl_sock);
+	if (ctx->nl_sock)
+		return nl_recvmsgs_default(ctx->nl_sock);
+	else
+		return -1;
 }
 
 void *tcmu_dev_get_private(struct tcmu_device *dev)
@@ -1363,3 +1374,13 @@ void tcmulib_processing_complete(struct tcmu_device *dev)
 		tcmu_err("failed to write device /dev/%s, %d\n",
 			 dev->dev_name, errno);
 }
+
+int tcmulib_notify_device_added(struct tcmulib_context *ctx, char *dev_name,
+				char *cfgstring) {
+	return device_add(ctx, dev_name, cfgstring, false);
+}
+
+void tcmulib_notify_device_removed(struct tcmulib_context *ctx, char *dev_name) {
+	device_remove(ctx, dev_name, false);
+}
+

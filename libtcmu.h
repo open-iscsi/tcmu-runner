@@ -87,20 +87,35 @@ struct tcmulib_context;
 /* Claim subtypes you wish to handle. Returns libtcmu's master fd or -error.*/
 struct tcmulib_context *tcmulib_initialize(
 	struct tcmulib_handler *handlers,
-	size_t handler_count);
+	size_t handler_count,
+	bool use_netlink);
 
 /* Register to TCMU DBus service, for the claimed subtypes to be configurable
  * in targetcli. */
 void tcmulib_register(struct tcmulib_context *ctx);
 
-/* Gets the master file descriptor used by tcmulib. */
+/* Gets the master file descriptor used by tcmulib. If you called tcmulib_initialize
+ * with use_netlink=false then we aren't using netlink for device notifications and
+ * you shouldn't use this method.
+ *
+ * TODO(AJReid): what should you call instead.
+ */
 int tcmulib_get_master_fd(struct tcmulib_context *ctx);
 
 /*
  * Call this when the master fd becomes ready, from your main thread.
- * Handlers' callbacks may be called before it returns.
+ * Handlers' callbacks may be called before it returns. If you called
+ * tcmulib_initialize with use_netlink=false then we aren't using netlink
+ * for device notifications and you shouldn't use this method.
+ *
+ * TODO(AJReid): what should you call instead.
  */
 int tcmulib_master_fd_ready(struct tcmulib_context *ctx);
+
+int tcmulib_notify_device_added(struct tcmulib_context *ctx, char *dev_name,
+				char *cfgstring);
+
+void tcmulib_notify_device_removed(struct tcmulib_context *ctx, char *dev_name);
 
 /*
  * When a device fd becomes ready, call this to get SCSI cmd info in
