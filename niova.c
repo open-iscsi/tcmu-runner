@@ -116,6 +116,9 @@ err:
 
 static int niova_open(struct tcmu_device *dev, bool reopen)
 {
+	uint32_t block_size = tcmu_dev_get_block_size(dev);
+	uint64_t lba_count = tcmu_dev_get_num_lbas(dev);
+	uint64_t new_lba_count = lba_count * block_size / NIOVA_BLOCK_SIZE;
 	niova_block_client_t *client;
 	struct niova_block_client_opts opts = {.nbco_iopm_opts = niova_default_iopm_opts };
 	char *config;
@@ -134,8 +137,10 @@ static int niova_open(struct tcmu_device *dev, bool reopen)
 		goto err;
 	}
 
+	// XXX this should probably be verified with the server
 	tcmu_dev_set_write_cache_enabled(dev, 1);
 	tcmu_dev_set_block_size(dev, NIOVA_BLOCKSZ);
+	tcmu_dev_set_num_lbas(dev, new_lba_count);
 
 	rc = NiovaBlockClientNew(&client, &opts);
 	if (rc) {
