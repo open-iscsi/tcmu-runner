@@ -246,11 +246,66 @@ static int tcmu_rbd_service_status_update(struct tcmu_device *dev,
 #endif /* LIBRADOS_SUPPORTS_SERVICES */
 
 #if defined LIBRADOS_SUPPORTS_GETADDRS || defined RBD_LOCK_ACQUIRE_SUPPORT
-static void tcmu_rbd_rm_stale_entry_from_blocklist(struct tcmu_device *dev, char *addrs)
+
+static int tcmu_rbd_remove_blocklist(struct tcmu_device *dev, char *addr)
 {
 	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
+	char *cmd;
+	int ret;
+
+	ret = asprintf(&cmd,
+		       "{\"prefix\": \"osd blocklist\","
+		       "\"blocklistop\": \"rm\","
+		       "\"addr\": \"%s\"}",
+		       addr);
+	if (ret < 0) {
+		tcmu_dev_warn(dev, "Could not allocate blocklist rm command. (Err %d)\n",
+			      ret);
+		return -1;
+	}
+	ret = rados_mon_command(state->cluster, (const char**)&cmd, 1, NULL, 0,
+				NULL, NULL, NULL, NULL);
+	free(cmd);
+	if (ret < 0) {
+		tcmu_dev_dbg(dev, "Could not rm blocklist entry '%s'. (Err %d)\n",
+			      addr, ret);
+		return 1;
+	}
+	return 0;
+}
+
+/* Old style */
+static int tcmu_rbd_remove_blacklist(struct tcmu_device *dev, char *addr)
+{
+	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
+	char *cmd;
+	int ret;
+
+	ret = asprintf(&cmd,
+		       "{\"prefix\": \"osd blacklist\","
+		       "\"blacklistop\": \"rm\","
+		       "\"addr\": \"%s\"}",
+		       addr);
+	if (ret < 0) {
+		tcmu_dev_warn(dev, "Could not allocate blacklist rm command. (Err %d)\n",
+			      ret);
+		return -1;
+	}
+	ret = rados_mon_command(state->cluster, (const char**)&cmd, 1, NULL, 0,
+				NULL, NULL, NULL, NULL);
+	free(cmd);
+	if (ret < 0) {
+		tcmu_dev_err(dev, "Could not rm blacklist entry '%s'. (Err %d)\n",
+			     addr, ret);
+		return 1;
+	}
+	return 0;
+}
+
+static void tcmu_rbd_rm_stale_entry_from_blocklist(struct tcmu_device *dev, char *addrs)
+{
 	const char *p, *q, *end;
-	char *cmd, *addr;
+	char *addr;
 	int ret;
 
 	/*
@@ -302,27 +357,12 @@ static void tcmu_rbd_rm_stale_entry_from_blocklist(struct tcmu_device *dev, char
 			p = NULL;
 		}
 
-		ret = asprintf(&cmd,
-			       "{\"prefix\": \"osd blocklist\","
-			       "\"blocklistop\": \"rm\","
-			       "\"addr\": \"%s\"}",
-			       addr);
-		if (ret < 0) {
-			tcmu_dev_warn(dev, "Could not allocate command. (Err %d)\n",
-				      ret);
-			free(addr);
-			return;
-		}
-		ret = rados_mon_command(state->cluster, (const char**)&cmd, 1, NULL, 0,
-					NULL, NULL, NULL, NULL);
-		free(cmd);
-		if (ret < 0) {
-			tcmu_dev_err(dev, "Could not rm blocklist entry '%s'. (Err %d)\n",
-				     addr, ret);
-			free(addr);
-			return;
-		}
+		ret = tcmu_rbd_remove_blocklist(dev, addr);
+		if (ret > 0)
+			ret = tcmu_rbd_remove_blacklist(dev, addr);
 		free(addr);
+		if (ret)
+			return;
 	}
 }
 
