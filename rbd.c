@@ -109,8 +109,8 @@ struct rbd_aio_cb {
 	size_t iov_cnt;
 };
 
-static pthread_mutex_t blacklist_caches_lock = PTHREAD_MUTEX_INITIALIZER;
-static darray(char *) blacklist_caches;
+static pthread_mutex_t blocklist_caches_lock = PTHREAD_MUTEX_INITIALIZER;
+static darray(char *) blocklist_caches;
 
 #ifdef LIBRADOS_SUPPORTS_SERVICES
 
@@ -246,7 +246,7 @@ static int tcmu_rbd_service_status_update(struct tcmu_device *dev,
 #endif /* LIBRADOS_SUPPORTS_SERVICES */
 
 #if defined LIBRADOS_SUPPORTS_GETADDRS || defined RBD_LOCK_ACQUIRE_SUPPORT
-static void tcmu_rbd_rm_stale_entry_from_blacklist(struct tcmu_device *dev, char *addrs)
+static void tcmu_rbd_rm_stale_entry_from_blocklist(struct tcmu_device *dev, char *addrs)
 {
 	struct tcmu_rbd_state *state = tcmur_dev_get_private(dev);
 	const char *p, *q, *end;
@@ -303,8 +303,8 @@ static void tcmu_rbd_rm_stale_entry_from_blacklist(struct tcmu_device *dev, char
 		}
 
 		ret = asprintf(&cmd,
-			       "{\"prefix\": \"osd blacklist\","
-			       "\"blacklistop\": \"rm\","
+			       "{\"prefix\": \"osd blocklist\","
+			       "\"blocklistop\": \"rm\","
 			       "\"addr\": \"%s\"}",
 			       addr);
 		if (ret < 0) {
@@ -317,7 +317,7 @@ static void tcmu_rbd_rm_stale_entry_from_blacklist(struct tcmu_device *dev, char
 					NULL, NULL, NULL, NULL);
 		free(cmd);
 		if (ret < 0) {
-			tcmu_dev_err(dev, "Could not rm blacklist entry '%s'. (Err %d)\n",
+			tcmu_dev_err(dev, "Could not rm blocklist entry '%s'. (Err %d)\n",
 				     addr, ret);
 			free(addr);
 			return;
@@ -326,30 +326,30 @@ static void tcmu_rbd_rm_stale_entry_from_blacklist(struct tcmu_device *dev, char
 	}
 }
 
-static int tcmu_rbd_rm_stale_entries_from_blacklist(struct tcmu_device *dev)
+static int tcmu_rbd_rm_stale_entries_from_blocklist(struct tcmu_device *dev)
 {
 	char **entry, *tmp_entry;
 	int ret = 0;
 	int i;
 
-	pthread_mutex_lock(&blacklist_caches_lock);
-	if (darray_empty(blacklist_caches))
+	pthread_mutex_lock(&blocklist_caches_lock);
+	if (darray_empty(blocklist_caches))
 		goto unlock;
 
-	/* Try to remove all the stale blacklist entities */
-	darray_foreach(entry, blacklist_caches) {
+	/* Try to remove all the stale blocklist entities */
+	darray_foreach(entry, blocklist_caches) {
 		tcmu_dev_info(dev, "removing blocklist entry: {%s}\n", *entry);
-		tcmu_rbd_rm_stale_entry_from_blacklist(dev, *entry);
+		tcmu_rbd_rm_stale_entry_from_blocklist(dev, *entry);
 	}
 
 unlock:
-	for (i = darray_size(blacklist_caches) - 1; i >= 0; i--) {
-		tmp_entry = darray_item(blacklist_caches, i);
-		darray_remove(blacklist_caches, i);
+	for (i = darray_size(blocklist_caches) - 1; i >= 0; i--) {
+		tmp_entry = darray_item(blocklist_caches, i);
+		darray_remove(blocklist_caches, i);
 		free(tmp_entry);
 	}
 
-	pthread_mutex_unlock(&blacklist_caches_lock);
+	pthread_mutex_unlock(&blocklist_caches_lock);
 	return ret;
 }
 #endif // LIBRADOS_SUPPORTS_GETADDRS || RBD_LOCK_ACQUIRE_SUPPORT
@@ -642,7 +642,7 @@ rados_shutdown:
  * Returns:
  * 0 = client is not owner.
  * 1 = client is owner.
- * -ESHUTDOWN/-EBLACKLISTED(-108) = client is blacklisted.
+ * -ESHUTDOWN/-EBLOCKLISTED(-108) = client is blocklisted.
  * -ETIMEDOUT = rados osd op timeout has expired.
  * -EIO = misc error.
  */
@@ -654,7 +654,7 @@ static int tcmu_rbd_has_lock(struct tcmu_device *dev)
 	ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
 	if (ret < 0) {
 		if (ret == -ESHUTDOWN) {
-			tcmu_dev_dbg(dev, "Client is blacklisted. Could not check lock ownership.\n");
+			tcmu_dev_dbg(dev, "Client is blocklisted. Could not check lock ownership.\n");
 		} else {
 			tcmu_dev_err(dev, "Could not check lock ownership. Error: %s.\n",
 				     strerror(-ret));
@@ -913,7 +913,7 @@ static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 	ret = rbd_lock_get_owners(state->image, &lock_mode, owners1,
 				  &num_owners1);
 	if ((!ret && !num_owners1) || ret < 0) {
-		tcmu_dev_warn(dev, "Could not get lock owners to store blacklist entry %d!\n",
+		tcmu_dev_warn(dev, "Could not get lock owners to store blocklist entry %d!\n",
 			     ret);
 	} else {
 		int is_owner;
@@ -922,7 +922,7 @@ static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 		ret = rbd_is_exclusive_lock_owner(state->image, &is_owner);
 		if (ret) {
 			rbd_lock_get_owners_cleanup(owners1, num_owners1);
-			tcmu_dev_warn(dev, "Could not check lock owners to store blacklist entry %d!\n",
+			tcmu_dev_warn(dev, "Could not check lock owners to store blocklist entry %d!\n",
 				      ret);
 			goto no_owner;
 		}
@@ -931,9 +931,9 @@ static int tcmu_rbd_lock(struct tcmu_device *dev, uint16_t tag)
 		ret = rbd_lock_get_owners(state->image, &lock_mode, owners2,
 				&num_owners2);
 		if ((!ret && !num_owners2) || ret < 0) {
-			tcmu_dev_warn(dev, "Could not get lock owners to store blacklist entry %d!\n",
+			tcmu_dev_warn(dev, "Could not get lock owners to store blocklist entry %d!\n",
 					ret);
-		/* Only we didn't lose the lock during the above check will we store the blacklist list */
+		/* Only we didn't lose the lock during the above check will we store the blocklist list */
 		} else if (!strcmp(owners1[0], owners2[0]) && is_owner) {
 			state->addrs = strdup(owners1[0]); // ignore the errors
 		}
@@ -1155,7 +1155,7 @@ static int tcmu_rbd_open(struct tcmu_device *dev, bool reopen)
 	tcmu_dev_set_write_cache_enabled(dev, 0);
 
 #if defined LIBRADOS_SUPPORTS_GETADDRS || defined RBD_LOCK_ACQUIRE_SUPPORT
-	tcmu_rbd_rm_stale_entries_from_blacklist(dev);
+	tcmu_rbd_rm_stale_entries_from_blocklist(dev);
 #endif
 
 #ifdef LIBRADOS_SUPPORTS_GETADDRS
@@ -1188,14 +1188,14 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 
 	/*
 	 * Since we are closing the device, but current device maybe
-	 * already blacklisted by other tcmu nodes. Let's just save
-	 * the entity addrs into the blacklist_caches, and let any
+	 * already blocklisted by other tcmu nodes. Let's just save
+	 * the entity addrs into the blocklist_caches, and let any
 	 * other new device help remove it.
 	 */
 	if (state->addrs) {
-		pthread_mutex_lock(&blacklist_caches_lock);
-		darray_append(blacklist_caches, state->addrs);
-		pthread_mutex_unlock(&blacklist_caches_lock);
+		pthread_mutex_lock(&blocklist_caches_lock);
+		darray_append(blocklist_caches, state->addrs);
+		pthread_mutex_unlock(&blocklist_caches_lock);
 		tcmu_dev_info(dev, "appended blocklist entry: {%s}\n", state->addrs);
 		state->addrs = NULL;
 	}
@@ -1203,12 +1203,12 @@ static void tcmu_rbd_close(struct tcmu_device *dev)
 	tcmu_rbd_state_free(state);
 }
 
-static int tcmu_rbd_handle_blacklisted_cmd(struct tcmu_device *dev)
+static int tcmu_rbd_handle_blocklisted_cmd(struct tcmu_device *dev)
 {
 	tcmu_notify_lock_lost(dev);
 	/*
 	 * This will happen during failback normally, because
-	 * running IO is failed due to librbd's immediate blacklisting
+	 * running IO is failed due to librbd's immediate blocklisting
 	 * during lock acquisition on a higher priority path.
 	 */
 	return TCMU_STS_BUSY;
@@ -1233,7 +1233,7 @@ static int tcmu_rbd_handle_timedout_cmd(struct tcmu_device *dev)
 	 * that end up reaching it after the initiator's failover/recovery
 	 * timeout. For implicit and explicit FO, we will just disable
 	 * the iscsi port, and let the initiator switch paths which will
-	 * result in us getting blacklisted, so fail with a retryable
+	 * result in us getting blocklisted, so fail with a retryable
 	 * error.
 	 */
 	return TCMU_STS_TIMEOUT;
@@ -1322,7 +1322,7 @@ static void rbd_finish_aio_generic(rbd_completion_t completion,
 	if (ret == -ETIMEDOUT) {
 		tcmu_r = tcmu_rbd_handle_timedout_cmd(dev);
 	} else if (ret == -ESHUTDOWN || ret == -EROFS) {
-		tcmu_r = tcmu_rbd_handle_blacklisted_cmd(dev);
+		tcmu_r = tcmu_rbd_handle_blocklisted_cmd(dev);
 	} else if (ret == -EILSEQ && aio_cb->type == RBD_AIO_TYPE_CAW) {
 		cmp_offset = aio_cb->caw.miscompare_offset - aio_cb->caw.offset;
 		tcmu_dev_dbg(dev, "CAW miscompare at offset %u.\n", cmp_offset);
@@ -1643,7 +1643,7 @@ static int tcmu_rbd_reconfig(struct tcmu_device *dev,
 	case TCMULIB_CFG_DEV_SIZE:
 		/*
 		 * Apps will already have resized on the ceph side, so no
-		 * need to double check and have to also handle unblacklisting
+		 * need to double check and have to also handle unblocklisting
 		 * the client from this context.
 		 */
 		return 0;
@@ -1656,7 +1656,7 @@ static int tcmu_rbd_reconfig(struct tcmu_device *dev,
 
 static int tcmu_rbd_init(void)
 {
-	darray_init(blacklist_caches);
+	darray_init(blocklist_caches);
 	return 0;
 }
 
@@ -1665,18 +1665,18 @@ static void tcmu_rbd_destroy(void)
 	char **entry;
 
 	tcmu_info("destroying the rbd handler\n");
-	pthread_mutex_lock(&blacklist_caches_lock);
-	if (darray_empty(blacklist_caches))
+	pthread_mutex_lock(&blocklist_caches_lock);
+	if (darray_empty(blocklist_caches))
 		goto unlock;
 
-	/* Try to remove all the stale blacklist entities */
-	darray_foreach(entry, blacklist_caches)
+	/* Try to remove all the stale blocklist entities */
+	darray_foreach(entry, blocklist_caches)
 		free(*entry);
 
-	darray_free(blacklist_caches);
+	darray_free(blocklist_caches);
 
 unlock:
-	pthread_mutex_unlock(&blacklist_caches_lock);
+	pthread_mutex_unlock(&blocklist_caches_lock);
 }
 
 /*
