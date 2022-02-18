@@ -800,6 +800,14 @@ int tcmu_emulate_mode_sense(
 		orig_buf[0] = used_len - 1;
 	}
 
+	if (tcmu_dev_get_write_protect_enabled(dev)) {
+		if (sense_ten) {
+			orig_buf[3] |= 0x80;
+		} else {
+			orig_buf[2] |= 0x80;
+		}
+	}
+
 	tcmu_memcpy_into_iovec(iovec, iov_cnt, orig_buf, alloc_len);
 	free(orig_buf);
 	return TCMU_STS_OK;

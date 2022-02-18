@@ -55,6 +55,7 @@ struct tcmu_device {
 	unsigned int write_cache_enabled:1;
 	unsigned int solid_state_media:1;
 	unsigned int unmap_enabled:1;
+	unsigned int write_protect_enabled:1;
 
 	char dev_name[16]; /* e.g. "uio14" */
 	char tcm_hba_name[16]; /* e.g. "user_8" */

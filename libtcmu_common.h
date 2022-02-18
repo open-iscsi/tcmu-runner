@@ -138,6 +138,8 @@ void tcmu_dev_set_solid_state_media(struct tcmu_device *dev, bool solid_state);
 bool tcmu_dev_get_solid_state_media(struct tcmu_device *dev);
 void tcmu_dev_set_unmap_enabled(struct tcmu_device *dev, bool enabled);
 bool tcmu_dev_get_unmap_enabled(struct tcmu_device *dev);
+void tcmu_dev_set_write_protect_enabled(struct tcmu_device *dev, bool enabled);
+bool tcmu_dev_get_write_protect_enabled(struct tcmu_device *dev);
 struct tcmulib_handler *tcmu_dev_get_handler(struct tcmu_device *dev);
 void tcmu_dev_flush_ring(struct tcmu_device *dev);
 bool tcmu_dev_oooc_supported(struct tcmu_device* dev);

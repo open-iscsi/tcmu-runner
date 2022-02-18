@@ -1021,6 +1021,16 @@ bool tcmu_dev_get_unmap_enabled(struct tcmu_device *dev)
 	return dev->unmap_enabled;
 }
 
+void tcmu_dev_set_write_protect_enabled(struct tcmu_device *dev, bool enabled)
+{
+	dev->write_protect_enabled = enabled;
+}
+
+bool tcmu_dev_get_write_protect_enabled(struct tcmu_device *dev)
+{
+	return dev->write_protect_enabled;
+}
+
 int tcmu_dev_get_fd(struct tcmu_device *dev)
 {
 	return dev->fd;
@@ -1060,7 +1070,7 @@ tcmu_dev_get_memory_info(struct tcmu_device *dev, void **base,
 			/* get length of map from file */
 			ssize_t size;
 			char *size_name;
-			
+
 			if (asprintf(&size_name, sizefmt, dev->dev_name) == -1) {
 				tcmu_err("cannot construct device map size filename\n");
 				goto err_free;
