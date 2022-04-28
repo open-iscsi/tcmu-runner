@@ -48,7 +48,7 @@
 #define REQUEST_SIZE_IN_BLKS 1
 #define REQUEST_SIZE_IN_BLKS_MAX BUFFER_SIZE_MAX_NBLKS
 #define REQUEST_SIZE_MAX_RANDOM_IN_BLKS BUFFER_SIZE_MAX_NBLKS
-#define UT2_MAX_QUEUE_DEPTH 256
+#define UT2_MAX_QUEUE_DEPTH 32
 
 #define CONN_HANDLE_DEF_CREDITS 16
 #define URING_ENTRIES_DEF 32
@@ -142,6 +142,9 @@ static int niova_open(struct tcmu_device *dev, bool reopen)
 	tcmu_dev_set_block_size(dev, NIOVA_BLOCKSZ);
 	tcmu_dev_set_num_lbas(dev, new_lba_count);
 
+	// XXX due to bug in niova
+	tcmu_dev_set_max_xfer_len(dev, 16);
+
 	rc = NiovaBlockClientNew(&client, &opts);
 	if (rc) {
 		tcmu_err("error creating niova client, rc=%d\n", rc);
@@ -167,33 +170,29 @@ struct niova_cb_data {
 	struct tcmur_cmd *ncd_cmd;
 };
 
-static int niova_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
-			 struct iovec *iov, size_t iov_cnt, size_t length,
-			 off_t offset)
-{
-
-	tcmur_cmd_complete(dev, cmd, 0);
-
-	return TCMU_STS_OK;
-}
-
 static void niova_rw_cb(void *arg, ssize_t rc)
 {
 	struct niova_cb_data *data = arg;
 
-	tcmu_dbg("test\n");
+	tcmu_dbg("data@%p rc=%zu\n", data, rc);
+
+	// XXX fix error translation
+	if (rc > 0)
+		rc = TCMU_STS_OK;
 	tcmur_cmd_complete(data->ncd_dev, data->ncd_cmd, rc);
 
 	free(data);
 }
 
-static int niova_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
-			  struct iovec *iov, size_t iov_cnt, size_t length,
-			  off_t offset)
+static int niova_rw(bool is_read, struct tcmu_device *dev,
+                    struct tcmur_cmd *cmd, struct iovec *iov, size_t iov_cnt,
+                    size_t length, off_t offset)
 {
 	niova_block_client_t *client = tcmur_dev_get_private(dev);
 	ssize_t ret;
 	struct niova_cb_data *cbd;
+
+	fprintf(stderr, "niova_write iov@%p iov_cnt=%zu len=%zu req=%zu off=%ld\n", iov, iov_cnt, length, cmd->requested, offset);
 
 	// dev and cmd ref should be valid until cmd_complete called
 	// XXX does tcmu ever cancel requests?
@@ -201,7 +200,8 @@ static int niova_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 	cbd->ncd_dev = dev;
 	cbd->ncd_cmd = cmd;
 
-	tcmu_dbg("iov@%p:%lu len=%lu off=%lu\n", iov, iov_cnt, length, offset);
+	tcmu_dbg("iov@%p:%lu cbd@%p op=%s len=%lu off=%lu\n", iov, iov_cnt, cbd,
+			is_read ? "read" : "write", length, offset);
 
 	if (offset % NIOVA_BLOCKSZ != 0) {
 		tcmu_err("offset=%lu, must be aligned to blksz (%d)", offset, NIOVA_BLOCKSZ);
@@ -210,20 +210,41 @@ static int niova_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 
 	// XXX offset is in blks
 	// XXX does this call need to be done locked?
-	ret = NiovaBlockClientWritev(client, offset / NIOVA_BLOCKSZ, iov, iov_cnt, niova_rw_cb, cbd, 0);
+    if (is_read) {
+        ret = NiovaBlockClientReadv(client, offset / NIOVA_BLOCKSZ, iov, iov_cnt, niova_rw_cb, cbd, 0);
+    } else {
+        ret = NiovaBlockClientWritev(client, offset / NIOVA_BLOCKSZ, iov, iov_cnt, niova_rw_cb, cbd, 0);
+    }
+
 	if (ret < 0) {
-		tcmu_err("write failed, rc=%ld\n", ret);
+		tcmu_err("%s failed, rc=%ld\n", is_read ? "read" : "write", ret);
 		return TCMU_STS_WR_ERR;
 	} 
 
 	return TCMU_STS_OK;
 }
 
+static int niova_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
+			 struct iovec *iov, size_t iov_cnt, size_t length,
+			 off_t offset)
+{
+    return niova_rw(true, dev, cmd, iov, iov_cnt, length, offset);
+}
+
+static int niova_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
+			  struct iovec *iov, size_t iov_cnt, size_t length,
+			  off_t offset)
+{
+    return niova_rw(false, dev, cmd, iov, iov_cnt, length, offset);
+}
+
+/*
 static int niova_flush(struct tcmu_device *dev, struct tcmur_cmd *cmd)
 {
 	// XXX flush?
 	return TCMU_STS_OK;
 }
+*/
 
 static int niova_reconfig(struct tcmu_device *dev, struct tcmulib_cfg_info *cfg)
 {
@@ -250,7 +271,7 @@ static struct tcmur_handler niova_handler = {
 	.close = niova_close,
 	.read = niova_read,
 	.write = niova_write,
-	.flush = niova_flush,
+	// .flush = niova_flush,
 	.name = "Niova niova handler",
 	.subtype = "niova",
 	// .nr_threads is for requesting aio support from tcmu-r //

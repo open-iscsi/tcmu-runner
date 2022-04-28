@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
 project (tcmu-runner C)
 set(VERSION 1.5.4)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement -g")
 
 include(GNUInstallDirs)
 include(CheckIncludeFile)
