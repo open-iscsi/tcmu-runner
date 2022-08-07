@@ -1380,7 +1380,7 @@ int main(int argc, char **argv)
 		darray_append(handlers, tmp_handler);
 	}
 
-	tcmulib_context = tcmulib_initialize(handlers.item, handlers.size);
+	tcmulib_context = tcmulib_initialize(handlers.item, handlers.size, true);
 	if (!tcmulib_context) {
 		tcmu_err("tcmulib_initialize failed\n");
 		goto err_free_handlers;

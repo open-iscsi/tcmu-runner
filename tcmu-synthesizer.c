@@ -197,7 +197,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	ctx = tcmulib_initialize(&syn_handler, 1);
+	ctx = tcmulib_initialize(&syn_handler, 1, true);
 	if (!ctx) {
 		tcmu_err("tcmulib_initialize failed\n");
 		tcmu_destroy_log();
