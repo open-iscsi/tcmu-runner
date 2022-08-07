@@ -371,7 +371,7 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 	len = found_at - cfgstring;
 
 	darray_foreach(handler, ctx->handlers) {
-		if (!strncmp(cfgstring, handler->subtype, len))
+		if (strlen(handler->subtype) == len && !strncmp(cfgstring, handler->subtype, len))
 		    return handler;
 	}
 
