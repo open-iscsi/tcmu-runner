@@ -117,6 +117,8 @@ int tcmulib_notify_device_added(struct tcmulib_context *ctx, char *dev_name,
 
 void tcmulib_notify_device_removed(struct tcmulib_context *ctx, char *dev_name);
 
+int tcmulib_notify_device_reconfig(struct tcmulib_context* ctx, char* dev_name, uint64_t dev_size);
+
 /*
  * When a device fd becomes ready, call this to get SCSI cmd info in
  * 'cmd' struct. libtcmu will allocate hm_cmd_size bytes for each cmd

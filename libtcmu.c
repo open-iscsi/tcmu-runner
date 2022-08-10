@@ -1375,6 +1375,38 @@ void tcmulib_processing_complete(struct tcmu_device *dev)
 			 dev->dev_name, errno);
 }
 
+int tcmulib_notify_device_reconfig(struct tcmulib_context* ctx, char* dev_name, uint64_t dev_size)
+{
+	struct tcmu_device *dev;
+	struct tcmulib_cfg_info cfg;
+	int i, ret;
+
+	memset(&cfg, 0, sizeof(cfg));
+
+	dev = lookup_dev_by_name(ctx, dev_name, &i);
+	if (!dev) {
+		tcmu_err("Could not reconfigure device %s: not found.\n",
+			 dev_name);
+		return -ENODEV;
+	}
+
+	if (!dev->handler->reconfig) {
+		tcmu_dev_dbg(dev, "Reconfiguration is not supported with this device.\n");
+		return -EOPNOTSUPP;
+	}
+
+	cfg.type = TCMULIB_CFG_DEV_SIZE;
+	cfg.data.dev_size = dev_size;
+
+	ret = dev->handler->reconfig(dev, &cfg);
+	if (ret < 0) {
+		tcmu_dev_dbg(dev, "Handler reconfig for %s failed with error %s.\n",
+		             tcmulib_cfg_type_lookup[cfg.type], strerror(-ret));
+	}
+
+	return ret;
+}
+
 int tcmulib_notify_device_added(struct tcmulib_context *ctx, char *dev_name,
 				char *cfgstring) {
 	return device_add(ctx, dev_name, cfgstring, false);
