@@ -97,8 +97,6 @@ void tcmulib_register(struct tcmulib_context *ctx);
 /* Gets the master file descriptor used by tcmulib. If you called tcmulib_initialize
  * with use_netlink=false then we aren't using netlink for device notifications and
  * you shouldn't use this method.
- *
- * TODO(AJReid): what should you call instead.
  */
 int tcmulib_get_master_fd(struct tcmulib_context *ctx);
 
@@ -107,16 +105,31 @@ int tcmulib_get_master_fd(struct tcmulib_context *ctx);
  * Handlers' callbacks may be called before it returns. If you called
  * tcmulib_initialize with use_netlink=false then we aren't using netlink
  * for device notifications and you shouldn't use this method.
- *
- * TODO(AJReid): what should you call instead.
  */
 int tcmulib_master_fd_ready(struct tcmulib_context *ctx);
 
+/*
+ * Notify the library that a TCMU backstore has been created. This
+ * function will open the backstore and call the appropriate handler(s)
+ * Use this method if you called tcmulib_initialize with netlink=false.
+ */
 int tcmulib_notify_device_added(struct tcmulib_context *ctx, char *dev_name,
 				char *cfgstring);
 
+/*
+ * Notify the library that the TCMU backstore is about to be removed.
+ * This function will close the backstore and call the removed handler.
+ * Use this method if you called tcmulib_initialize with netlink=false.
+ */
 void tcmulib_notify_device_removed(struct tcmulib_context *ctx, char *dev_name);
 
+/*
+ * Notify the library that the TCMU backstore should be reconfigured.
+ * This function will simply call the reconfig handler. At the moment
+ * only resizing the device is supported (changing the write cache mode
+ * or cfgstring is not supported). Use this method if you called
+ * tcmulib_initialize with netlink=false.
+ */
 int tcmulib_notify_device_reconfig(struct tcmulib_context* ctx, char* dev_name, uint64_t dev_size);
 
 /*
