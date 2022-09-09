@@ -43,7 +43,10 @@ struct tcmu_device {
 
 	uint32_t cmd_tail;
 
-	uint64_t num_lbas;
+	// Note: we've made this variable atomic because it's possible to change the
+	// size of a device at runtime whilst IO is on-going. See DP-622. All other
+	// variables in this type are essentially const.
+	_Atomic uint64_t num_lbas;
 	uint32_t block_size;
 	uint32_t block_size_shift;
 	uint32_t max_xfer_len;

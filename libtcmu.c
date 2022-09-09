@@ -5,6 +5,7 @@
  */
 
 #define _GNU_SOURCE
+#include <stdatomic.h>
 #include <memory.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -890,12 +891,12 @@ void tcmu_set_thread_name(const char *prefix, struct tcmu_device *dev)
 
 void tcmu_dev_set_num_lbas(struct tcmu_device *dev, uint64_t num_lbas)
 {
-	dev->num_lbas = num_lbas;
+	atomic_store(&dev->num_lbas, num_lbas);
 }
 
 uint64_t tcmu_dev_get_num_lbas(struct tcmu_device *dev)
 {
-	return dev->num_lbas;
+	return atomic_load(&dev->num_lbas);
 }
 
 uint64_t tcmu_lba_to_byte(struct tcmu_device *dev, uint64_t lba)
