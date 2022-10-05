@@ -1,0 +1,96 @@
+Please see https://github.com/open-iscsi/tcmu-runner/issues/688 for a full
+description and the latest commentary on the issue. I've copied and pasted a
+snapshot below, just in case:
+
+## Repro steps
+
+1. Grab this branch
+(https://github.com/geordieintheshellcode/tcmu-runner/tree/tcmu-get-next-command-broken).
+It's just `master` with some scripts and a fix to `consumer.c` to make it not
+when receiving IO.  2. Build and run the `consumer` example. `consumer` handles
+any TCMU backstores with the "foo" handler. For WRITE SCSI commands we'll simply
+drop them on the floor and return TCMU_STS_OK.  3. Run "create_foo.sh" to create
+a TCMU backstore backed by the `foo` handler and hook it up to a SCSI HBA/LUN.
+4. You'll see a bunch of benign error messages in dmesg, that's purely because
+the "foo" handler is only partially implement and will reject read SCSI commands
+with an error.  5. Now find the block device and run a fio test against it:
+`sudo FILE=/dev/sda BS=4k QD=128 fio randwrite.fio`
+
+Almost immediately you'll see the "cmd_id X not found, ring is broken" message in dmesg, and a bunch of writes will fail:
+
+```
+[Tue Oct  4 15:45:50 2022] cmd_id 0 not found, ring is broken
+[Tue Oct  4 15:45:50 2022] ring broken, not handling completions
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#174 FAILED Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE cmd_age=0s
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#174 Sense Key : Not Ready [current]
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#174 Add. Sense: Logical unit communication failure
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#174 CDB: Write(10) 2a 00 00 17 69 70 00 00 08 00
+[Tue Oct  4 15:45:50 2022] blk_update_request: I/O error, dev sda, sector 1534320 op 0x1:(WRITE) flags 0x8800 phys_seg 1 prio class 0
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#175 FAILED Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE cmd_age=0s
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#175 Sense Key : Not Ready [current]
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#175 Add. Sense: Logical unit communication failure
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#175 CDB: Write(10) 2a 00 00 19 a3 18 00 00 08 00
+[Tue Oct  4 15:45:50 2022] blk_update_request: I/O error, dev sda, sector 1680152 op 0x1:(WRITE) flags 0x8800 phys_seg 1 prio class 0
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#176 FAILED Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE cmd_age=0s
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#176 Sense Key : Not Ready [current]
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#176 Add. Sense: Logical unit communication failure
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#176 CDB: Write(10) 2a 00 00 1c bb 80 00 00 08 00
+[Tue Oct  4 15:45:50 2022] blk_update_request: I/O error, dev sda, sector 1883008 op 0x1:(WRITE) flags 0x8800 phys_seg 1 prio class 0
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#177 FAILED Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE cmd_age=0s
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#177 Sense Key : Not Ready [current]
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#177 Add. Sense: Logical unit communication failure
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#177 CDB: Write(10) 2a 00 00 15 b0 a0 00 00 08 00
+[Tue Oct  4 15:45:50 2022] blk_update_request: I/O error, dev sda, sector 1421472 op 0x1:(WRITE) flags 0x8800 phys_seg 1 prio class 0
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#178 FAILED Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE cmd_age=0s
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#178 Sense Key : Not Ready [current]
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#178 Add. Sense: Logical unit communication failure
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#178 CDB: Write(10) 2a 00 00 0c 4c d0 00 00 08 00
+[Tue Oct  4 15:45:50 2022] blk_update_request: I/O error, dev sda, sector 806096 op 0x1:(WRITE) flags 0x8800 phys_seg 1 prio class 0
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#179 FAILED Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE cmd_age=0s
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#179 Sense Key : Not Ready [current]
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#179 Add. Sense: Logical unit communication failure
+[Tue Oct  4 15:45:50 2022] sd 0:0:1:0: [sda] tag#179 CDB: Write(10) 2a 00 00 17 98 38 00 00 08 00
+```
+
+The same test happily runs for hours on x86.
+
+## Hypothesis
+
+ I think the issue is caused by us not reading the command ring
+`head` index with the correct memory barrier semantics. On the kernel side, in
+`target_core_user.c`, we can see that every time a new command is enqueued we
+first fill the `entry` and then update the ring buffer head index using the
+`UPDATE_HEAD` macro
+(https://elixir.bootlin.com/linux/v4.18/source/drivers/target/target_core_user.c#L1008).
+`UPDATE_HEAD` does an `smp_store_release()` to the head index. From my
+understanding, a store release barrier should be paired with a load acquire
+barrier. i.e. the read of the cmd head index in `tcmulib_get_next_command`
+should use acquire semantics. Running with the following patch causes the issue
+to go away, but I don't know if it's purely fortuitous or actually fixes the
+issue. The idea is to read the head index using an atomic load - which should (I
+think) be equivalent to a load acquire barrier:
+
+```
+diff --git a/libtcmu.c b/libtcmu.c
+index 46a6fbc..ec36309 100644
+--- a/libtcmu.c
++++ b/libtcmu.c
+@@ -1109,7 +1109,9 @@ device_cmd_head(struct tcmu_device *dev)
+ {
+        struct tcmu_mailbox *mb = dev->map;
+
+-       return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + mb->cmd_head);
++       uint32_t mb_head = __atomic_load_n(&mb->cmd_head, __ATOMIC_SEQ_CST);
++       struct tcmu_cmd_entry* e = (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + mb_head);
++       return e;
+ }
+
+ static inline struct tcmu_cmd_entry *
+```
+
+The patch also appears to work with a less punitive `__ATOMIC_ACQUIRE` load.
+
+I'd appreciate someone checking my working here as I'm not massively clued up on
+this area! BTW I found this document useful in describing the expected memory
+barrier semantics for ring buffers:
+https://www.kernel.org/doc/Documentation/core-api/circular-buffers.rst.

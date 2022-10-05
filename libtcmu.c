@@ -1111,7 +1111,11 @@ device_cmd_head(struct tcmu_device *dev)
 {
 	struct tcmu_mailbox *mb = dev->map;
 
-	return (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + mb->cmd_head);
+	// We must load the mb_head index using an atomic load or we'll crash
+	// on aarch64. See Issue668-Aarch64GetNextCmd.txt for a full run down.
+	uint32_t mb_head = __atomic_load_n(&mb->cmd_head, __ATOMIC_ACQUIRE);
+	struct tcmu_cmd_entry* e = (struct tcmu_cmd_entry *) ((char *) mb + mb->cmdr_off + mb_head);
+	return e;
 }
 
 static inline struct tcmu_cmd_entry *
