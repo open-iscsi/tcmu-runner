@@ -593,8 +593,14 @@ static int device_add(struct tcmulib_context *ctx, char *dev_name,
 		} else {
 			/*
 			 * Force a retry of the outstanding commands.
+			 *
+			 * Ondat edit: we use "2" to reset the ring rather than "1".
+			 * Looking at the target_core_user.c source "2" causes us to
+			 * do a "hard failure" which seems to work better in terms
+			 * of preventing hangs. We don't care about device recovery
+			 * in the CP/DP.
 			 */
-			rc = tcmu_cfgfs_dev_exec_action(dev, "reset_ring", 1);
+			rc = tcmu_cfgfs_dev_exec_action(dev, "reset_ring", 2);
 			if (rc)
 				tcmu_dev_err(dev, "Could not reset ring %d.\n", rc);
 		}
