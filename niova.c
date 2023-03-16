@@ -1,22 +1,3 @@
-/*
- * Copyright (c) 2014 Red Hat, Inc.
- *
- * This file is licensed to you under your choice of the GNU Lesser
- * General Public License, version 2.1 or any later version (LGPLv2.1 or
- * later), or the Apache License 2.0.
- */
-
-/*
- * Example code to demonstrate how a TCMU handler might work.
- *
- * Using the example of backing a device by a file to demonstrate:
- *
- * 1) Registering with tcmu-runner
- * 2) Parsing the handler-specific config string as needed for setup
- * 3) Opening resources as needed
- * 4) Handling SCSI commands and using the handler API
- */
-
 #define _GNU_SOURCE
 #include <stddef.h>
 #include <stdint.h>
@@ -36,6 +17,15 @@
 // XXX include above in nclient.h?
 #include <niova/nclient.h>
 
+#ifdef LIST_HEAD
+#undef LIST_HEAD
+#endif
+
+#ifdef ARRAY_SIZE
+#undef ARRAY_SIZE
+#endif
+
+
 #include "scsi_defs.h"
 #include "libtcmu.h"
 #include "tcmu-runner.h"
@@ -50,14 +40,10 @@
 #define REQUEST_SIZE_MAX_RANDOM_IN_BLKS BUFFER_SIZE_MAX_NBLKS
 #define UT2_MAX_QUEUE_DEPTH 32
 
+#define NUM_TASKS 128
+
 #define CONN_HANDLE_DEF_CREDITS 16
 #define URING_ENTRIES_DEF 32
-#define SMALL_NBLKS 1
-#define MEDIUM_NBLKS 8
-#define LARGE_NBLKS 32
-#define SMALL_NBUFS 64
-#define MEDIUM_NBUFS 16
-#define LARGE_NBUFS 8
 
 struct io_processor_mgr_opts niova_default_iopm_opts = {
 	.iopmo_file_name = "./niova-block-test.img",
@@ -76,14 +62,25 @@ struct io_processor_mgr_opts niova_default_iopm_opts = {
 	.iopmo_conn_credits = CONN_HANDLE_DEF_CREDITS,
 	.iopmo_uring_entries = URING_ENTRIES_DEF,
 	.iopmo_file_size = UT2_DEFAULT_FILE_SIZE,
-	.iopmo_buf_sizes_in_blks = {SMALL_NBLKS, MEDIUM_NBLKS, LARGE_NBLKS},
-	.iopmo_buf_counts = {SMALL_NBUFS, MEDIUM_NBUFS, LARGE_NBUFS},
 	.iopmo_disable_net = 0,
 	.iopmo_processor_cb = NULL,
 	.iopmo_processor_cb_arg = NULL,
 	.iopmo_raw_dev_mode = 1,
 	.iopmo_client_test_mode = 1,
-	.iopmo_niorq_2_niop_cb = NULL,
+    .iopmo_nconn_link_if.inlif_request = NULL,
+    .iopmo_nconn_link_if.inlif_reply = ioh_generic_reply_handler,
+    .iopmo_nconn_link_if.inlif_disconnect = ioh_generic_disconnect_handler,
+	.iopmo_num_task_sets = 1,
+    .iopmo_task_sets = {
+          [0].ntsp_num_tasks = NUM_TASKS, // tasks for typical client io
+          [0].ntsp_heap_size = IOPM_TASK_MAX*2,
+          [0].ntsp_bbg.bbg_memalign = 1,
+          [0].ntsp_bbg.bbg_cnts = {SMALL_NBUFS, MEDIUM_NBUFS, LARGE_NBUFS},
+          [0].ntsp_bbg.bbg_sizes = {
+              SMALL_NBLKS  << NIOVA_BLOCK_SIZE_BITS,
+              MEDIUM_NBLKS << NIOVA_BLOCK_SIZE_BITS,
+              LARGE_NBLKS  << NIOVA_BLOCK_SIZE_BITS},
+      },
 };
 static int niova_parse_opts(char *config, struct niova_block_client_opts *opts)
 {
@@ -120,9 +117,18 @@ static int niova_open(struct tcmu_device *dev, bool reopen)
 	uint64_t lba_count = tcmu_dev_get_num_lbas(dev);
 	uint64_t new_lba_count = lba_count * block_size / NIOVA_BLOCK_SIZE;
 	niova_block_client_t *client;
-	struct niova_block_client_opts opts = {.nbco_iopm_opts = niova_default_iopm_opts };
+	struct niova_block_client_opts opts = {
+        .nbco_iopm_opts = niova_default_iopm_opts,
+        .nbco_vdi= {
+            .vdi_num_vblks = new_lba_count,
+            .vdi_read_only = 0,
+            .vdi_mode = VDEV_MODE_CLIENT_TEST,
+        }
+    };
 	char *config;
 	int rc;
+
+    log_level_set(5);
 
 	config = strchr(tcmu_dev_get_cfgstring(dev), '/');
 	if (!config) {
