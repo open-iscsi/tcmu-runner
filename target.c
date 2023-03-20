@@ -339,6 +339,7 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 
 add_to_list:
 	list_add(&tpg->devs, &rdev->recovery_entry);
+	rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
 done:
 	tcmu_release_alua_grps(&alua_list);
 	pthread_mutex_unlock(&tpg_recovery_lock);
