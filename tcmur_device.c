@@ -47,23 +47,11 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 	bool needs_close = false;
 
 	pthread_mutex_lock(&rdev->rdev_lock);
+	assert(rdev->flags & TCMUR_DEV_FLAG_IN_RECOVERY);
 	if (rdev->flags & TCMUR_DEV_FLAG_STOPPING) {
 		ret = 0;
 		goto done;
 	}
-	pthread_mutex_unlock(&rdev->rdev_lock);
-
-	/*
-	 * There are no SCSI commands running but there may be
-	 * async lock requests in progress that might be accessing
-	 * the device.
-	 */
-	tcmur_flush_work(rdev->event_work);
-
-	pthread_mutex_lock(&rdev->rdev_lock);
-	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)
-		needs_close = true;
-	rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
 	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	if (pthread_self() != rdev->cmdproc_thread)
@@ -74,12 +62,27 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 		 */
 		tcmu_dev_flush_ring(dev);
 
+	/*
+	 * To make sure all the in-flight IOs have been finished before
+	 * flushing the event_work. Or just after we flush the event_work
+	 * a new timedout IO callback could come and then it will fire a
+	 * new event work, which may access the device while we are closing
+	 * the device later.
+	 */
 	tcmu_dev_dbg(dev, "Waiting for outstanding commands to complete\n");
 	ret = aio_wait_for_empty_queue(rdev);
 	if (ret) {
 		pthread_mutex_lock(&rdev->rdev_lock);
 		goto done;
 	}
+
+	tcmur_flush_work(rdev->event_work);
+
+	pthread_mutex_lock(&rdev->rdev_lock);
+	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN)
+		needs_close = true;
+	rdev->flags &= ~TCMUR_DEV_FLAG_IS_OPEN;
+	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	if (needs_close) {
 		tcmu_dev_dbg(dev, "Closing device.\n");
@@ -214,7 +217,6 @@ static bool __tcmu_notify_conn_lost(struct tcmu_device *dev)
 		     rdev->lock_state);
 
 	if (!tcmu_add_dev_to_recovery_list(dev)) {
-		rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
 		rdev->conn_lost_cnt++;
 		return true;
 	}
