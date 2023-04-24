@@ -89,8 +89,8 @@ int __tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 		rhandler->close(dev);
 	}
 
-	pthread_mutex_lock(&rdev->rdev_lock);
 	ret = -EIO;
+	pthread_mutex_lock(&rdev->rdev_lock);
 	while (ret != 0 && !(rdev->flags & TCMUR_DEV_FLAG_STOPPING) &&
 	       (retries < 0 || attempt <= retries)) {
 		pthread_mutex_unlock(&rdev->rdev_lock);
@@ -131,7 +131,10 @@ int tcmu_reopen_dev(struct tcmu_device *dev, int retries)
 		pthread_mutex_unlock(&rdev->rdev_lock);
 		return -EBUSY;
 	}
+
 	rdev->flags |= TCMUR_DEV_FLAG_IN_RECOVERY;
+	if (rdev->flags & TCMUR_DEV_FLAG_REPORTING_EVENT)
+		pthread_cond_wait(&rdev->report_event_cond, &rdev->rdev_lock);
 	pthread_mutex_unlock(&rdev->rdev_lock);
 
 	return __tcmu_reopen_dev(dev, retries);
@@ -162,6 +165,7 @@ static void __tcmu_report_event(void *data)
 	struct tcmu_device *dev = data;
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
+	bool has_lock;
 	int ret;
 
 	/*
@@ -171,9 +175,29 @@ static void __tcmu_report_event(void *data)
 	sleep(1);
 
 	pthread_mutex_lock(&rdev->rdev_lock);
-	ret = rhandler->report_event(dev);
+	/*
+	 * If the device is in recovery, will skip reporting the event
+	 * this time because the event should be report when the device
+	 * is reopening.
+	 */
+	if (rdev->flags & (TCMUR_DEV_FLAG_IN_RECOVERY |
+			   TCMUR_DEV_FLAG_STOPPING |
+			   TCMUR_DEV_FLAG_STOPPED)) {
+		pthread_mutex_unlock(&rdev->rdev_lock);
+		return;
+	}
+
+	rdev->flags |= TCMUR_DEV_FLAG_REPORTING_EVENT;
+	has_lock = rdev->lock_state == TCMUR_DEV_LOCK_WRITE_LOCKED;
+	pthread_mutex_unlock(&rdev->rdev_lock);
+
+	ret = rhandler->report_event(dev, has_lock);
 	if (ret)
 		tcmu_dev_err(dev, "Could not report events. Error %d.\n", ret);
+
+	pthread_mutex_lock(&rdev->rdev_lock);
+	rdev->flags &= ~TCMUR_DEV_FLAG_REPORTING_EVENT;
+	pthread_cond_signal(&rdev->report_event_cond);
 	pthread_mutex_unlock(&rdev->rdev_lock);
 }
 

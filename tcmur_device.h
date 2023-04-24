@@ -22,6 +22,7 @@
 #define TCMUR_DEV_FLAG_IS_OPEN		(1 << 2)
 #define TCMUR_DEV_FLAG_STOPPING		(1 << 3)
 #define TCMUR_DEV_FLAG_STOPPED		(1 << 4)
+#define TCMUR_DEV_FLAG_REPORTING_EVENT	(1 << 5)
 
 #define TCMUR_UA_DEV_SIZE_CHANGED	0
 
@@ -82,6 +83,8 @@ struct tcmur_device {
 	pthread_mutex_t format_lock; /* for atomic format operations */
 
 	int cmd_time_out;
+
+	pthread_cond_t report_event_cond;
 
 	pthread_spinlock_t cmds_list_lock; /* protects cmds_list */
 	struct list_head cmds_list;

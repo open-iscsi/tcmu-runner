@@ -161,7 +161,7 @@ struct tcmur_handler {
 	 *
 	 * Return 0 on success and a -Exyz error code on error.
 	 */
-	int (*report_event)(struct tcmu_device *dev);
+	int (*report_event)(struct tcmu_device *dev, bool has_lock);
 
 	/*
 	 * If the lock is acquired and the tag is not TCMU_INVALID_LOCK_TAG,

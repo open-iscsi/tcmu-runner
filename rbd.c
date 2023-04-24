@@ -146,17 +146,14 @@ static int tcmu_rbd_service_status_update(struct tcmu_device *dev,
 
 #endif /* RBD_LOCK_ACQUIRE_SUPPORT */
 
-static int tcmu_rbd_report_event(struct tcmu_device *dev)
+static int tcmu_rbd_report_event(struct tcmu_device *dev, bool has_lock)
 {
-	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
-
 	/*
 	 * We ignore the specific event and report all the current counter
 	 * values, because tools like gwcli/dashboard may not see every
 	 * update, and we do not want one event to overwrite the info.
 	 */
-	return tcmu_rbd_service_status_update(dev,
-			rdev->lock_state == TCMUR_DEV_LOCK_WRITE_LOCKED ? true : false);
+	return tcmu_rbd_service_status_update(dev, has_lock);
 }
 
 static int tcmu_rbd_service_register(struct tcmu_device *dev)
@@ -215,7 +212,7 @@ static int tcmu_rbd_service_register(struct tcmu_device *dev)
 		goto free_meta_buf;
 	}
 
-	ret = tcmu_rbd_report_event(dev);
+	ret = tcmu_rbd_report_event(dev, false);
 
 free_meta_buf:
 	free(metadata_buf);
