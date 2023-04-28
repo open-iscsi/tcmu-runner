@@ -171,9 +171,11 @@ static void __tcmu_report_event(void *data)
 	sleep(1);
 
 	pthread_mutex_lock(&rdev->rdev_lock);
-	ret = rhandler->report_event(dev);
-	if (ret)
-		tcmu_dev_err(dev, "Could not report events. Error %d.\n", ret);
+	if (rdev->flags & TCMUR_DEV_FLAG_IS_OPEN) {
+		ret = rhandler->report_event(dev);
+		if (ret)
+			tcmu_dev_err(dev, "Could not report events. Error %d.\n", ret);
+	}
 	pthread_mutex_unlock(&rdev->rdev_lock);
 }
 
