@@ -371,7 +371,8 @@ static struct tcmulib_handler *find_handler(struct tcmulib_context *ctx,
 	len = found_at - cfgstring;
 
 	darray_foreach(handler, ctx->handlers) {
-		if (!strncmp(cfgstring, handler->subtype, len))
+		/* Ensure we match exactly, not just a prefix match */
+		if (!strncmp(cfgstring, handler->subtype, len) && handler->subtype[len] == '\0')
 		    return handler;
 	}
 
@@ -438,9 +439,10 @@ static bool device_parse_cfg(struct tcmu_device *dev,
 	/* Check valid cfgstring */
 	oldptr = cfgstring;
 	ptr = strchr(oldptr, '/');
+	len = ptr-oldptr;
 	if (!ptr)
 		goto err_badcfg;
-	if (strncmp(cfgstring, "tcm-user", ptr-oldptr))
+	if (strncmp(cfgstring, "tcm-user", len) || cfgstring[len] != '/')
 		goto err_badcfg;
 
 	/* Get HBA name */
