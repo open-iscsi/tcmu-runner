@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
+cmake_minimum_required (VERSION 3.0 FATAL_ERROR)
 project (tcmu-runner C)
 set(VERSION 1.6.2)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall -Wdeclaration-after-statement -std=c99")
@@ -324,9 +324,9 @@ configure_file (
 install(SCRIPT logrotate.conf_install.cmake)
 
 install(FILES org.kernel.TCMUService1.service
-  DESTINATION /usr/share/dbus-1/system-services)
-install(FILES tcmu-runner.conf DESTINATION /etc/dbus-1/system.d)
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/dbus-1/system-services)
+install(FILES tcmu-runner.conf DESTINATION ${CMAKE_INSTALL_FULL_SYSCONFDIR}/dbus-1/system.d)
 if (SUPPORT_SYSTEMD)
-  install(FILES tcmu-runner.service DESTINATION /usr/lib/systemd/system/)
+  install(FILES tcmu-runner.service DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/systemd/system)
 endif (SUPPORT_SYSTEMD)
-install(FILES tcmu-runner.8 DESTINATION ${CMAKE_INSTALL_PREFIX}/share/man/man8)
+install(FILES tcmu-runner.8 DESTINATION ${CMAKE_INSTALL_MANDIR}/man8)
