@@ -130,6 +130,7 @@ int main(int argc, char **argv)
 	struct pollfd pollfds[16];
 	int i;
 	int ret;
+	bool use_netlink = true;
 
 	if (tcmu_setup_log(LOG_DIR)) {
 		fprintf(stderr, "Could not setup tcmu logger.\n");
@@ -139,7 +140,7 @@ int main(int argc, char **argv)
 	/* If any TCMU devices that exist that match subtype,
 	   handler->added() will now be called from within
 	   tcmulib_initialize(). */
-	tcmulib_ctx = tcmulib_initialize(&foo_handler, 1);
+	tcmulib_ctx = tcmulib_initialize(&foo_handler, 1, use_netlink);
 	if (!tcmulib_ctx) {
 		tcmu_err("tcmulib_initialize failed with %p\n", tcmulib_ctx);
 		exit(1);

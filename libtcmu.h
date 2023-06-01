@@ -84,23 +84,63 @@ struct tcmulib_handler {
 /* Opaque (private) type */
 struct tcmulib_context;
 
-/* Claim subtypes you wish to handle. Returns libtcmu's master fd or -error.*/
+/*
+ * Claim subtypes you wish to handle. Returns a tcmulib_context or a NULL
+ * pointer on error. If you wish use libtcmu without netlink set use_netlink=false.
+ * In this mode you must:
+ *  * create all backstores with netlink disabled (by setting nl_reply_supported=-1
+ *    at backstore create time)
+ *  * manually notify the library of backstore creation, reconfiguration and removal
+ *    events via the tcmu_notify* APIs.
+ */
 struct tcmulib_context *tcmulib_initialize(
 	struct tcmulib_handler *handlers,
-	size_t handler_count);
+	size_t handler_count,
+	bool use_netlink);
 
 /* Register to TCMU DBus service, for the claimed subtypes to be configurable
  * in targetcli. */
 void tcmulib_register(struct tcmulib_context *ctx);
 
-/* Gets the master file descriptor used by tcmulib. */
+/* Gets the master file descriptor used by tcmulib. If you called tcmulib_initialize
+ * with use_netlink=false then we aren't using netlink for device notifications and
+ * you shouldn't use this method.
+ */
 int tcmulib_get_master_fd(struct tcmulib_context *ctx);
 
 /*
  * Call this when the master fd becomes ready, from your main thread.
- * Handlers' callbacks may be called before it returns.
+ * Handlers' callbacks may be called before it returns. If you called
+ * tcmulib_initialize with use_netlink=false then we aren't using netlink
+ * for device notifications and you shouldn't use this method.
  */
 int tcmulib_master_fd_ready(struct tcmulib_context *ctx);
+
+/*
+ * Only applicable if tcmulib_initialize was called with use_netlink=false
+ *
+ * Notify the library that a TCMU backstore has been created. This
+ * function will open the backstore and call the appropriate handler.
+ */
+int tcmulib_notify_device_added(struct tcmulib_context *ctx, char *dev_name,
+				char *cfgstring);
+
+/*
+ * Only applicable if tcmulib_initialize was called with use_netlink=false
+ *
+ * Notify the library that the TCMU backstore is about to be removed.
+ * This function will close the backstore and call the removed handler.
+ * This method should be called before deleting the backstore.
+ */
+void tcmulib_notify_device_removed(struct tcmulib_context *ctx, char *dev_name);
+
+/*
+ * Only applicable if tcmulib_initialize was called with use_netlink=false
+ *
+ * Notify the library that the TCMU backstore should be reconfigured.
+ * This function will simply call the reconfig handler.
+ */
+int tcmulib_notify_device_reconfig(struct tcmulib_context* ctx, char* dev_name, struct tcmulib_cfg_info *cfg);
 
 /*
  * When a device fd becomes ready, call this to get SCSI cmd info in

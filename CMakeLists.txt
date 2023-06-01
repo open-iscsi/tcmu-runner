@@ -198,6 +198,13 @@ add_executable(consumer
   )
 target_link_libraries(consumer tcmu)
 
+# As per `consumer`, but demonstrates how to use libtcmu without netlink
+add_executable(consumer_no_netlink
+  scsi.c
+  consumer_no_netlink.c
+  )
+
+target_link_libraries(consumer_no_netlink tcmu)
 if (with-zbc)
   # Stuff for building the file zbc handler
   add_library(handler_file_zbc
