@@ -179,7 +179,7 @@ if (with-fbo)
     scsi.c
     file_optical.c
     )
-  
+
   set_target_properties(handler_file_optical
     PROPERTIES
     PREFIX ""
@@ -320,25 +320,27 @@ target_include_directories(handler_hello
 install(TARGETS handler_hello DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 
 if (with-niova)
-    find_library(NIOVA_BLOCK_LIB niova_block)
+  find_library(NIOVA_BLOCK_CLIENT_LIB niova_block_client)
+  find_library(NIOVA_LIB niova)
     find_library(IO_URING_LIB uring)
-    add_library(handler_niova
+    add_library(handler_niova_client
         SHARED
         niova.c
         )
-    set_target_properties(handler_niova
+    set_target_properties(handler_niova_client
         PROPERTIES
         PREFIX ""
         )
-    target_link_libraries(handler_niova
-        ${NIOVA_BLOCK_LIB}
+    target_link_libraries(handler_niova_client
+        ${NIOVA_BLOCK_CLIENT_LIB}
         ${IO_URING_LIB}
         )
-    target_include_directories(handler_niova
-        PUBLIC /usr/local/include
+    target_include_directories(handler_niova_client
+      PUBLIC /usr/local/include
+      PUBLIC /usr/local/niova/include
         PUBLIC ${PROJECT_SOURCE_DIR}/ccan
         )
-    install(TARGETS handler_niova DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
+    install(TARGETS handler_niova_client DESTINATION ${CMAKE_INSTALL_LIBDIR}/tcmu-runner)
 endif (with-niova)
 
 

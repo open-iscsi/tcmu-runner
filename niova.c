@@ -1,3 +1,8 @@
+// Local Variables:
+// default-tab-width: 8
+// indent-tabs-mode: t
+// End:
+
 #define _GNU_SOURCE
 #include <stddef.h>
 #include <stdint.h>
@@ -14,8 +19,8 @@
 #include <scsi/scsi.h>
 
 #include <uuid/uuid.h>
-// XXX include above in nclient.h?
 #include <niova/nclient.h>
+#include <niova/nclient_private.h>
 
 #ifdef LIST_HEAD
 #undef LIST_HEAD
@@ -25,74 +30,33 @@
 #undef ARRAY_SIZE
 #endif
 
-
 #include "scsi_defs.h"
 #include "libtcmu.h"
 #include "tcmu-runner.h"
 #include "tcmur_device.h"
 
-#define NIOVA_BLOCKSZ 4096
+int     niovaSectorSize;
+int     niovaXferMaxVblks;
+ssize_t niovaVdevSize;
 
-#define NBUFFER_MAX 8192
-#define UT2_DEFAULT_FILE_SIZE ((size_t)1 << 31)
-#define REQUEST_SIZE_IN_BLKS 1
-#define REQUEST_SIZE_IN_BLKS_MAX BUFFER_SIZE_MAX_NBLKS
-#define REQUEST_SIZE_MAX_RANDOM_IN_BLKS BUFFER_SIZE_MAX_NBLKS
-#define UT2_MAX_QUEUE_DEPTH 32
-
-#define NUM_TASKS 128
-
-#define CONN_HANDLE_DEF_CREDITS 16
-#define URING_ENTRIES_DEF 32
-
-struct io_processor_mgr_opts niova_default_iopm_opts = {
-	.iopmo_file_name = "./niova-block-test.img",
-	.iopmo_queue_depth = UT2_MAX_QUEUE_DEPTH,
-	.iopmo_is_server = 0,
-	.iopmo_directio = 0,
-	.iopmo_memalign = 0,
-	.iopmo_bufs_registered = 0,
-	.iopmo_files_registered = 0,
-	.iopmo_touch_pages = 0,
-	.iopmo_no_sgl = 0,
-	.iopmo_lat_measure_freq = 0, // default - every time
-	.iopmo_net_only = 0,
-	.iopmo_mmap = 0,
-	.iopmo_create_file = 1,
-	.iopmo_conn_credits = CONN_HANDLE_DEF_CREDITS,
-	.iopmo_uring_entries = URING_ENTRIES_DEF,
-	.iopmo_file_size = UT2_DEFAULT_FILE_SIZE,
-	.iopmo_disable_net = 0,
-	.iopmo_processor_cb = NULL,
-	.iopmo_processor_cb_arg = NULL,
-	.iopmo_raw_dev_mode = 1,
-	.iopmo_client_test_mode = 1,
-    .iopmo_nconn_link_if.inlif_request = NULL,
-    .iopmo_nconn_link_if.inlif_reply = ioh_generic_reply_handler,
-    .iopmo_nconn_link_if.inlif_disconnect = ioh_generic_disconnect_handler,
-	.iopmo_num_task_sets = 1,
-    .iopmo_task_sets = {
-          [0].ntsp_num_tasks = NUM_TASKS, // tasks for typical client io
-          [0].ntsp_heap_size = IOPM_TASK_MAX*2,
-          [0].ntsp_bbg.bbg_memalign = 1,
-          [0].ntsp_bbg.bbg_cnts = {SMALL_NBUFS, MEDIUM_NBUFS, LARGE_NBUFS},
-          [0].ntsp_bbg.bbg_sizes = {
-              SMALL_NBLKS  << NIOVA_BLOCK_SIZE_BITS,
-              MEDIUM_NBLKS << NIOVA_BLOCK_SIZE_BITS,
-              LARGE_NBLKS  << NIOVA_BLOCK_SIZE_BITS},
-      },
-};
 static int niova_parse_opts(char *config, struct niova_block_client_opts *opts)
 {
 	char *cfg = strdup(config);
 	char *p = cfg, *sep = NULL;
+	int rc = 0;
+
+	opts->queue_depth = 128;
+	opts->flags = NIOVA_BLOCK_FLAGS_UNIX_SOCKET; // Server is local
+
 	if (!cfg)
 		goto err;
 
 	sep = strchr(p, ':');
 	if (sep) {
 		*sep = '\0';
-		uuid_parse(p, opts->nbco_iopm_opts.iopmo_uuid);
+		rc = uuid_parse(p, opts->client_uuid);
+		if (rc)
+		    goto err;
 		p = sep + 1;
 	}
 
@@ -101,67 +65,114 @@ static int niova_parse_opts(char *config, struct niova_block_client_opts *opts)
 		goto err;
 
 	*sep = '\0';
-	uuid_parse(p, opts->nbco_iopm_opts.iopmo_target_uuid);
+	rc = uuid_parse(p, opts->target_uuid);
+	if (rc)
+	    goto err;
+
 	p = sep + 1;
 
-	uuid_parse(p, opts->nbco_vdev.vdb_uuid);
+	rc = uuid_parse(p, opts->vdev_uuid);
 err:
 	free(cfg);
 
-	return !sep;
+	return rc;
 }
 
 static int niova_open(struct tcmu_device *dev, bool reopen)
 {
-	uint32_t block_size = tcmu_dev_get_block_size(dev);
-	uint64_t lba_count = tcmu_dev_get_num_lbas(dev);
-	uint64_t new_lba_count = lba_count * block_size / NIOVA_BLOCK_SIZE;
-	niova_block_client_t *client;
-	struct niova_block_client_opts opts = {
-        .nbco_iopm_opts = niova_default_iopm_opts,
-        .nbco_vdi= {
-            .vdi_num_vblks = new_lba_count,
-            .vdi_read_only = 0,
-            .vdi_mode = VDEV_MODE_CLIENT_TEST,
-        }
-    };
-	char *config;
+	niova_block_client_t *client = NULL;
+	struct niova_block_client_xopts xopts = {0};
+	uint64_t nvblks;
 	int rc;
+	struct vdev_info vdi;
 
-    log_level_set(5);
-
-	config = strchr(tcmu_dev_get_cfgstring(dev), '/');
+	char *config = strchr(tcmu_dev_get_cfgstring(dev), '/');
 	if (!config) {
 		tcmu_err("no configuration found in cfgstring\n");
+		rc = -EINVAL;
 		goto err;
 	}
 	config += 1; /* get past '/' */
 
-	rc = niova_parse_opts(config, &opts);
+	rc = niova_parse_opts(config, &xopts.npcx_opts);
 	if (rc) {
 		tcmu_err("error parsing niova opts '%s', rc=%d\n", config, rc);
+		rc = -EINVAL;
 		goto err;
 	}
 
-	// XXX this should probably be verified with the server
-	tcmu_dev_set_write_cache_enabled(dev, 1);
-	tcmu_dev_set_block_size(dev, NIOVA_BLOCKSZ);
-	tcmu_dev_set_num_lbas(dev, new_lba_count);
+	// XXX Just take this from the iscsi layer for now since there's no
+	// control plane as of yet.
+	nvblks = (tcmu_dev_get_block_size(dev) * tcmu_dev_get_num_lbas(dev)) /
+		4096;
 
-	// XXX due to bug in niova
-	tcmu_dev_set_max_xfer_len(dev, 16);
+	vdi.vdi_mode = VDEV_MODE_CLIENT_TEST;
+	vdi.vdi_num_vblks = nvblks;
 
-	rc = NiovaBlockClientNew(&client, &opts);
+	rc = niova_block_client_set_private_opts(&xopts, &vdi, NULL, NULL);
+	if (rc) {
+		tcmu_err("niova_block_client_set_private_opts(): %d", rc);
+		goto err;
+	}
+
+	rc = NiovaBlockClientNew(&client, &xopts.npcx_opts);
 	if (rc) {
 		tcmu_err("error creating niova client, rc=%d\n", rc);
 		goto err;
 	}
 
+	niovaSectorSize = niova_block_client_sector_size(client);
+	if (niovaSectorSize <= 0)
+	{
+		rc = niovaSectorSize ? niovaSectorSize : -EINVAL;
+		goto err;
+	}
+
+	niovaVdevSize = niova_block_client_vdev_size(client);
+	if (niovaVdevSize <= 0)
+	{
+		rc = niovaVdevSize ? niovaVdevSize : -EINVAL;
+		goto err;
+	}
+	else if (niovaVdevSize !=
+		 (tcmu_dev_get_block_size(dev) * tcmu_dev_get_num_lbas(dev)))
+	{
+		tcmu_err("niova-size (%zd) != tcmu blk (%u) * num_lbas (%lu)\n",
+			 niovaVdevSize, tcmu_dev_get_block_size(dev),
+			 tcmu_dev_get_num_lbas(dev));
+		rc = -EINVAL;
+		goto err;
+	}
+
+	niovaXferMaxVblks = niova_block_client_max_xfer_vblks(client);
+	if (niovaXferMaxVblks <= 0)
+	{
+		rc = niovaXferMaxVblks ? niovaXferMaxVblks : -EINVAL;
+		goto err;
+	}
+
+	/* All writes to niova are currently synchronous, though this may aid
+	 * with performance later on.
+	 */
+	tcmu_dev_set_write_cache_enabled(dev, 1);
+
+	tcmu_dbg("block size (%d) num_lbas(%zd) \n",
+		 niovaSectorSize, niovaVdevSize / niovaSectorSize);
+
+	tcmu_dev_set_block_size(dev, niovaSectorSize);
+	tcmu_dev_set_num_lbas(dev, niovaVdevSize / niovaSectorSize);
+
+	tcmu_dev_set_max_xfer_len(dev, 1000);
+
 	tcmur_dev_set_private(dev, client);
 
 	return 0;
 err:
-	return -EINVAL;
+	if (client)
+	{
+		NiovaBlockClientDestroy(client);
+	}
+	return rc;
 }
 
 static void niova_close(struct tcmu_device *dev)
@@ -185,6 +196,7 @@ static void niova_rw_cb(void *arg, ssize_t rc)
 	// XXX fix error translation
 	if (rc > 0)
 		rc = TCMU_STS_OK;
+
 	tcmur_cmd_complete(data->ncd_dev, data->ncd_cmd, rc);
 
 	free(data);
@@ -197,8 +209,11 @@ static int niova_rw(bool is_read, struct tcmu_device *dev,
 	niova_block_client_t *client = tcmur_dev_get_private(dev);
 	ssize_t ret;
 	struct niova_cb_data *cbd;
+	unsigned long long start_vblk = offset / niovaSectorSize;
 
-	fprintf(stderr, "niova_write iov@%p iov_cnt=%zu len=%zu req=%zu off=%ld\n", iov, iov_cnt, length, cmd->requested, offset);
+//	fprintf(stderr,
+//		"niova_write iov@%p iov_cnt=%zu len=%zu req=%zu off=%ld\n",
+//		iov, iov_cnt, length, cmd->requested, offset);
 
 	// dev and cmd ref should be valid until cmd_complete called
 	// XXX does tcmu ever cancel requests?
@@ -207,25 +222,24 @@ static int niova_rw(bool is_read, struct tcmu_device *dev,
 	cbd->ncd_cmd = cmd;
 
 	tcmu_dbg("iov@%p:%lu cbd@%p op=%s len=%lu off=%lu\n", iov, iov_cnt, cbd,
-			is_read ? "read" : "write", length, offset);
+		 is_read ? "read" : "write", length, offset);
 
-	if (offset % NIOVA_BLOCKSZ != 0) {
-		tcmu_err("offset=%lu, must be aligned to blksz (%d)", offset, NIOVA_BLOCKSZ);
+	if (offset % niovaSectorSize != 0) {
+		tcmu_err("offset=%lu, must be aligned to blksz (%d)",
+			 offset, niovaSectorSize);
 		return TCMU_STS_INVALID_PARAM_LIST;
 	}
 
-	// XXX offset is in blks
-	// XXX does this call need to be done locked?
-    if (is_read) {
-        ret = NiovaBlockClientReadv(client, offset / NIOVA_BLOCKSZ, iov, iov_cnt, niova_rw_cb, cbd, 0);
-    } else {
-        ret = NiovaBlockClientWritev(client, offset / NIOVA_BLOCKSZ, iov, iov_cnt, niova_rw_cb, cbd, 0);
-    }
+	ret = is_read ?
+		NiovaBlockClientReadv(client, start_vblk, iov, iov_cnt,
+				      niova_rw_cb, cbd):
+		NiovaBlockClientWritev(client, start_vblk, iov, iov_cnt,
+				       niova_rw_cb, cbd);
 
 	if (ret < 0) {
 		tcmu_err("%s failed, rc=%ld\n", is_read ? "read" : "write", ret);
 		return TCMU_STS_WR_ERR;
-	} 
+	}
 
 	return TCMU_STS_OK;
 }
@@ -234,14 +248,14 @@ static int niova_read(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 			 struct iovec *iov, size_t iov_cnt, size_t length,
 			 off_t offset)
 {
-    return niova_rw(true, dev, cmd, iov, iov_cnt, length, offset);
+	return niova_rw(true, dev, cmd, iov, iov_cnt, length, offset);
 }
 
 static int niova_write(struct tcmu_device *dev, struct tcmur_cmd *cmd,
 			  struct iovec *iov, size_t iov_cnt, size_t length,
 			  off_t offset)
 {
-    return niova_rw(false, dev, cmd, iov, iov_cnt, length, offset);
+	return niova_rw(false, dev, cmd, iov, iov_cnt, length, offset);
 }
 
 /*
