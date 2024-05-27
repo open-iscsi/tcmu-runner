@@ -685,7 +685,7 @@ static int handle_unmap_in_writesame(struct tcmu_device *dev,
 	int ret;
 
 	/* If not aligned then falls back to the writesame without unmap */
-	if (lba % align || nlbas % align) {
+	if (align == 0 || lba % align || nlbas % align) {
 		tcmu_dev_dbg(dev,
 			     "Start lba: %"PRIu64" or nlbas: %"PRIu64" not aligned to %"PRIu32"\n",
 			     lba, nlbas, align);
