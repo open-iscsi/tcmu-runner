@@ -51,6 +51,7 @@ int tcmu_cdb_get_length(uint8_t *cdb)
 		return 12;
 	case 6: /*110b Vendor Specific */
 	case 7: /*111b Vendor Specific */
+		return 10;
 	default:
 		/* TODO: */
 		goto cdb_not_supp;
@@ -327,7 +328,6 @@ void tcmu_cdb_print_info(struct tcmu_device *dev,
 	char fix[CDB_FIX_SIZE], *buf;
 
 	buf = fix;
-
 	bytes = tcmu_cdb_get_length(cmd->cdb);
 	if (bytes < 0)
 		return;
