@@ -814,13 +814,23 @@ static void *tcmur_cmdproc_thread(void *arg)
 			if (tcmu_get_log_level() == TCMU_LOG_DEBUG_SCSI_CMD)
 				tcmu_cdb_print_info(dev, cmd, NULL);
 
-			if (tcmur_handler_is_passthrough_only(rhandler))
-				ret = tcmur_cmd_passthrough_handler(dev, cmd);
-			else
-				ret = tcmur_generic_handle_cmd(dev, cmd);
-
-			if (ret == TCMU_STS_NOT_HANDLED)
-				tcmu_cdb_print_info(dev, cmd, "is not supported");
+			if (cmd->cdb[0] <= 0xC0) {
+				if (tcmur_handler_is_passthrough_only(rhandler))
+					ret = tcmur_cmd_passthrough_handler(dev, cmd);
+				else
+					ret = tcmur_generic_handle_cmd(dev, cmd);
+			
+			        if (ret == TCMU_STS_NOT_HANDLED)
+					tcmu_cdb_print_info(dev, cmd, "is not supported");			
+			} else {
+				/*
+				 * Vendor specific opcodes are currently not supported in TCMU
+				 * given it requires callbacks that currently don't exist for
+				 * TCMU backstores.
+				 */
+				ret = TCMU_STS_NOT_HANDLED;
+				tcmu_cdb_print_info(dev, cmd, "Vendor specific opcodes not supported.");	
+			}
 
 			/*
 			 * command (processing) completion is called in the following
