@@ -1342,6 +1342,11 @@ void tcmulib_command_complete(
 		ent->hdr.cmd_id = cmd->cmd_id;
 	}
 
+	if (cmd->read_len_valid) { 
+		ent->hdr.uflags |= TCMU_UFLAG_READ_LEN;
+		ent->rsp.read_len = cmd->read_len; 
+	}
+	
 	ent->rsp.scsi_status = tcmu_sts_to_scsi(result, cmd->sense_buf);
 	if (ent->rsp.scsi_status == SAM_STAT_CHECK_CONDITION) {
 		memcpy(ent->rsp.sense_buffer, cmd->sense_buf,

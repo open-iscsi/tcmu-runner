@@ -69,6 +69,7 @@ struct tcmu_cmd_entry_hdr {
 	__u16 cmd_id;
 	__u8 kflags;
 #define TCMU_UFLAG_UNKNOWN_OP 0x1
+#define TCMU_UFLAG_READ_LEN   0x2
 	__u8 uflags;
 
 } __attribute__((packed));
@@ -117,7 +118,7 @@ struct tcmu_cmd_entry {
 			uint8_t scsi_status;
 			uint8_t __pad1;
 			uint16_t __pad2;
-			uint32_t __pad3;
+			uint32_t read_len;
 			char sense_buffer[TCMU_SENSE_BUFFERSIZE];
 		} rsp;
 	};

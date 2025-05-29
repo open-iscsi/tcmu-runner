@@ -103,6 +103,8 @@ struct tcmulib_cmd {
 	struct iovec *iovec;
 	size_t iov_cnt;
 	uint8_t sense_buf[SENSE_BUFFERSIZE];
+	uint32_t read_len;
+	uint32_t  read_len_valid;
 	void *hm_private;
 };
 
