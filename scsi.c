@@ -146,7 +146,7 @@ int tcmu_emulate_evpd_inquiry(
 	{
 		char data[512];
 		char *ptr, *p, *wwn;
-		size_t len, used = 0;
+		size_t len, used = 4;
 		uint16_t *tot_len = (uint16_t*) &data[2];
 		uint32_t padding;
 		bool next;
@@ -170,7 +170,7 @@ int tcmu_emulate_evpd_inquiry(
 
 		ptr[3] = 8 + len + 1;
 		used += (uint8_t)ptr[3] + 4;
-		ptr += used;
+		ptr += (uint8_t)ptr[3] + 4;
 
 		/* 2/5: NAA binary */
 		ptr[0] = 1; /* code set: binary */
@@ -303,9 +303,9 @@ int tcmu_emulate_evpd_inquiry(
 finish_page83:
 		/* Done with descriptor list */
 
-		*tot_len = htobe16(used);
+		*tot_len = htobe16(used - 4);
 
-		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, used + 4);
+		tcmu_memcpy_into_iovec(iovec, iov_cnt, data, used);
 
 		free(wwn);
 		wwn = NULL;
