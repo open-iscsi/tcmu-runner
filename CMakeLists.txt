@@ -144,7 +144,8 @@ install(TARGETS RUNTIME DESTINATION bin)
 
 add_custom_command(
   OUTPUT ${CMAKE_SOURCE_DIR}/tcmuhandler-generated.c ${CMAKE_SOURCE_DIR}/tcmuhandler-generated.h
-  COMMAND gdbus-codegen ${CMAKE_SOURCE_DIR}/tcmu-handler.xml --generate-c-code ${CMAKE_SOURCE_DIR}/tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
+  COMMAND gdbus-codegen tcmu-handler.xml --generate-c-code tcmuhandler-generated --c-generate-object-manager --interface-prefix org.kernel
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   MAIN_DEPENDENCY tcmu-handler.xml
   )
 
