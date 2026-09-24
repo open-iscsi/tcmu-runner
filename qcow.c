@@ -728,7 +728,7 @@ static uint64_t *l2_cache_lookup(struct qcow_state *s, uint64_t l2_offset)
 	for (i = 0; i < L2_CACHE_SIZE; i++) {
 		if (l2_offset == s->l2_cache_offsets[i]) {
 			if (++s->l2_cache_counts[i] == INT_MAX) {
-				for (j = 0; i < L2_CACHE_SIZE; j++) {
+				for (j = 0; j < L2_CACHE_SIZE; j++) {
 					s->l2_cache_counts[j] >>= 1;
 				}
 			}
@@ -872,7 +872,7 @@ static void *rc_cache_lookup(struct qcow_state *s, uint64_t rc_offset)
 	for (i = 0; i < RC_CACHE_SIZE; i++) {
 		if (rc_offset == s->rc_cache_offsets[i]) {
 			if (++s->rc_cache_counts[i] == INT_MAX) {
-				for (j = 0; i < RC_CACHE_SIZE; j++) {
+				for (j = 0; j < RC_CACHE_SIZE; j++) {
 					s->rc_cache_counts[j] >>= 1;
 				}
 			}
