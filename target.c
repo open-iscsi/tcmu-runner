@@ -161,7 +161,7 @@ static bool port_is_on_tgt_port_grp(struct tgt_port *port,
 
 static struct tgt_port_grp *port_is_on_recovery_list(struct tgt_port *port)
 {
-	struct tgt_port_grp *tpg;
+	struct tgt_port_grp *tpg = NULL;
 
 	list_for_each(&tpg_recovery_list, tpg, recovery_entry) {
 		if (port_is_on_tgt_port_grp(port, tpg))
@@ -216,7 +216,7 @@ fail:
 static void tgt_port_grp_recovery_work_fn(void *arg)
 {
 	struct tgt_port_grp *tpg = arg;
-	struct tcmur_device *rdev, *tmp_rdev;
+	struct tcmur_device *rdev = NULL, *tmp_rdev;
 	bool enable_tpg = false;
 	int ret;
 
@@ -280,7 +280,7 @@ int tcmu_add_dev_to_recovery_list(struct tcmu_device *dev)
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct list_head alua_list;
-	struct alua_grp *group;
+	struct alua_grp *group = NULL;
 	struct tgt_port_grp *tpg;
 	struct tgt_port *port, *enabled_port = NULL;
 	int ret;

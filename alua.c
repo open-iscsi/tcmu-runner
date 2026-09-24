@@ -64,7 +64,7 @@ static int tcmu_set_alua_int_setting(struct alua_grp *group,
 
 static void tcmu_release_tgt_ports(struct alua_grp *group)
 {
-	struct tgt_port *port, *port_next;
+	struct tgt_port *port = NULL, *port_next;
 
 	list_for_each_safe(&group->tgt_ports, port, port_next, entry) {
 		list_del(&port->entry);
@@ -262,7 +262,7 @@ free_group:
 
 void tcmu_release_alua_grps(struct list_head *group_list)
 {
-	struct alua_grp *group, *group_next;
+	struct alua_grp *group = NULL, *group_next;
 
 	list_for_each_safe(group_list, group, group_next, entry) {
 		list_del(&group->entry);
@@ -349,7 +349,7 @@ free_names:
  */
 struct tgt_port *tcmu_get_enabled_port(struct list_head *group_list)
 {
-	struct alua_grp *group;
+	struct alua_grp *group = NULL;
 	struct tgt_port *port;
 
 	list_for_each(group_list, group, entry) {
@@ -400,7 +400,7 @@ static int alua_sync_state(struct tcmu_device *dev,
 {
 	struct tcmur_device *rdev = tcmu_dev_get_private(dev);
 	struct tcmur_handler *rhandler = tcmu_get_runner_handler(dev);
-	struct alua_grp *group;
+	struct alua_grp *group = NULL;
 	uint16_t ao_group_id;
 	uint8_t alua_state;
 	int ret;
@@ -655,7 +655,7 @@ static int tcmu_explicit_transition(struct list_head *group_list,
 				    uint8_t alua_status)
 {
 	struct tcmu_device *dev = group->dev;
-	struct alua_grp *tmp_group;
+	struct alua_grp *tmp_group = NULL;
 	int ret;
 
 	tcmu_dev_dbg(dev, "transition group %u new state %u old state %u sup 0x%x\n",
